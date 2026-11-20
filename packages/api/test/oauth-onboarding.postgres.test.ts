@@ -14,7 +14,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("MCP onboarding public boun
     parseAuthRequest: async (request: Request) => {
       const q = new URL(request.url).searchParams;
       if (q.get("redirect_uri") !== "http://127.0.0.1/callback" || q.get("code_challenge_method") !== "S256") throw new Error("invalid redirect/PKCE");
-      return { responseType: "code", clientId: q.get("client_id"), redirectUri: q.get("redirect_uri"), scope: ["flows:read"], state: q.get("state"), codeChallenge: q.get("code_challenge"), codeChallengeMethod: "S256", resource: f.env.APP_ORIGIN + "/mcp", issuer: f.env.APP_ORIGIN };
+      return { responseType: "code", clientId: q.get("client_id"), redirectUri: q.get("redirect_uri"), scope: ["team:read", "triggers:read", "integrations:read"], state: q.get("state"), codeChallenge: q.get("code_challenge"), codeChallengeMethod: "S256", resource: f.env.APP_ORIGIN + "/mcp", issuer: f.env.APP_ORIGIN };
     }, completeAuthorization: grant,
   };
   beforeAll(async () => { f = await loadingFixture(process.env.AUTH_TEST_DATABASE_URL!); Object.assign(f.env, { OAUTH_PROVIDER: oauth, POSTMARK_SERVER_TOKEN: "test-only", POSTMARK_FROM_EMAIL: "accounts@example.test", POSTMARK_MESSAGE_STREAM: "outbound" }); });
@@ -27,7 +27,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("MCP onboarding public boun
   const tokenBody = async (response: Response) => await response.json() as { error?: string; access_token?: string };
   const cookieOf = (response: Response) => response.headers.get("Set-Cookie")!.split(";")[0];
   const sessionOf = (cookie: string) => readSession(decodeURIComponent(cookie.split("=").slice(1).join("=")), f.env.SESSION_SIGNING_SECRET);
-  function destination(state: string) { return "/authorize?" + new URLSearchParams({ client_id: "client", response_type: "code", redirect_uri: "http://127.0.0.1/callback", scope: "flows:read", state, code_challenge: `challenge-${state}`, code_challenge_method: "S256" }); }
+  function destination(state: string) { return "/authorize?" + new URLSearchParams({ client_id: "client", response_type: "code", redirect_uri: "http://127.0.0.1/callback", scope: "team:read triggers:read integrations:read", state, code_challenge: `challenge-${state}`, code_challenge_method: "S256" }); }
   async function start(state: string, returnTo = destination(state)) {
     const response = await call("/api/v1/auth/connections", { returnTo }); expect(response.status).toBe(200);
     expect(response.headers.get("Set-Cookie")).toContain("HttpOnly");
@@ -36,7 +36,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("MCP onboarding public boun
   async function consent(returnTo: string, cookie: string, decision: "allow" | "deny" = "allow") {
     const previewResponse = await call("/api/v1/oauth/consent/preview", { authorizationQuery: returnTo.split("?")[1] }, cookie); expect(previewResponse.status).toBe(200);
     const preview = await previewResponse.json() as any;
-    const input = { request: preview.request, signature: preview.signature, decision, scopes: ["flows:read"] };
+    const input = { request: preview.request, signature: preview.signature, decision, scopes: ["team:read", "triggers:read", "integrations:read"] };
     return { response: await call("/api/v1/oauth/consent/decision", input, cookie), input };
   }
   it("signs up, verifies, signs in automatically and explicitly consents once with original state/PKCE", async () => {
@@ -95,7 +95,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("MCP onboarding public boun
     await f.db.pool.query("UPDATE app.members SET session_version=session_version+1 WHERE user_id=$1", [session!.userId]);
     expect((await call("/api/v1/auth/connections/resume", { connection: b.connection }, b.cookie)).status).toBe(403);
   });
-  async function device() { return await (await deviceAuthorization(new Request(f.env.APP_ORIGIN + "/oauth/device_authorization", { method: "POST", body: new URLSearchParams({ client_id: "client", scope: "flows:read" }) }), f.env, oauth as any, ["flows:read"])).json() as any; }
+  async function device() { return await (await deviceAuthorization(new Request(f.env.APP_ORIGIN + "/oauth/device_authorization", { method: "POST", body: new URLSearchParams({ client_id: "client", scope: "team:read triggers:read integrations:read" }) }), f.env, oauth as any, ["team:read", "triggers:read", "integrations:read"])).json() as any; }
   it("continues device signup in the verification browser and rejects unsigned, cross-owner and forged consent", async () => {
     mail(); const issued = await device(), a = await start("device", `/device?user_code=${issued.user_code}`), account = email();
     await call("/api/v1/auth/signup", { email: account, password, connection: a.connection }, a.cookie);

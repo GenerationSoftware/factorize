@@ -1,17 +1,17 @@
-import { MachineJobExecutionBackend } from "./machine-job-execution-backend";
+import { MachineTriggerExecutionBackend } from "./machine-job-execution-backend";
 import { createFlyHttpGuestTransport } from "./fly-http-guest-transport";
-import { flyJobMachineConfig } from "./fly-job-machine";
-export type { JobMachines as FlyJobMachines, JobGuest as FlyJobGuest } from "./machine-job-execution-backend";
+import { flyTriggerMachineConfig } from "./fly-job-machine";
+export type { TriggerMachines as FlyTriggerMachines, TriggerGuest as FlyTriggerGuest } from "./machine-job-execution-backend";
 
-type SharedOptions = ConstructorParameters<typeof MachineJobExecutionBackend>[0];
+type SharedOptions = ConstructorParameters<typeof MachineTriggerExecutionBackend>[0];
 
 /** Preserves persisted Fly handles while sharing the complete guest lifecycle. */
-export class FlyJobExecutionBackend extends MachineJobExecutionBackend {
+export class FlyTriggerExecutionBackend extends MachineTriggerExecutionBackend {
   constructor(options: Omit<SharedOptions, "kind" | "machineConfig"> & { region: string; size: string; organizationSlug?: string }) {
     super({
       ...options,
       kind: "fly",
-      machineConfig: request => flyJobMachineConfig(options.app, {
+      machineConfig: request => flyTriggerMachineConfig(options.app, {
         runId: request.runId, operationId: request.runId,
         image: options.image, region: options.region, size: options.size,
       }),
@@ -23,6 +23,6 @@ export class FlyJobExecutionBackend extends MachineJobExecutionBackend {
 }
 
 /** Fly control credentials stay in the backend and never enter the guest. */
-export function flyJobGuest(options: { app: string; machine: string; token: string }) {
+export function flyTriggerGuest(options: { app: string; machine: string; token: string }) {
   return createFlyHttpGuestTransport({ ...options, timeoutMs: 30_000, outputLimitBytes: 64 * 1024 });
 }

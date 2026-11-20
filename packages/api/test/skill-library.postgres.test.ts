@@ -1,7 +1,7 @@
 import { SkillContent } from "../src/skill-content";
 import { createHmac } from "node:crypto";
 import { encrypt, decrypt } from "../src/crypto";
-import { PostgresJobRepository } from "../src/postgres/job-repository";
+import { PostgresTriggerRepository } from "../src/postgres/job-repository";
 import { InvocationService } from "../src/job-domain";
 import { SkillPushWorkflow } from "../src/cloudflare-entry";
 import app from "../src/index";
@@ -52,8 +52,8 @@ it.skipIf(!process.env.AUTH_TEST_DATABASE_URL)(
       }
       const initial = await seedLegacy("sample", "One");
       await f.db.pool.query(
-        "INSERT INTO app.job_skills(tenant_id,job_id,skill_id,position) VALUES($1,$2,$3,0)",
-        [f.tenantId, f.jobIds[3], initial.id],
+        "INSERT INTO app.trigger_skills(tenant_id,trigger_id,skill_id,position) VALUES($1,$2,$3,0)",
+        [f.tenantId, f.triggerIds[3], initial.id],
       );
       const library = new SkillLibrary(f.env, f.tenantId);
       let commit = "a".repeat(40),
@@ -216,18 +216,18 @@ it.skipIf(!process.env.AUTH_TEST_DATABASE_URL)(
       expect(installationToken).toHaveBeenCalledWith(f.env, 123, 42);
       expect(await store.get(initial.id)).toMatchObject({ body: "One", revision: 1 });
       const crypt = (value: string) => encrypt(value, f.env.CREDENTIAL_ENCRYPTION_KEY);
-      const jobs = new PostgresJobRepository(
+      const triggers = new PostgresTriggerRepository(
         f.db,
         f.tenantId,
         crypt,
         (value) => decrypt(value, f.env.CREDENTIAL_ENCRYPTION_KEY),
         new SkillContent(f.env.SKILL_ARTIFACTS),
       );
-      const selected = await jobs.getJob(f.jobIds[3]);
-      const queued = await new InvocationService(jobs, crypt).invoke(f.jobIds[3], {
+      const selected = await triggers.getTrigger(f.triggerIds[3]);
+      const queued = await new InvocationService(triggers, crypt).invoke(f.triggerIds[3], {
         source: "manual",
         claimKey: "snapshot",
-        triggerId: selected!.triggers[0].id,
+        eventId: selected!.events[0].id,
         context: {},
       });
       const pinned = mirrorHead;
@@ -269,7 +269,7 @@ it.skipIf(!process.env.AUTH_TEST_DATABASE_URL)(
       expect(mirrored[0].files).toEqual([markdown("Two")]);
       const saved = (
         await f.db.pool.query(
-          "SELECT encrypted_skill_snapshot FROM app.job_runs WHERE tenant_id=$1 AND id=$2",
+          "SELECT encrypted_skill_snapshot FROM app.trigger_runs WHERE tenant_id=$1 AND id=$2",
           [f.tenantId, queued.run.id],
         )
       ).rows[0];
@@ -280,6 +280,28 @@ it.skipIf(!process.env.AUTH_TEST_DATABASE_URL)(
       commit = "c".repeat(40);
       await library.sync(match);
       expect(await store.get(initial.id)).toMatchObject({ key: "renamed", revision: 3 });
+      const stablePublication = (await library.status()).commit;
+      const stableMirror = mirrorHead;
+      await f.db.pool.query("UPDATE app.triggers SET name='conflicting-trigger',slug='conflicting-trigger' WHERE tenant_id=$1 AND id=$2", [f.tenantId,f.triggerIds[0]]);
+      for (const rejectedName of ["conflicting-trigger", "Bad_Name", "manual"]) {
+        key = rejectedName;
+        commit = "rejected-" + rejectedName;
+        await library.sync(match);
+        expect((await library.status()).error).not.toBeNull();
+        expect((await library.status()).commit).toBe(stablePublication);
+        expect(mirrorHead).toBe(stableMirror);
+        expect(await store.get(initial.id)).toMatchObject({key:"renamed",revision:3,body:"Two"});
+      }
+      key = "renamed";
+      body = "---\ndescription: [invalid, metadata]\n---\nBad import";
+      commit = "invalid-frontmatter";
+      await library.sync(match);
+      expect((await library.status()).error).toContain("description");
+      expect((await library.status()).commit).toBe(stablePublication);
+      expect(mirrorHead).toBe(stableMirror);
+      expect(await store.get(initial.id)).toMatchObject({key:"renamed",body:"Two",revision:3});
+      body = "Two";
+      commit = "c".repeat(40);
       failMirror = true;
       await expect(
         library.edit((repository) =>
@@ -303,7 +325,7 @@ it.skipIf(!process.env.AUTH_TEST_DATABASE_URL)(
       expect((await library.status()).error).toBeNull();
       expect((await library.status()).upstreamCommit).toBe(commit);
       expect(await store.get(initial.id)).toBeNull();
-      expect(await store.jobs(initial.id)).toEqual([]);
+      expect(await store.triggers(initial.id)).toEqual([]);
       expect((await new SkillLibrary(f.env, f.otherTenant).status()).source).toEqual({ kind: "managed" });
       await library.configure({ kind: "managed" });
       const row = (

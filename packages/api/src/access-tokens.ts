@@ -3,21 +3,11 @@ import type { Env, OAuthProps } from "./types";
 import { databaseFor } from "./postgres/database";
 import { AccessTokenRepository } from "./postgres/access-token-repository";
 
-export const ACCESS_SCOPES = ["projects:read", "projects:write", "jobs:read", "jobs:write", "runs:read", "runs:invoke", "runs:start", "runs:cancel", "runs:write", "integrations:read", "integrations:write", "skills:read", "skills:write"] as const;
+export const ACCESS_SCOPES = ["team:read", "team:write", "triggers:read", "triggers:write", "runs:read", "runs:invoke", "runs:start", "runs:cancel", "runs:write", "integrations:read", "integrations:write", "skills:read", "skills:write"] as const;
 export const AGENT_SCOPES = [...ACCESS_SCOPES, "proxy:use", "vm:grant"] as const;
 export type AccessScope = typeof ACCESS_SCOPES[number];
-export type LegacyScope = "flows:read" | "flows:write";
-
-/** Legacy grants are accepted only at authentication time. New issuance never emits them. */
 export function normalizeScopes(scopes: readonly string[]): string[] {
-  const result = new Set<string>();
-  for (const scope of scopes) {
-    if (scope === "flows:read") ["projects:read", "jobs:read", "integrations:read"].forEach(value => result.add(value));
-    else if (scope === "flows:write") ["projects:write", "jobs:write", "integrations:write"].forEach(value => result.add(value));
-    else if (scope === "runs:write") ["runs:read", "runs:invoke", "runs:cancel", "runs:write"].forEach(value => result.add(value));
-    else if ((AGENT_SCOPES as readonly string[]).includes(scope) || isIntegrationScope(scope)) result.add(scope);
-  }
-  return [...result];
+  return [...new Set(scopes.filter(scope => (AGENT_SCOPES as readonly string[]).includes(scope) || isIntegrationScope(scope)))];
 }
 
 const encoder = new TextEncoder();

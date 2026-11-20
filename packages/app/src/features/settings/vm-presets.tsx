@@ -19,7 +19,7 @@ function summary({ settings }: VmPreset) {
 export function VmPresets() {
   const presets = useQuery(vmPresetsQuery);
   const [editor, setEditor] = useState<VmPreset | "new" | null>(null);
-  return <Page><PageHeader title="VM presets" description="Save VM settings to reuse across jobs.">
+  return <Page><PageHeader title="VM presets" description="Save VM settings to reuse across triggers.">
     <Button variant="primary" onClick={() => setEditor("new")}>Add preset</Button>
   </PageHeader>
     {presets.isPending && <p role="status">Loading VM presets…</p>}
@@ -40,7 +40,7 @@ function PresetEditor({ initial, presets, close }: { initial?: VmPreset; presets
   const integrations = useQuery(integrationsQuery), fly = useQuery(flyConnectionQuery), configurations = useQuery(flyConfigurationsQuery);
   const exe = integrations.data?.exeConnections ?? [];
   const options = [
-    ...exe.map(item => ({ value: item.connectionId, label: `exe.dev · ${item.agentKind ?? "codex"} · ${item.connectionId}` })),
+    ...exe.map(item => ({ value: item.connectionId, label: `exe.dev · ${item.connectionId}` })),
     ...(fly.data ? [{ value: "fly", label: `Fly.io · ${fly.data.organizationName}` }] : []),
   ];
   const existing = initial?.settings;
@@ -100,12 +100,12 @@ function PresetEditor({ initial, presets, close }: { initial?: VmPreset; presets
           {[...images].map(value => <option key={value}>{value}</option>)}<option value="custom:">Enter image reference…</option>
         </Select></Label>}
         {imageChoice === "custom:" && <Label>Image reference<Input required maxLength={512} placeholder="ghcr.io/owner/image:tag" value={customImage} onChange={event => setCustomImage(event.target.value)} /></Label>}
-        {connection && image && <PresetVerification key={JSON.stringify([provider, image, tags, connection.agentKind])} connectionId={provider} agentKind={connection.agentKind ?? "codex"} image={image} tags={tags} />}
+        {connection && image && <PresetVerification key={JSON.stringify([provider, image, tags])} connectionId={provider} image={image} tags={tags} />}
         {action.error && <p role="alert">{action.error.message}</p>}
         <div className="flex flex-wrap gap-2">
           <Button variant="primary" disabled={!name.trim() || duplicate || !available || ((provider === "fly" || imageChoice === "custom:") && !image)}>Save preset</Button>
           <Button type="button" onClick={close}>Cancel</Button>
-          {initial && <Button type="button" onClick={() => { if (window.confirm(`Delete "${initial.name}"? Jobs keep their saved VM settings.`)) action.mutate("delete"); }}>Delete preset</Button>}
+          {initial && <Button type="button" onClick={() => { if (window.confirm(`Delete "${initial.name}"? Triggers keep their saved VM settings.`)) action.mutate("delete"); }}>Delete preset</Button>}
         </div>
       </fieldset>
     </form>

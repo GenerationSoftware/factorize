@@ -135,6 +135,7 @@ export function createFlyMachinesClient(options: FlyMachinesClientOptions) {
   return {
     /** Run apps contain execution Machines only, with a distinct private network.
      * Never infer ownership from a globally unique app name alone. */
+    findByOperationId,
     async ensureRunApp(app: string, organizationSlug: string): Promise<void> {
       if (!/^[a-z0-9-]{1,63}$/.test(app) || !/^[a-z0-9-]{1,63}$/.test(organizationSlug)) throw new TypeError("Invalid Fly run app identity");
       const read = () => request<{name?: string; organization?: {slug?: string}}>(appPath(app), {method: "GET"}, true);
@@ -165,7 +166,7 @@ export function createFlyMachinesClient(options: FlyMachinesClientOptions) {
         skip_launch: false,
         config: {
           ...machineConfig,
-          // Job Machines are supervised by Factorize. A provider restart can
+          // Trigger Machines are supervised by Factorize. A provider restart can
           // replay a script after an ambiguous guest exit, duplicating side
           // effects, so execution guests must stop with their process.
           restart: { policy: "no" },

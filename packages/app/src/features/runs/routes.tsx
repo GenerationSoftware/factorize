@@ -10,28 +10,28 @@ const parseRunStates = (value: unknown) => {
 };
 const parseRunIds = (value: unknown) => { const ids = (Array.isArray(value) ? value : typeof value === "string" ? [value] : []).filter(item => typeof item === "string") as string[]; return ids.length ? ids : undefined; };
 export function runRoutes(root: AnyRootRoute) {
-  const list = createRoute({ getParentRoute: () => root, path: "/job-runs",
-    validateSearch: (s: Record<string, unknown>) => ({ launchSkillId: typeof s.launchSkillId === "string" ? s.launchSkillId : undefined, cursor: typeof s.cursor === "string" ? s.cursor : undefined, previous: typeof s.previous === "string" ? s.previous.slice(0, 20_000) : undefined, projects: parseRunIds(s.projects), jobs: parseRunIds(s.jobs), states: parseRunStates(s.states) as any, sort: ["job", "run", "status", "created", "agent"].includes(String(s.sort)) ? s.sort as "job" | "run" | "status" | "created" | "agent" : undefined, direction: s.direction === "asc" || s.direction === "desc" ? s.direction : undefined }),
+  const list = createRoute({ getParentRoute: () => root, path: "/runs",
+    validateSearch: (s: Record<string, unknown>) => ({ skillId: typeof s.skillId === "string" ? s.skillId : undefined, cursor: typeof s.cursor === "string" ? s.cursor : undefined, previous: typeof s.previous === "string" ? s.previous.slice(0, 20_000) : undefined, triggers: parseRunIds(s.triggers), states: parseRunStates(s.states) as any, sort: ["source", "run", "status", "created", "agent"].includes(String(s.sort)) ? s.sort as "source" | "run" | "status" | "created" | "agent" : undefined, direction: s.direction === "asc" || s.direction === "desc" ? s.direction : undefined }),
     beforeLoad: async ({ location }) => { if (!(await queryClient.ensureQueryData(sessionQuery)).authenticated) throw redirect({ to: "/auth/login", search: { returnTo: location.href, token: undefined } }); },
     loaderDeps: ({ search }) => search,
-    loader: ({ deps }) => queryClient.ensureQueryData(runPageQuery({launchSkillId:deps.launchSkillId, cursor: deps.cursor, limit: 20, sort: deps.sort, direction: deps.direction, states: deps.states, projectIds: deps.projects, jobIds: deps.jobs })),
+    loader: ({ deps }) => { void queryClient.prefetchQuery(runPageQuery({skillId:deps.skillId, cursor: deps.cursor, limit: 20, sort: deps.sort, direction: deps.direction, states: deps.states, triggerIds: deps.triggers })); },
     component: lazyRouteComponent(() => import("./index"), "RunsIndex"),
   });
   const validateSearch = (s: Record<string, unknown>) => ({ after: Number.isSafeInteger(Number(s.after)) && Number(s.after) >= 0 ? Number(s.after) : 0 });
   const beforeLoad = async ({ location }: { location: { href: string } }) => { if (!(await queryClient.ensureQueryData(sessionQuery)).authenticated) throw redirect({ to: "/auth/login", search: { returnTo: location.href, token: undefined } }); };
   const loader = ({ params }: { params: { runId: string } }) => queryClient.ensureQueryData(runStatusQuery(params.runId));
   const component = lazyRouteComponent(() => import("./detail"), "RunDetail");
-  const base = createRoute({ getParentRoute: () => root, path: "/job-runs/$runId",
+  const base = createRoute({ getParentRoute: () => root, path: "/runs/$runId",
     validateSearch, beforeLoad, loader, component,
   });
-  const tab = (path: "/trace" | "/info") => createRoute({ getParentRoute: () => root, path: `/job-runs/$runId${path}`,
+  const tab = (path: "/trace" | "/info") => createRoute({ getParentRoute: () => root, path: `/runs/$runId${path}`,
     validateSearch, beforeLoad, loader, component,
   });
-  const contextCompatibility = createRoute({ getParentRoute: () => root, path: "/job-runs/$runId/context",
-    validateSearch, beforeLoad: ({ params, search }) => { throw redirect({ to: "/job-runs/$runId/info", params, search }); },
+  const contextCompatibility = createRoute({ getParentRoute: () => root, path: "/runs/$runId/context",
+    validateSearch, beforeLoad: ({ params, search }) => { throw redirect({ to: "/runs/$runId/info", params, search }); },
   });
-  const settingsCompatibility = createRoute({ getParentRoute: () => root, path: "/job-runs/$runId/settings",
-    validateSearch, beforeLoad: ({ params, search }) => { throw redirect({ to: "/job-runs/$runId/info", params, search }); },
+  const settingsCompatibility = createRoute({ getParentRoute: () => root, path: "/runs/$runId/settings",
+    validateSearch, beforeLoad: ({ params, search }) => { throw redirect({ to: "/runs/$runId/info", params, search }); },
   });
   return [list, base, tab("/trace"), tab("/info"), settingsCompatibility, contextCompatibility];
 }

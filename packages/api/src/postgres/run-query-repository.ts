@@ -5,7 +5,7 @@ const encodeCursor = (value: unknown[]) => btoa(JSON.stringify(value)).replaceAl
 const decodeCursor = (value?: string | null): unknown[] | null => { if (!value) return null; try { const padded = value.replaceAll("-", "+").replaceAll("_", "/") + "===".slice((value.length + 3) % 4), parsed = JSON.parse(atob(padded)); return Array.isArray(parsed) ? parsed : null; } catch { return null; } };
 
 const sortExpressions = {
-  job: "COALESCE(j.name,r.source_job_name)",
+  source: "COALESCE(r.source_trigger_name,j.name,'manual')",
   run: "COALESCE(NULLIF(r.run_name, ''), NULLIF(r.issue_title, ''), 'Run')",
   status: "r.state",
   created: "r.created_at",
@@ -19,11 +19,9 @@ export class RunQueryRepository {
   constructor(private database: Database, private tenantId: string) { if (!tenantId) throw new Error("tenantId is required"); }
   async list(query: URLSearchParams) {
     const limit = Math.max(1, Math.min(100, Number(query.get("limit") ?? 50))), cursor = decodeCursor(query.get("cursor")), sortParam = query.get("sort"), sort = sortParam && Object.hasOwn(sortExpressions, sortParam) ? sortParam as RunSort : null, direction = sort ? (query.get("direction") === "desc" ? "DESC" : "ASC") : "DESC", values: unknown[] = [this.tenantId], clauses = ["r.tenant_id=$1"];
-    const projectIds = query.getAll("projectId");
-    if (projectIds.length) { values.push(projectIds); clauses.push(`r.project_id=ANY($${values.length}::uuid[])`); }
-    const jobIds = query.getAll("jobId");
-    if (jobIds.length) { values.push(jobIds); clauses.push(`r.job_id=ANY($${values.length}::uuid[])`); }
-    const skill = query.get("launchSkillId");
+    const triggerIds = query.getAll("triggerId");
+    if (triggerIds.length) { values.push(triggerIds); clauses.push(`r.trigger_id=ANY($${values.length}::uuid[])`); }
+    const skill = query.get("skillId");
     if (skill === "none") clauses.push("r.launch_skill_id IS NULL");
     else if (skill) { values.push(skill); clauses.push(`r.launch_skill_id=$${values.length}::uuid`); }
     const states = query.getAll("state");
@@ -43,55 +41,54 @@ export class RunQueryRepository {
     }
     values.push(limit + 1);
     const order = sort ? `CASE WHEN ${sortExpressions[sort]} IS NULL THEN 1 ELSE 0 END ASC, ${sortExpressions[sort]} ${direction} NULLS LAST, r.id ${direction}` : `${runPrioritySql} ASC,r.created_at DESC,r.id DESC`;
-    const selectedOrder = sort ? order.replaceAll(sortExpressions.job, "selected.job_name").replaceAll("r.", "selected.") : "selected.priority ASC,selected.created_at DESC,selected.id DESC";
+    const selectedOrder = sort ? order.replaceAll(sortExpressions.source, "selected.source").replaceAll("r.", "selected.") : "selected.priority ASC,selected.created_at DESC,selected.id DESC";
     const result = await this.database.pool.query<any>(`WITH selected AS MATERIALIZED (
-        SELECT r.id,r.job_id,r.launch_skill_id,r.launch_skill_key,r.launch_skill_revision,r.project_id,COALESCE(j.name,r.source_job_name) job_name,p.name project_name,r.issue_id,r.issue_url,r.issue_title,r.run_name,r.agent_name,r.workspace_name,r.agent_kind,coalesce(r.execution_config->>'executionType','agent') execution_type,r.state,${runPrioritySql} priority,r.failure_source,r.failure_code,r.failure_reason,
+        SELECT r.id,COALESCE(r.source_trigger_name,j.name,'manual') source,COALESCE(r.encrypted_prompt_preview,jr.encrypted_prompt) encrypted_preview,CASE WHEN r.encrypted_prompt_preview IS NULL AND r.execution_config->>'executionType'='code' THEN r.execution_config->>'script' END legacy_script,r.trigger_id,r.launch_skill_id,r.launch_skill_key,r.launch_skill_revision,COALESCE(j.name,r.source_trigger_name) trigger_name,r.issue_id,r.issue_url,r.issue_title,r.run_name,r.agent_name,r.workspace_name,r.agent_kind,coalesce(r.execution_config->>'executionType','agent') execution_type,r.state,${runPrioritySql} priority,r.failure_source,r.failure_code,r.failure_reason,
           CASE WHEN r.failure_code IS NULL OR r.failure_reason IS NULL THEN NULL ELSE jsonb_build_object('source',CASE WHEN r.failure_source='agent' THEN 'run' ELSE 'system' END,'code',r.failure_code,'reason',r.failure_reason) END failure,
           CASE WHEN r.agent_error_reason IS NULL THEN NULL ELSE jsonb_build_object('reason',r.agent_error_reason,'reported_at',r.agent_error_reported_at,'reporter',jsonb_build_object('user_id',r.agent_error_reporter_user_id,'kind',r.agent_error_reporter_kind,'id',r.agent_error_reporter_id)) END agent_error,
-          r.provider,r.execution_backend_kind backend_kind,r.execution_capabilities capabilities,r.destination_url,r.artifact_state,r.artifact_error,r.created_at,r.updated_at,jr.started_at,jr.updated_at job_run_updated_at
-        FROM app.runs r LEFT JOIN app.jobs j ON j.tenant_id=r.tenant_id AND j.id=r.job_id JOIN app.projects p ON p.tenant_id=r.tenant_id AND p.id=r.project_id JOIN app.job_runs jr ON jr.tenant_id=r.tenant_id AND jr.id=r.id JOIN app.invocations i ON i.tenant_id=r.tenant_id AND i.id=r.invocation_id
+          r.provider,r.execution_backend_kind backend_kind,r.execution_capabilities capabilities,r.destination_url,r.artifact_state,r.artifact_error,r.created_at,r.updated_at,jr.started_at,jr.updated_at trigger_run_updated_at
+        FROM app.runs r LEFT JOIN app.triggers j ON j.tenant_id=r.tenant_id AND j.id=r.trigger_id JOIN app.trigger_runs jr ON jr.tenant_id=r.tenant_id AND jr.id=r.id JOIN app.invocations i ON i.tenant_id=r.tenant_id AND i.id=r.invocation_id
         WHERE ${clauses.join(" AND ")} ORDER BY ${order} LIMIT $${values.length}
       ), page AS MATERIALIZED (
-        SELECT id,job_id,state,started_at,job_run_updated_at FROM selected ORDER BY ${selectedOrder} LIMIT ($${values.length} - 1)
-      ), duration_jobs AS MATERIALIZED (
-        SELECT DISTINCT job_id FROM page WHERE state NOT IN ('succeeded','failed','stopped')
+        SELECT id,trigger_id,state,started_at,trigger_run_updated_at FROM selected ORDER BY ${selectedOrder} LIMIT ($${values.length} - 1)
+      ), duration_triggers AS MATERIALIZED (
+        SELECT DISTINCT trigger_id FROM page WHERE state NOT IN ('succeeded','failed','stopped')
       ), duration_ranges AS (
-        SELECT completed.job_id,json_build_object('low',round(min(EXTRACT(EPOCH FROM (completed.updated_at-completed.started_at)))),
+        SELECT completed.trigger_id,json_build_object('low',round(min(EXTRACT(EPOCH FROM (completed.updated_at-completed.started_at)))),
           'high',round(max(EXTRACT(EPOCH FROM (completed.updated_at-completed.started_at)))) ) elapsed_time
-        FROM app.job_runs completed JOIN duration_jobs ON duration_jobs.job_id=completed.job_id
+        FROM app.trigger_runs completed JOIN duration_triggers ON duration_triggers.trigger_id=completed.trigger_id
         WHERE completed.tenant_id=$1 AND completed.state IN ('succeeded','failed','stopped')
           AND completed.started_at IS NOT NULL AND completed.updated_at>=completed.started_at
-        GROUP BY completed.job_id
+        GROUP BY completed.trigger_id
       )
-      SELECT selected.id,selected.job_id,selected.launch_skill_id,selected.launch_skill_key,selected.launch_skill_revision,selected.project_id,selected.job_name,selected.project_name,selected.issue_id,selected.issue_url,selected.issue_title,selected.run_name,selected.agent_name,selected.workspace_name,selected.agent_kind,selected.execution_type,selected.state,selected.failure_source,selected.failure_code,selected.failure_reason,selected.failure,selected.agent_error,
+      SELECT selected.id,selected.source,selected.encrypted_preview,selected.legacy_script,selected.trigger_id,selected.launch_skill_id,selected.launch_skill_key,selected.launch_skill_revision,selected.trigger_name,selected.issue_id,selected.issue_url,selected.issue_title,selected.run_name,selected.agent_name,selected.workspace_name,selected.agent_kind,selected.execution_type,selected.state,selected.failure_source,selected.failure_code,selected.failure_reason,selected.failure,selected.agent_error,
         selected.provider,selected.backend_kind,selected.capabilities,selected.destination_url,selected.artifact_state,selected.artifact_error,selected.created_at,selected.updated_at,selected.started_at,
-        CASE WHEN selected.state IN ('succeeded','failed','stopped') AND selected.started_at IS NOT NULL AND selected.job_run_updated_at>=selected.started_at
-          THEN json_build_object('duration',round(EXTRACT(EPOCH FROM (selected.job_run_updated_at-selected.started_at))))
+        CASE WHEN selected.state IN ('succeeded','failed','stopped') AND selected.started_at IS NOT NULL AND selected.trigger_run_updated_at>=selected.started_at
+          THEN json_build_object('duration',round(EXTRACT(EPOCH FROM (selected.trigger_run_updated_at-selected.started_at))))
           WHEN selected.state NOT IN ('succeeded','failed','stopped') AND page.id IS NOT NULL THEN duration_ranges.elapsed_time
         END elapsed_time
-      FROM selected LEFT JOIN page ON page.id=selected.id LEFT JOIN duration_ranges ON duration_ranges.job_id=selected.job_id
+      FROM selected LEFT JOIN page ON page.id=selected.id LEFT JOIN duration_ranges ON duration_ranges.trigger_id=selected.trigger_id
       ORDER BY ${selectedOrder}`, values);
     const rows = result.rows.slice(0, limit), hasMore = result.rows.length > limit;
     const last = rows.at(-1);
     const nextCursor = hasMore && last ? sort ? (() => {
-      const value = sort === "run" ? (last.run_name || last.issue_title || "Run") : last[sort === "job" ? "job_name" : sort === "status" ? "state" : sort === "created" ? "created_at" : "agent_kind"];
+      const value = sort === "run" ? (last.run_name || last.issue_title || "Run") : last[sort === "source" ? "source" : sort === "status" ? "state" : sort === "created" ? "created_at" : "agent_kind"];
       return encodeCursor([sort, direction.toLowerCase(), sort === "run" || value != null ? 0 : 1, value, last.id]);
     })() : encodeCursor([runPriority(last.state), last.created_at.toISOString(), last.id]) : null;
     return { items: rows, nextCursor };
   }
   async get(runId: string) {
-    return (await this.database.pool.query<any>(`SELECT r.*,coalesce(r.execution_config->>'executionType','agent') execution_type,COALESCE(j.name,r.source_job_name) job_name,jr.started_at,jr.encrypted_prompt,i.source invocation_source,i.claim_key invocation_claim_key,i.origin_trigger_id invocation_trigger_id,i.template_job_id,i.context,i.occurrence,i.source_job_id invocation_source_job_id,i.source_run_id invocation_source_run_id,i.created_at invocation_created_at
-      FROM app.runs r LEFT JOIN app.jobs j ON j.tenant_id=r.tenant_id AND j.id=r.job_id JOIN app.job_runs jr ON jr.tenant_id=r.tenant_id AND jr.id=r.id JOIN app.invocations i ON i.tenant_id=r.tenant_id AND i.id=r.invocation_id WHERE r.tenant_id=$1 AND r.id=$2`, [this.tenantId, runId])).rows[0] ?? null;
+    return (await this.database.pool.query<any>(`SELECT r.*,COALESCE(r.source_trigger_name,j.name,'manual') source,coalesce(r.execution_config->>'executionType','agent') execution_type,COALESCE(j.name,r.source_trigger_name) trigger_name,jr.started_at,jr.encrypted_prompt,i.source invocation_source,i.claim_key invocation_claim_key,i.origin_event_id invocation_event_id,i.template_trigger_id,i.context,i.occurrence,i.source_trigger_id invocation_source_trigger_id,i.source_run_id invocation_source_run_id,i.created_at invocation_created_at
+      FROM app.runs r LEFT JOIN app.triggers j ON j.tenant_id=r.tenant_id AND j.id=r.trigger_id JOIN app.trigger_runs jr ON jr.tenant_id=r.tenant_id AND jr.id=r.id JOIN app.invocations i ON i.tenant_id=r.tenant_id AND i.id=r.invocation_id WHERE r.tenant_id=$1 AND r.id=$2`, [this.tenantId, runId])).rows[0] ?? null;
   }
   async status(runId: string) {
-    const row = (await this.database.pool.query(`SELECT r.id,r.job_id,r.launch_skill_id,r.launch_skill_key,r.launch_skill_revision,r.project_id,pr.name project_name,jr.state,r.run_name,COALESCE(j.name,r.source_job_name) job_name,r.destination_url,r.failure_source,r.failure_code,r.failure_reason,CASE WHEN r.failure_code IS NULL OR r.failure_reason IS NULL THEN NULL ELSE jsonb_build_object('source',CASE WHEN r.failure_source='agent' THEN 'run' ELSE 'system' END,'code',r.failure_code,'reason',r.failure_reason) END failure,coalesce(r.execution_config->>'executionType','agent') execution_type,
+    const row = (await this.database.pool.query(`SELECT r.id,r.trigger_id,r.launch_skill_id,r.launch_skill_key,r.launch_skill_revision,jr.state,r.run_name,COALESCE(j.name,r.source_trigger_name) trigger_name,r.destination_url,r.failure_source,r.failure_code,r.failure_reason,CASE WHEN r.failure_code IS NULL OR r.failure_reason IS NULL THEN NULL ELSE jsonb_build_object('source',CASE WHEN r.failure_source='agent' THEN 'run' ELSE 'system' END,'code',r.failure_code,'reason',r.failure_reason) END failure,coalesce(r.execution_config->>'executionType','agent') execution_type,
       CASE WHEN r.agent_error_reason IS NULL THEN NULL ELSE jsonb_build_object('reason',r.agent_error_reason,'reported_at',r.agent_error_reported_at,'reporter',jsonb_build_object('user_id',r.agent_error_reporter_user_id,'kind',r.agent_error_reporter_kind,'id',r.agent_error_reporter_id)) END agent_error,
       r.created_at,greatest(r.updated_at,jr.updated_at) updated_at,jr.started_at,r.artifact_state,
       (jr.state IN ('succeeded','failed','stopped') AND (r.artifact_state IN ('pending','collecting') OR NOT r.vm_cleanup_complete)) finalizing,
       ${traceRevisionSql} trace_revision
-      FROM app.runs r LEFT JOIN app.jobs j ON j.tenant_id=r.tenant_id AND j.id=r.job_id
-      JOIN app.projects pr ON pr.tenant_id=r.tenant_id AND pr.id=r.project_id
-      JOIN app.job_runs jr ON jr.tenant_id=r.tenant_id AND jr.id=r.id
+      FROM app.runs r LEFT JOIN app.triggers j ON j.tenant_id=r.tenant_id AND j.id=r.trigger_id
+      JOIN app.trigger_runs jr ON jr.tenant_id=r.tenant_id AND jr.id=r.id
       LEFT JOIN app.run_trace_cursors c ON c.tenant_id=r.tenant_id AND c.run_id=r.id
       LEFT JOIN app.run_trace_projections p ON p.tenant_id=r.tenant_id AND p.run_id=r.id
       WHERE r.tenant_id=$1 AND r.id=$2`, [this.tenantId, runId])).rows[0];
@@ -100,15 +97,15 @@ export class RunQueryRepository {
   }
   async rename(runId: string, name: string, expectedName?: string): Promise<"missing" | "stale" | { run_name: string }> {
     return this.database.transaction(async client => {
-      // Lifecycle writers lock job_runs before runs, so use the same order to
+      // Lifecycle writers lock trigger_runs before runs, so use the same order to
       // avoid deadlocks while renames race state transitions.
-      const jobRun = (await client.query("SELECT id FROM app.job_runs WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [this.tenantId, runId])).rows[0];
-      if (!jobRun) return "missing";
+      const triggerRun = (await client.query("SELECT id FROM app.trigger_runs WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [this.tenantId, runId])).rows[0];
+      if (!triggerRun) return "missing";
       const current = (await client.query<{ run_name: string }>("SELECT run_name FROM app.runs WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [this.tenantId, runId])).rows[0];
       if (!current) return "missing";
       if (expectedName !== undefined && current.run_name !== expectedName) return "stale";
       await client.query("UPDATE app.runs SET run_name=$3 WHERE tenant_id=$1 AND id=$2", [this.tenantId, runId, name]);
-      await client.query("UPDATE app.job_runs SET run_name=$3 WHERE tenant_id=$1 AND id=$2", [this.tenantId, runId, name]);
+      await client.query("UPDATE app.trigger_runs SET run_name=$3 WHERE tenant_id=$1 AND id=$2", [this.tenantId, runId, name]);
       return { run_name: name };
     });
   }
@@ -116,10 +113,10 @@ export class RunQueryRepository {
   async stop(runId: string) {
     return this.database.transaction(async client => {
       await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))", [this.tenantId]);
-      const result = await client.query<any>(`UPDATE app.job_runs jr SET state=CASE WHEN jr.state IN ('queued','reserved') OR (jr.state='blocked' AND EXISTS (SELECT 1 FROM app.runs x WHERE x.tenant_id=jr.tenant_id AND x.id=jr.id AND x.execution_handle IS NULL)) THEN 'stopped' ELSE 'stopping' END,next_poll_at=now(),updated_at=now() WHERE jr.tenant_id=$1 AND jr.id=$2 AND jr.state IN ('queued','reserved','starting','running','blocked','stopping') RETURNING id,state`, [this.tenantId, runId]);
+      const result = await client.query<any>(`UPDATE app.trigger_runs jr SET state=CASE WHEN jr.state IN ('queued','reserved') OR (jr.state='blocked' AND EXISTS (SELECT 1 FROM app.runs x WHERE x.tenant_id=jr.tenant_id AND x.id=jr.id AND x.execution_handle IS NULL)) THEN 'stopped' ELSE 'stopping' END,next_poll_at=now(),updated_at=now() WHERE jr.tenant_id=$1 AND jr.id=$2 AND jr.state IN ('queued','reserved','starting','running','blocked','stopping') RETURNING id,state`, [this.tenantId, runId]);
       const row = result.rows[0];
       if (row?.state === "stopped") {
-        await client.query("UPDATE app.job_runs SET next_poll_at=NULL WHERE tenant_id=$1 AND id=$2", [this.tenantId, runId]);
+        await client.query("UPDATE app.trigger_runs SET next_poll_at=NULL WHERE tenant_id=$1 AND id=$2", [this.tenantId, runId]);
         await client.query("UPDATE app.runs SET state='stopped',claim_released=true,vm_cleanup_complete=true,updated_at=now() WHERE tenant_id=$1 AND id=$2", [this.tenantId, runId]);
         await client.query("DELETE FROM app.active_claims WHERE tenant_id=$1 AND run_id=$2", [this.tenantId, runId]);
       }

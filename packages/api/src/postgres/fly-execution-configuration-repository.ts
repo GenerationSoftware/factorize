@@ -8,6 +8,7 @@ export class FlyExecutionConfigurationRepository {
     return rows.map(row => this.map(row));
   }
   async get(id: string) {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return null;
     const { rows } = await this.database.pool.query("SELECT id,name,image,region,size,preset_name,created_at,updated_at FROM app.fly_execution_configurations WHERE tenant_id=$1 AND id=$2", [this.tenantId,id]);
     return rows[0] ? this.map(rows[0]) : null;
   }

@@ -3,8 +3,10 @@
  * Destinations and credentials are resolved server-side before this function. */
 export type OutboundCredential = {
   origin: string; path: string; credential: string;
-  authorization?: "bearer" | "github-git-basic" | "raw";
+  authorization?: "bearer" | "github-git-basic" | "raw" | "none";
   headers?: Record<string, string>;
+  /** Set only from an owner-configured model endpoint. */
+  allowInsecureHttp?:boolean;
 };
 const hop = new Set(["connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailer", "transfer-encoding", "upgrade"]);
 const privateHeaders = new Set(["host", "authorization", "cookie", "content-length", "expect", "forwarded", "x-factorize-run-id", "x-factorize-vm-grant", "x-factorize-vm-proof"]);
@@ -36,15 +38,15 @@ export async function forwardRunOutbound(request: Request, selected: OutboundCre
   fetcher?: typeof fetch; requestBytes?: number; responseBytes?: number; timeoutMs?: number;
 } = {}): Promise<Response> {
   const configured = new URL(selected.origin);
-  if (configured.protocol !== "https:" || configured.origin !== selected.origin || configured.username || configured.password
+  if ((configured.protocol !== "https:" && !(configured.protocol==="http:" && selected.allowInsecureHttp)) || configured.origin !== selected.origin || configured.username || configured.password
       || !selected.path.startsWith("/") || selected.path.includes("\\") || /[\r\n\0]/.test(selected.path)
-      || !selected.credential || /[\r\n]/.test(selected.credential)) throw new Error("Invalid outbound credential binding");
+      || (selected.authorization!=="none" && !selected.credential) || /[\r\n]/.test(selected.credential)) throw new Error("Invalid outbound credential binding");
   const target = new URL(selected.origin);
   const separator = selected.path.indexOf("?");
   target.pathname = separator < 0 ? selected.path : selected.path.slice(0, separator);
   target.search = separator < 0 ? "" : selected.path.slice(separator);
   const headers = filteredHeaders(request.headers, true);
-  headers.set("Authorization", selected.authorization === "github-git-basic" ? `Basic ${btoa(`x-access-token:${selected.credential}`)}` : selected.authorization === "raw" ? selected.credential : `Bearer ${selected.credential}`);
+  if(selected.authorization!=="none")headers.set("Authorization", selected.authorization === "github-git-basic" ? `Basic ${btoa(`x-access-token:${selected.credential}`)}` : selected.authorization === "raw" ? selected.credential : `Bearer ${selected.credential}`);
   headers.set("Accept-Encoding", "identity");
   headers.set("User-Agent", "Factorize-Run-Proxy");
   for (const [name, value] of Object.entries(selected.headers ?? {})) headers.set(name, value);

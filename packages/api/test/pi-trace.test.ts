@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { consumeTraceStream, parseTrace } from "../src/trace";
-import { agentDriver } from "../src/agent-driver";
+import { agentDriver } from "./helpers/legacy-agent-fixture";
 
 const fixture = (name: string) => readFileSync(new URL(`./fixtures/pi/1.1.0/${name}.jsonl`, import.meta.url), "utf8");
 

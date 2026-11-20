@@ -1,3 +1,7 @@
+import type {PiLease} from "./pi-session-repository";
+import {MediaCleanup} from "./media-cleanup";
+import {WorkspaceVm,WorkspaceLeaseLost} from "../workspace-vm";
+import {HostedPi} from "../hosted-pi";
 import { snapshotFiles } from "../skill-files";
 import { cleanupVmGrants } from "../vm-grants";
 import { cleanupAgentResponses } from "../agent-api";
@@ -10,7 +14,7 @@ import { safeDiagnosticText } from "../harness-diagnostics";
 import { decrypt, encrypt } from "../crypto";
 import { serializeLaunchPayload } from "../launch-payload";
 import { ExeVmBackend } from "../exe-vm-backend";
-import type { ArtifactCollector, ExecutionBackend, ExecutionTerminator, HarnessLogReader, JobFileCollector, JobResultReader, TraceChunkCollector, LaunchRequest } from "../execution";
+import type { ArtifactCollector, ExecutionBackend, ExecutionTerminator, HarnessLogReader, TriggerFileCollector, TriggerResultReader, TraceChunkCollector, LaunchRequest } from "../execution";
 import type { ExeRunConnection } from "../exe";
 import type { Env } from "../types";
 import { ConnectionRepository } from "./connection-repository";
@@ -19,12 +23,12 @@ import { RunRepository, type PersistedRun } from "./run-repository";
 import { RunRetentionRepository } from "./run-retention-repository";
 import { runRetentionCutoff } from "./run-retention";
 import { AutomationScheduler } from "./automation-scheduler";
-import { agentDriver, driverTraceSources, type AgentKind } from "../agent-driver";
+import { historicalTraceSources, type AgentKind } from "../agent-driver";
 import { traceMetric } from "../trace-observability";
 import { rolloutTraceSources } from "../trace-source";
 import { TraceProjectionRepository, TRACE_PARSER_VERSION } from "./trace-projection-repository";
 import { LiveTraceRepository } from "./live-trace-repository";
-import { JOB_RESULT_INSTRUCTIONS, parseJobResult } from "../job-result";
+import { JOB_RESULT_INSTRUCTIONS, parseTriggerResult } from "../job-result";
 import { snapshotRunAuthorization } from "../run-authorizations";
 import { DEFAULT_RUN_SCOPES } from "../run-scopes";
 import { runAccessInstructions } from "../run-instructions";
@@ -32,31 +36,49 @@ import { RunCredentialRepairRequired, requireRunCredentials } from "../run-crede
 import { FlyConnectionRepository } from "./fly-connection-repository";
 import { FlyExecutionConfigurationRepository } from "./fly-execution-configuration-repository";
 import { createFlyMachinesClient } from "../fly-machines-client";
-import { FlyJobExecutionBackend, flyJobGuest } from "../fly-job-execution-backend";
+import { FlyTriggerExecutionBackend, flyTriggerGuest } from "../fly-job-execution-backend";
 import { verifyAndPersistVendorRunIdentity } from "../vendor-run-identity-provisioning";
 
 /** Host runners may supply infrastructure without patching scheduler internals. */
 export type RunBackendFactory = (run: PersistedRun) => ExecutionBackend | undefined | Promise<ExecutionBackend | undefined>;
 
+class SchedulerDispatchError extends Error {}
 export class RunScheduler {
   private runs: RunRepository;
-  constructor(private database: Database, private env: Env, private readonly backendFactory?: RunBackendFactory) { this.runs = new RunRepository(database); }
+  constructor(private database: Database, private env: Env, private readonly backendFactory?: RunBackendFactory,private readonly context?:Pick<ExecutionContext,"waitUntil">) { this.runs = new RunRepository(database); }
 
   async process(): Promise<void> {
     await this.runs.consumeWakeHint();
     await new AutomationScheduler(this.database, this.env).process();
-    for (const run of await this.runs.dueForPoll()) await this.poll(run).catch(error => this.fail(run, error, "poll"));
+    for (const run of await this.runs.dueForPoll()) await (run.backendKind==="hosted-pi" && this.env.SCHEDULER ? this.dispatch(run) : this.poll(run)).catch(error => error instanceof WorkspaceLeaseLost ? Promise.resolve() : this.fail(run, error, "poll"));
     for (let count = 0; count < 20; count++) {
       const run = await this.runs.claimNext(); if (!run) break;
-      await this.launch(run).catch(error => error instanceof RunCredentialRepairRequired
+      await (run.backendKind==="hosted-pi" && this.env.SCHEDULER ? this.dispatch(run) : this.launch(run)).catch(error => error instanceof WorkspaceLeaseLost ? Promise.resolve() : error instanceof RunCredentialRepairRequired
         ? this.runs.blockLaunch(run, error.message)
         : this.fail(run, error, "launch"));
     }
     const retention = new RunRetentionRepository(this.database);
     await this.reconcileProviderCleanup();
     await this.runRetentionMaintenance(retention);
+    if(this.env.RUN_HISTORY_RETENTION_PAUSED?.trim().toLowerCase()!=="true")await new MediaCleanup(this.database,this.env.RUN_ARTIFACTS).sweep();
     await cleanupAgentResponses(this.env);
     await cleanupVmGrants(this.env);
+  }
+
+  private async piTools(run:PersistedRun,lease:PiLease){const {createPiMcpTools}=await import("../pi-mcp-client");return createPiMcpTools(this.env,run,lease,this.context);}
+  private async dispatch(run:PersistedRun){
+    try{const scheduler=this.env.SCHEDULER!;const response=await scheduler.get(scheduler.idFromName(`run:${run.tenantId}:${run.id}`)).fetch("https://scheduler/run",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({tenantId:run.tenantId,runId:run.id})});if(!response.ok)throw new Error("Run scheduler did not accept its wakeup.");}
+    catch{throw new SchedulerDispatchError("Run dispatch temporarily failed; the durable admission/launch lease remains available for retry.");}
+  }
+  /** A dedicated run alarm keeps provider streams/provisioning off the global
+   * admission/maintenance alarm. PostgreSQL leases remain authoritative. */
+  async processHosted(tenantId:string,runId:string){
+    const run=await this.runs.find(tenantId,runId);if(!run || run.backendKind!=="hosted-pi")return;
+    if(run.state==="stopping"){
+      try{await new HostedPi(this.database,this.env).cancel(run);await new WorkspaceVm(this.database,this.env).cleanup(tenantId,runId);await this.runs.terminal(run,"stopped","stored",undefined,true);}catch{await this.runs.schedulePoll(run,"stopping");}return;
+    }
+    if(run.state==="starting")await this.launch(run).catch(error=>error instanceof WorkspaceLeaseLost?Promise.resolve():error instanceof RunCredentialRepairRequired?this.runs.blockLaunch(run,error.message):this.fail(run,error,"launch"));
+    else if(run.state==="running")await this.poll(run).catch(error=>this.fail(run,error,"poll"));
   }
 
   private async runRetentionMaintenance(retention = new RunRetentionRepository(this.database)): Promise<void> {
@@ -89,6 +111,10 @@ export class RunScheduler {
   /** Retry terminal provider cleanup independently from run polling, including old stuck records. */
   private async reconcileProviderCleanup(): Promise<void> {
     for (const item of await this.runs.claimProviderCleanup()) {
+      if (item.backendKind==="hosted-pi") {
+        try {await new WorkspaceVm(this.database,this.env).cleanup(item.tenantId,item.id);await this.runs.completeProviderCleanup(item.tenantId,item.id);}catch(error){await this.runs.retryProviderCleanup(item.tenantId,item.id,item.attempt,error);}
+        continue;
+      }
       if (!item.executionHandle) {
         if (item.startedAt) {
           // A started run without its provider handle cannot be proven absent; retain it for reconciliation.
@@ -108,12 +134,13 @@ export class RunScheduler {
         await this.runs.retryProviderCleanup(item.tenantId, item.id, item.attempt, error);
       }
     }
-    for (const item of await this.runs.claimDeletedJobProviderCleanup()) {
+    for (const item of await this.runs.claimDeletedTriggerProviderCleanup()) {
+      if(item.backendKind==="hosted-pi"){try{await new WorkspaceVm(this.database,this.env).cleanup(item.tenantId,item.id);await this.runs.completeDeletedTriggerProviderCleanup(item.tenantId,item.id);}catch(error){await this.runs.retryDeletedTriggerProviderCleanup(item.tenantId,item.id,item.attempt,error);}continue;}
       if (!item.executionHandle) {
         if (item.startedAt) {
-          await this.runs.retryDeletedJobProviderCleanup(item.tenantId, item.id, item.attempt, new Error("Deleted job run started without a persisted provider handle; provider absence cannot be verified"));
+          await this.runs.retryDeletedTriggerProviderCleanup(item.tenantId, item.id, item.attempt, new Error("Deleted trigger run started without a persisted provider handle; provider absence cannot be verified"));
         } else {
-          await this.runs.completeDeletedJobProviderCleanup(item.tenantId, item.id);
+          await this.runs.completeDeletedTriggerProviderCleanup(item.tenantId, item.id);
         }
         continue;
       }
@@ -121,9 +148,9 @@ export class RunScheduler {
         const run = { tenantId: item.tenantId, id: item.id, executionConfig: item.executionConfig, executionHandle: item.executionHandle, backendKind: item.backendKind } as PersistedRun;
         const result = await (await this.backend(run)).stop(item.executionHandle);
         if (result.state !== "stopped") throw new Error(result.detail ?? "Execution provider did not confirm cleanup");
-        await this.runs.completeDeletedJobProviderCleanup(item.tenantId, item.id);
+        await this.runs.completeDeletedTriggerProviderCleanup(item.tenantId, item.id);
       } catch (error) {
-        await this.runs.retryDeletedJobProviderCleanup(item.tenantId, item.id, item.attempt, error);
+        await this.runs.retryDeletedTriggerProviderCleanup(item.tenantId, item.id, item.attempt, error);
       }
     }
   }
@@ -149,6 +176,7 @@ export class RunScheduler {
     return typeof (backend as unknown as Record<PropertyKey, unknown>)[method] === "function";
   }
   private async backend(run: PersistedRun): Promise<ExecutionBackend> {
+    if(run.backendKind==="hosted-pi")return {kind:"hosted-pi",capabilities:["recovery","stop"],launch:async()=>{throw new Error("Hosted Pi is managed by its session scheduler.");},inspect:async()=>({state:run.state}),stop:async()=>{await new HostedPi(this.database,this.env,(run,lease)=>this.piTools(run,lease)).cancel(run);await new WorkspaceVm(this.database,this.env).cleanup(run.tenantId,run.id);return {state:"stopped"};}};
     const supplied = await this.backendFactory?.(run);
     if (supplied) return supplied;
     const id = String(run.executionConfig.connectionId ?? "");
@@ -163,9 +191,9 @@ export class RunScheduler {
       if (!configuration) throw new Error("Fly execution configuration is unavailable");
       const app = `factorize-run-${run.tenantId.replaceAll("-", "")}`;
       const machines = createFlyMachinesClient({ token: connection });
-      return new FlyJobExecutionBackend({
+      return new FlyTriggerExecutionBackend({
         app, organizationSlug: connectionDetails.organizationSlug, image: run.executionConfig.image ?? configuration.image, region: run.executionConfig.region ?? configuration.region, size: run.executionConfig.size ?? configuration.size,
-        machines, guest: machine => flyJobGuest({ app, machine: machine.id, token: connection }),
+        machines, guest: machine => flyTriggerGuest({ app, machine: machine.id, token: connection }),
         prepare: () => machines.ensureRunApp(app, connectionDetails.organizationSlug),
         vendorIdentityAudience: runId => `factorize://runs/${runId}`,
         verifyVendorIdentity: this.vendorIdentityVerifier(run, `https://oidc.fly.io/${connectionDetails.organizationSlug}`),
@@ -179,13 +207,14 @@ export class RunScheduler {
   }
 
   private async launch(run: PersistedRun) {
+    if(run.executionConfig.executionType!=="code" && run.backendKind!=="hosted-pi")throw new RunCredentialRepairRequired("This accepted run uses a retired guest-agent backend. Its inputs are preserved; cancel it and submit a newly configured hosted Pi run.");
     const config = run.executionConfig;
-    await snapshotRunAuthorization(this.database, {tenantId: run.tenantId, runId: run.id, scopes: config.runScopes ?? DEFAULT_RUN_SCOPES});
+    await snapshotRunAuthorization(this.database, {tenantId: run.tenantId, runId: run.id, scopes: config.runScopes ?? [...DEFAULT_RUN_SCOPES]});
     await requireRunCredentials({database: this.database, env: this.env, tenantId: run.tenantId, runId: run.id, config});
     if (run.executionConfig.executionType === "code") {
-      if (typeof run.executionConfig.script !== "string" || !run.executionConfig.script.trim()) throw new Error("The code job has no saved script");
+      if (typeof run.executionConfig.script !== "string" || !run.executionConfig.script.trim()) throw new Error("The code trigger has no saved script");
       const backend = await this.backend(run), context = run.executionConfig.inputContext;
-      if (!context || typeof context !== "object" || Array.isArray(context)) throw new Error("The code job input context snapshot is missing");
+      if (!context || typeof context !== "object" || Array.isArray(context)) throw new Error("The code trigger input context snapshot is missing");
       const reservation = backend.reserve?.(run.id) ?? null;
       if (reservation) await this.runs.recordLaunchHandle(run, reservation);
       const launched = await this.launchBackend(run, backend, { runId: run.id, reservation: reservation ?? undefined, prompt: "", runIdentity: { backendOrigin: this.env.APP_ORIGIN }, code: { script: run.executionConfig.script, context }, verifyVendorIdentity: this.vendorIdentityVerifier(run) });
@@ -193,21 +222,11 @@ export class RunScheduler {
       if (launched.observation.state === "failed") await this.runs.recordObservation(run, launched.observation);
       return;
     }
-    if (run.executionConfig.agentKind === "Amp") throw new Error("Amp execution is unavailable for new runs because it cannot deliver the required structured result file. Choose an exe.dev agent integration.");
-    const backend = await this.backend(run), driver = agentDriver(run.executionConfig.agentKind as AgentKind), harness = driver.launch(run.id, {
-      model: run.executionConfig.model, effort: run.executionConfig.effort,
-      providerEndpoints: { githubInstallationIds: run.executionConfig.githubInstallationIds ?? [], linear: run.executionConfig.linearConnectionId === "linear", model: run.executionConfig.modelAccess === "portable" && Boolean(run.executionConfig.modelAccountId), xConnectionIds: run.executionConfig.xConnectionIds ?? [] },
-      ...(driver.kind === "codex" ? { codexModel: { baseUrl: run.executionConfig.modelAccess === "portable" && run.executionConfig.modelAccountId ? "http://127.0.0.1:18180/providers/model/v1" : this.env.CODEX_MODEL_BASE_URL ?? "https://llm.int.exe.xyz/v1" } } : {}),
-    });
-    const sources = rolloutTraceSources(driverTraceSources(driver.kind, harness), run.tenantId, this.env);
-    validateTraceSources(sources);
-    const skillFiles = run.encryptedSkillSnapshot ? snapshotFiles(JSON.parse(await decrypt(run.encryptedSkillSnapshot, this.env.CREDENTIAL_ENCRYPTION_KEY))) : undefined;
-    const prompt = await decrypt(run.encryptedPrompt, this.env.CREDENTIAL_ENCRYPTION_KEY);
-    const reservation = backend.reserve?.(run.id) ?? null;
-    if (reservation) await this.runs.recordLaunchHandle(run, reservation);
-    const launched = await this.launchBackend(run, backend, { runId: run.id, reservation: reservation ?? undefined, skillFiles, prompt: `${prompt}${skillFiles?.length ? "\n\nSelected skill directories are available under $FACTORIZE_SKILLS_DIR/<skill-key>/." : ""}${JOB_RESULT_INSTRUCTIONS}${runAccessInstructions({ githubInstallationIds: run.executionConfig.githubInstallationIds ?? [], linear: run.executionConfig.linearConnectionId === "linear", model: run.executionConfig.modelAccess === "portable" && Boolean(run.executionConfig.modelAccountId), xConnectionIds: run.executionConfig.xConnectionIds ?? [] })}`, runIdentity: { backendOrigin: this.env.APP_ORIGIN }, traceSources: sources, harness: { executable: harness.executable, args: harness.args, env: harness.env }, verifyVendorIdentity: this.vendorIdentityVerifier(run) });
-    await this.runs.markLaunched(run, launched.handle, launched.destinationUrl, launched.capabilities, sources);
-    if (launched.observation.state === "failed") await this.runs.recordObservation(run, launched.observation);
+    const pi=new HostedPi(this.database,this.env,(run,lease)=>this.piTools(run,lease));
+    await pi.initialize(run);
+    await new WorkspaceVm(this.database,this.env).ensure(run);
+    await this.runs.markLaunched(run,{backendKind:"hosted-pi",id:run.id,operationId:run.id},new URL("/runs/"+run.id,this.env.APP_ORIGIN).href,["recovery","stop"]);
+
   }
 
   private async launchBackend(run: PersistedRun, backend: ExecutionBackend, request: LaunchRequest) {
@@ -219,6 +238,7 @@ export class RunScheduler {
   }
 
   private async poll(run: PersistedRun) {
+    if(run.backendKind==="hosted-pi")return new HostedPi(this.database,this.env,(run,lease)=>this.piTools(run,lease)).advance(run);
     if (!run.executionHandle && run.state === "stopping") return this.runs.schedulePoll(run, "stopping");
     const backend = await this.backend(run); if (!run.executionHandle) throw new Error("Execution handle is missing");
     const terminator = this.hasCapability<ExecutionTerminator>(backend, "terminate");
@@ -241,26 +261,26 @@ export class RunScheduler {
       ? { source: diagnostics.failure?.source ?? "run", code: run.failureCode, reason: run.failureReason } : diagnostics.failure;
     if (taskFailure) await this.runs.recordFailureOutcome(run, taskFailure);
     if (!run.failureCode && run.resultProtocolVersion === 1 && diagnostics.state !== "failed" && diagnostics.state !== "stopped") {
-      if (!this.hasCapability<JobResultReader>(backend, "readJobResult")) {
-        finalState = "failed"; taskFailure = { source: "system", code: "result_collection_unavailable", reason: "Execution backend cannot collect the required structured job result" };
+      if (!this.hasCapability<TriggerResultReader>(backend, "readTriggerResult")) {
+        finalState = "failed"; taskFailure = { source: "system", code: "result_collection_unavailable", reason: "Execution backend cannot collect the required structured trigger result" };
       } else {
         let raw: string | null;
-        try { raw = await backend.readJobResult(run.executionHandle!); }
+        try { raw = await backend.readTriggerResult(run.executionHandle!); }
         catch (error) { throw error; } // Collection errors are transient and retried by finalization.
-        if (raw === null) { finalState = "failed"; taskFailure = { source: "run", code: "result_missing", reason: "Required structured job result is missing" }; }
+        if (raw === null) { finalState = "failed"; taskFailure = { source: "run", code: "result_missing", reason: "Required structured trigger result is missing" }; }
         else {
           let result;
-          try { result = parseJobResult(raw); }
-          catch (error) { finalState = "failed"; taskFailure = { source: "run", code: "result_invalid", reason: `Invalid structured job result: ${error instanceof Error ? error.message : "validation failed"}` }; }
+          try { result = parseTriggerResult(raw); }
+          catch (error) { finalState = "failed"; taskFailure = { source: "run", code: "result_invalid", reason: `Invalid structured trigger result: ${error instanceof Error ? error.message : "validation failed"}` }; }
           if (result) {
-            await this.runs.recordJobResult(run, result);
+            await this.runs.recordTriggerResult(run, result);
             if (result.status === "failed") { finalState = "failed"; taskFailure ??= { source: "run", code: "task_reported_failure", reason: result.reason! }; }
           }
         }
       }
     }
     if (taskFailure) await this.runs.recordFailureOutcome(run, taskFailure);
-    if (this.hasCapability<ArtifactCollector & HarnessLogReader & JobFileCollector>(backend, "collectArtifact") && this.hasCapability<HarnessLogReader>(backend, "readHarnessLog") && this.hasCapability<JobFileCollector>(backend, "listJobFiles") && this.hasCapability<JobFileCollector>(backend, "collectJobFile")) {
+    if (this.hasCapability<ArtifactCollector & HarnessLogReader & TriggerFileCollector>(backend, "collectArtifact") && this.hasCapability<HarnessLogReader>(backend, "readHarnessLog") && this.hasCapability<TriggerFileCollector>(backend, "listTriggerFiles") && this.hasCapability<TriggerFileCollector>(backend, "collectTriggerFile")) {
       const artifacts = new ArtifactRepository(this.database, run.tenantId);
       const stored = await artifacts.list(run.id);
       if (!stored.some(item => item.kind === "terminal_log" && item.state === "stored")) {
@@ -269,7 +289,7 @@ export class RunScheduler {
       }
       const sources = run.executionConfig.executionType === "code" ? undefined : this.sources(run);
       if (run.executionConfig.executionType === "code") {
-        // Code jobs have no agent session trace; preserve the shared result,
+        // Code triggers have no agent session trace; preserve the shared result,
         // log, output directory, supervision, and cleanup lifecycle.
       } else {
       const sourceSet = sources!;
@@ -292,14 +312,14 @@ export class RunScheduler {
       if (run.resultProtocolVersion === 1) {
         try {
           const current = await artifacts.list(run.id);
-          const retained = new Set(current.filter(item => item.kind === "job_file" && item.state === "stored").map(item => item.source_path));
-          for (const path of await backend.listJobFiles(run.executionHandle!)) {
+          const retained = new Set(current.filter(item => item.kind === "trigger_file" && item.state === "stored").map(item => item.source_path));
+          for (const path of await backend.listTriggerFiles(run.executionHandle!)) {
             if (retained.has(path)) continue;
-            const token = await issueArtifactUploadGrant({ tenantId: run.tenantId, runId: run.id, path, artifactType: "job_file", contentType: "application/octet-stream", provider: run.executionConfig.executionType === "code" ? "code" : run.executionConfig.agentKind, format: "file", expiresAt: Date.now() + 10 * 60_000 }, this.env.SESSION_SIGNING_SECRET);
-            const uploaded = await backend.collectJobFile(run.executionHandle!, { path, uploadUrl: `${this.env.APP_ORIGIN}/internal/run-artifacts/${encodeURIComponent(token)}` });
-            if (!uploaded.ok) throw new Error(uploaded.detail ?? "Job file upload failed");
+            const token = await issueArtifactUploadGrant({ tenantId: run.tenantId, runId: run.id, path, artifactType: "trigger_file", contentType: "application/octet-stream", provider: run.executionConfig.executionType === "code" ? "code" : run.executionConfig.agentKind, format: "file", expiresAt: Date.now() + 10 * 60_000 }, this.env.SESSION_SIGNING_SECRET);
+            const uploaded = await backend.collectTriggerFile(run.executionHandle!, { path, uploadUrl: `${this.env.APP_ORIGIN}/internal/run-artifacts/${encodeURIComponent(token)}` });
+            if (!uploaded.ok) throw new Error(uploaded.detail ?? "Trigger file upload failed");
           }
-        } catch { errors.push("Job output file collection or storage failed"); }
+        } catch { errors.push("Trigger output file collection or storage failed"); }
       }
     } else errors.push("Execution backend does not support complete final artifact collection");
     // Retry collection, but do not keep a VM forever for an absent session/log.
@@ -360,7 +380,7 @@ export class RunScheduler {
   private sources(run: PersistedRun): TraceSources {
     if (run.traceSources) return run.traceSources;
     // Undeclared Codex runs must never discover or create a native artifact.
-    if (run.executionConfig.agentKind === "codex") return driverTraceSources("codex", agentDriver("codex").launch(run.id, {}));
+    if (run.executionConfig.agentKind === "codex") return historicalTraceSources("codex",run.id);
     // Runs launched before a source declaration existed must keep their native
     // trace even when the current driver now produces an execution stream.
     return { primary: this.nativeSource(run) };
@@ -368,8 +388,7 @@ export class RunScheduler {
 
   private nativeSource(run: PersistedRun): TraceSource {
     const kind = run.executionConfig.agentKind as AgentKind;
-    const { traceSources: _sources, ...legacy } = agentDriver(kind).launch(run.id, {});
-    return driverTraceSources(kind, legacy).primary;
+    return historicalTraceSources(kind,run.id,true).primary;
   }
 
   private async collectArtifact(run: PersistedRun, backend: ArtifactCollector, source?: TraceSource, primary?: boolean) {
@@ -391,6 +410,7 @@ export class RunScheduler {
   }
 
   private async fail(run: PersistedRun, error: unknown, phase: "poll" | "launch" = "launch") {
+    if(error instanceof SchedulerDispatchError || (typeof (error as any)?.code==="string" && /^(08|53|57|58)/.test((error as any).code)))return;
     // Infrastructure errors while finalizing must not change the execution result.
     if (run.executionDiagnostics) {
       await this.runs.retryFinalization(run, "partial", "Run finalization temporarily failed");

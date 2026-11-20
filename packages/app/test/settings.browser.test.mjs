@@ -12,7 +12,7 @@ async function setup() { const context = await browser.newContext(), page = awai
   await page.route("**/api/v1/integrations/bearer", route => route.fulfill({json:{revision:0,integrations:[]}}));
   await page.route("**/api/v1/model-accounts", route => route.fulfill({json:{revision:0,accounts:[]}}));
   await page.route("**/api/v1/integration-api-policies", route => route.fulfill({json:{integrations:[]}}));
-  await page.route("**/api/v1/session", route => route.fulfill({ json: { authenticated: true, user: { id: "owner", email: "owner@example.test" }, workspace: { id: "tenant", name: "Workspace" }, capabilities: [], expiresAt: "2026-10-10T00:00:00Z" } })); return { context, page }; }
+  await page.route("**/api/v1/session", route => route.fulfill({ json: { authenticated: true, user: { id: "owner", email: "owner@example.test" }, team: { id: "tenant", name: "Workspace" }, capabilities: [], expiresAt: "2026-10-10T00:00:00Z" } })); return { context, page }; }
 test("integration setup tests credentials, submits typed fields, clears secrets and refreshes installed status", async () => {
   const { context, page } = await setup(); let saved = false, body;
   await page.route("**/api/v1/providers/github/installations", route => route.fulfill({ json: [] }));
@@ -22,29 +22,19 @@ test("integration setup tests credentials, submits typed fields, clears secrets 
   await page.goto(origin + "/settings/integrations"); await page.getByRole("button", {name:"Add exe.dev integration",exact:true}).click();
   const form = page.getByRole("dialog", {name:"Add exe.dev integration"});
   await form.getByLabel("exe.dev account token").fill("private-input"); await form.getByRole("button", { name: "Test credentials" }).click(); await form.getByText("✓ Credentials verified.", { exact: true }).waitFor(); await form.getByLabel("VM tags").selectOption(["dev"]); await form.getByRole("button", { name: "Save integration", exact: true }).click();
-  await form.getByText("Integration saved", { exact: true }).waitFor(); assert.deepEqual(body.tags, ["dev"]); assert.equal(body.agentKind, "codex"); assert.equal(await form.getByLabel("exe.dev account token").inputValue(), ""); assert.equal(await page.evaluate(() => JSON.stringify(localStorage).includes("private-input")), false); await page.getByText("dev", { exact: true }).waitFor(); await context.close();
+  await form.getByText("Integration saved", { exact: true }).waitFor(); assert.deepEqual(body.tags, ["dev"]); assert.equal(body.agentKind, undefined); assert.equal(await form.getByLabel("exe.dev account token").inputValue(), ""); assert.equal(await page.evaluate(() => JSON.stringify(localStorage).includes("private-input")), false); await page.getByText("dev", { exact: true }).waitFor(); await context.close();
 });
-test("model authorization stays on the backend and displays only the public device code", async () => {
-  const {context,page}=await setup(),id="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",calls=[];
-  await page.route("**/api/v1/providers/github/installations",route=>route.fulfill({json:[]}));
-  await page.route("**/api/v1/integrations",route=>route.fulfill({json:{linear:null,exeConnections:[],ampConnections:[],cloudflareTail:{count:0,installations:[]}}}));
-  await page.route("**/api/v1/model-accounts",route=>route.fulfill({json:{revision:1,accounts:[{id,name:"Work account",description:null,revision:1,credentialConfigured:false}]}}));
-  await page.route("**/api/v1/model-accounts/*/authorization/*",route=>{
-    calls.push({path:new URL(route.request().url()).pathname,body:route.request().postDataJSON()});
-    return route.fulfill({json:route.request().url().endsWith("/cancel")?{state:"canceled"}:{state:"pending",verificationUrl:"https://auth.openai.com/codex/device",userCode:"ABCD-1234",pollAfterSeconds:5}});
-  });
-  await page.goto(origin+"/settings/integrations");
-  const models=page.getByRole("region",{name:"Your integrations"});
-  await models.getByLabel("Actions for Work account",{exact:true}).click();
-  await models.getByRole("button",{name:"Connect ChatGPT",exact:true}).click();
-  await models.getByText("ABCD-1234",{exact:true}).waitFor();
-  assert.equal(await models.getByRole("link",{name:"Open ChatGPT device authorization"}).getAttribute("href"),"https://auth.openai.com/codex/device");
-  await models.getByRole("button",{name:"Cancel authorization"}).click();
-  await models.getByText("Authorization attempt canceled.",{exact:true}).waitFor();
-  assert.deepEqual(calls.filter(c=>!c.path.endsWith("/status")).map(c=>c.path.split("/").at(-1)),["authorize","cancel"]);
-  assert.ok(calls.every(c=>JSON.stringify(c.body)==="{}"));
-  assert.equal(await page.getByRole("button",{name:"Generate unlock key"}).count(),0);
-  await context.close();
+test("model integration edits accept a provider URL and optional key without device authorization",async()=>{
+ const {context,page}=await setup(),id="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";let written;
+ await page.route("**/api/v1/providers/github/installations",route=>route.fulfill({json:[]}));
+ await page.route("**/api/v1/integrations",route=>route.fulfill({json:{linear:null,exeConnections:[],ampConnections:[],cloudflareTail:{count:0,installations:[]}}}));
+ await page.route("**/api/v1/model-accounts",route=>route.fulfill({json:{revision:1,accounts:[{id,name:"Work account",description:null,providerUrl:null,revision:1,credentialConfigured:false}]}}));
+ await page.route("**/api/v1/model-accounts/*",route=>{written=route.request().postDataJSON();return route.fulfill({json:{revision:2,duplicate:false}});});
+ await page.goto(origin+"/settings/integrations");
+ await page.getByLabel("Actions for Work account",{exact:true}).click();await page.getByRole("button",{name:"Edit model integration",exact:true}).click();
+ const form=page.getByRole("dialog",{name:"Edit model integration"});await form.getByLabel("Provider URL",{exact:true}).fill("https://models.example/v1");await form.getByRole("button",{name:"Save model integration",exact:true}).click();
+ await form.waitFor({state:"hidden"});assert.equal(written.providerUrl,"https://models.example/v1");assert.equal(written.apiKey,undefined);assert.equal(written.initialState,undefined);
+ assert.equal(await page.getByRole("button",{name:"Connect ChatGPT",exact:true}).count(),0);await context.close();
 });
 test("owner browser stores bearer integration in Factorize managed storage without an unlock key", async () => {
   const { context, page } = await setup();
@@ -86,10 +76,10 @@ test("model account create/delete uses server-managed state without an unlock ke
   await page.route("**/api/v1/model-accounts", async route => {
     if (route.request().method() === "GET") return route.fulfill({ json: { revision, accounts: account ? [account] : [] } });
     createBody = route.request().postDataJSON();
-    assert.deepEqual(Object.keys(createBody).sort(), ["description", "expectedRevision", "id", "idempotencyKey", "initialState", "name"]);
+    assert.deepEqual(Object.keys(createBody).sort(), ["apiKey", "contextWindow", "description", "expectedRevision", "id", "idempotencyKey", "maxTokens", "name", "providerUrl"]);
     assert.equal(createBody.expectedRevision, revision);
     assert.equal(createBody.name, "Work account");
-    assert.deepEqual(JSON.parse(createBody.initialState), {OPENAI_API_KEY:"synthetic-model-key"});
+    assert.equal(createBody.apiKey,"synthetic-model-key");assert.equal(createBody.providerUrl,"https://models.example/v1");
     revision++; account = { id: createBody.id, name: createBody.name, description: createBody.description, revision, credentialConfigured: true };
     return route.fulfill({ status: 201, json: { revision, duplicate: false } });
   });
@@ -107,14 +97,14 @@ test("model account create/delete uses server-managed state without an unlock ke
   });
 
   await page.goto(origin + "/settings/integrations");
-  await page.getByRole("button",{name:"Add Model account integration",exact:true}).click();
-  const form = page.getByRole("dialog",{name:"Add a model account"});
+  await page.getByRole("button",{name:"Add Model integration integration",exact:true}).click();
+  const form = page.getByRole("dialog",{name:"Add a model integration"});
   const models = page.getByRole("region", { name: "Your integrations" });
   await form.getByLabel("Name").fill("Work account");
   await form.getByLabel("Description (optional)").fill("Personal account");
-  await form.getByRole("combobox", {name:/^Connection/}).selectOption("api-key");
-  await form.getByLabel("API key", {exact:true}).fill("synthetic-model-key");
-  await form.getByRole("button", { name: "Save model account" }).click();
+  await form.getByLabel("Provider URL",{exact:true}).fill("https://models.example/v1");
+  await form.getByLabel("API key (optional)", {exact:true}).fill("synthetic-model-key");
+  await form.getByRole("button", { name: "Save model integration" }).click();
   await models.getByText("Work account", { exact: true }).waitFor();
   assert.equal(createBody.expectedRevision, 0);
   assert.equal(createBody.description, "Personal account");
@@ -159,7 +149,7 @@ test("all connections share one list, row policies save by identity and disabled
   const {context,page}=await setup();
   const id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
   await page.route('**/api/v1/providers/github/installations',route=>route.fulfill({json:[{installationId:17,accountLogin:'fixture',accountType:'Organization',state:'active'}]}));
-  await page.route('**/api/v1/integrations',route=>route.fulfill({json:{linear:{organizationName:'Workspace'},clickup:{teamName:'Tasks'},exeConnections:[{connectionId:'vm',accountTags:['dev'],tags:['dev'],agentKind:'codex'}],ampConnections:[{connectionId:'amp',project:'Project'}],cloudflareTail:{installations:[{integrationId:'tail',name:'Logs',referencedJobCount:1}]}}}));
+  await page.route('**/api/v1/integrations',route=>route.fulfill({json:{linear:{organizationName:'Workspace'},clickup:{teamName:'Tasks'},exeConnections:[{connectionId:'vm',accountTags:['dev'],tags:['dev'],agentKind:'codex'}],ampConnections:[{connectionId:'amp',project:'Project'}],cloudflareTail:{installations:[{integrationId:'tail',name:'Logs',referencedTriggerCount:1}]}}}));
   await page.route('**/api/v1/fly/connection',route=>route.fulfill({json:{connection:{organizationName:'Machines',organizationSlug:'machines'}}}));
   await page.route('**/api/v1/integrations/bearer',route=>route.fulfill({json:{revision:1,integrations:[{id,name:'Example API',origin:'https://api.example.test',description:null,revision:1}]}}));
   await page.route('**/api/v1/model-accounts',route=>route.fulfill({json:{revision:1,accounts:[{id,name:'Model fixture',description:null,credentialConfigured:true,revision:1}]}}));
@@ -247,7 +237,7 @@ test("dashboard VM presets use dialogs for creation, editing, and deletion", asy
     return route.fulfill({ json: { preset: presets[0] } });
   });
   try {
-    await page.goto(origin + "/settings");
+    await page.goto(origin + "/settings/vm-presets");
     await page.getByText("No VM presets yet.").waitFor();
     assert.equal(await page.locator("main form").count(), 0);
     await page.getByRole("button", { name: "Add preset" }).click();
@@ -269,13 +259,13 @@ test("dashboard VM presets use dialogs for creation, editing, and deletion", asy
 test("owner edits one MCP connection’s scopes and integration access", async () => {
   const {context, page} = await setup();
   const id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", requiredScope = `integration:${id}:3`;
-  const client = {grantId:"first", clientId:"shared", clientName:"Release assistant", availableScopes:["jobs:read", "jobs:write"], scopes:["jobs:read", "jobs:write"], integrationOverrides:{}, revision:0, authorizationDate:"2026-11-19", expiresAt:null, lastUsedAt:null};
+  const client = {grantId:"first", clientId:"shared", clientName:"Release assistant", availableScopes:["triggers:read", "triggers:write"], scopes:["triggers:read", "triggers:write"], integrationOverrides:{}, revision:0, authorizationDate:"2026-11-19", expiresAt:null, lastUsedAt:null};
   await page.route("**/api/v1/access/authorized-clients", route => route.fulfill({json:[client]}));
   await page.route("**/api/v1/integration-api-policies", route => route.fulfill({json:{integrations:[{id, requiredScope, available:true, policy:"requestable", name:"Linear"}]}}));
   let saved;
   await page.route("**/api/v1/access/authorizations/first/permissions", route => {
     saved = route.request().postDataJSON();
-    client.scopes = ["jobs:read"];
+    client.scopes = ["triggers:read"];
     client.integrationOverrides = saved.integrationOverrides;
     client.revision++;
     return route.fulfill({json:{ok:true}});
@@ -285,14 +275,35 @@ test("owner edits one MCP connection’s scopes and integration access", async (
     const edit = page.getByRole("button", {name:"Edit permissions"});
     await edit.click();
     const dialog = page.getByRole("dialog", {name:"Permissions for Release assistant"});
-    await dialog.getByLabel("jobs:write").uncheck();
+    await dialog.getByLabel("triggers:write").uncheck();
     await dialog.getByLabel("Linear").selectOption("allow");
     await dialog.getByRole("button", {name:"Save permissions"}).click();
     await dialog.waitFor({state:"hidden"});
-    assert.deepEqual(saved, {disabledScopes:["jobs:write"], integrationOverrides:{[id]:requiredScope}, expectedRevision:0});
+    assert.deepEqual(saved, {disabledScopes:["triggers:write"], integrationOverrides:{[id]:requiredScope}, expectedRevision:0});
     await page.reload();
     await edit.click();
-    assert.equal(await dialog.getByLabel("jobs:write").isChecked(), false);
+    assert.equal(await dialog.getByLabel("triggers:write").isChecked(), false);
     assert.equal(await dialog.getByLabel("Linear").inputValue(), "allow");
   } finally { await context.close(); }
+});
+
+test("team settings can be saved before connecting a VM provider", async () => {
+  const { context, page } = await setup();
+  let runDefaults = {}, submitted;
+  await page.route("**/api/v1/team", route => route.fulfill({ json: { id: "team", name: null, runDefaults } }));
+  await page.route("**/api/v1/team/run-defaults", route => {
+    submitted = route.request().postDataJSON();
+    runDefaults = submitted;
+    return route.fulfill({ json: submitted });
+  });
+  await page.route("**/api/v1/integrations", route => route.fulfill({ json: { exeConnections: [], ampConnections: [] } }));
+  await page.route("**/api/v1/fly/execution-configurations", route => route.fulfill({ json: { configurations: [] } }));
+  await page.goto(origin + "/settings");
+  await page.getByRole("heading", { name: "Team settings", exact: true }).waitFor();
+  await page.getByLabel("Team concurrency limit").fill("7");
+  await page.getByRole("button", { name: "Save run defaults" }).click();
+  await page.getByRole("status").filter({ hasText: "Run defaults saved." }).waitFor();
+  assert.equal(submitted.capacity, 7);
+  assert.equal(submitted.executionConfigId, undefined);
+  await context.close();
 });

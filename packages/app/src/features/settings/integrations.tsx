@@ -17,7 +17,7 @@ import { Dialog } from "../../shared/dialog";
 type Kind = "exe" | "amp" | "cloudflareTail" | "github";
 const linkClass = "inline-flex min-h-10 items-center rounded-lg border border-stone-200 px-3 py-2 text-sm font-semibold hover:bg-stone-100 dark:border-slate-700 dark:hover:bg-slate-800";
 export function Integrations() {
-  return <Page><PageHeader title="Integrations" description="Connect the providers used by your jobs." /><IntegrationPoliciesProvider><IntegrationsContent /></IntegrationPoliciesProvider></Page>;
+  return <Page><PageHeader title="Integrations" description="Connect the providers used by your triggers." /><IntegrationPoliciesProvider><IntegrationsContent /></IntegrationPoliciesProvider></Page>;
 }
 function IntegrationsContent() {
   const cache = useQueryClient(), status = useQuery(integrationsQuery), github = useQuery(installationsQuery);
@@ -43,7 +43,7 @@ function IntegrationsContent() {
   const actions = (kind: Kind, id: string, edit?: () => void): IntegrationAction[] => [
     ...(edit ? [{label: "Edit integration", onClick: edit}] : []),
     ...(kind !== "github" ? [{label: "Test connection", disabled: action.isPending, onClick: () => {setFeedback(null); action.mutate({kind, id, test: true});}}] : []),
-    {label: "Disconnect", destructive: true, disabled: action.isPending, onClick: () => {if (window.confirm("Disconnect this integration? Jobs that still reference it must be updated first.")) {setFeedback(null); action.mutate({kind, id});}}},
+    {label: "Disconnect", destructive: true, disabled: action.isPending, onClick: () => {if (window.confirm("Disconnect this integration? Triggers that still reference it must be updated first.")) {setFeedback(null); action.mutate({kind, id});}}},
   ];
   const result = (key: string) => feedback?.key === key && <p className="mt-2 text-sm" role={feedback.error ? "alert" : "status"}>{feedback.message}</p>;
   const open = (title: string, form: ReactNode) => setSetup({title, form});
@@ -59,19 +59,19 @@ function IntegrationsContent() {
         {data?.linear && <IntegrationRow kind="linear" credentialId="linear" name="Linear" detail={data.linear.organizationName ?? data.linear.viewerEmail ?? "Connected account"} actions={[{label: "Reconnect Linear", href: "/auth/linear"}]} />}
         {data?.clickup && <IntegrationRow kind="clickup" credentialId="clickup" name="ClickUp" detail={data.clickup.teamName ?? "Connected workspace"} actions={[{label: "Reconnect ClickUp", href: "/auth/clickup"}]} />}
         {github.data?.map(i => <IntegrationRow key={i.installationId} kind="github" credentialId={String(i.installationId)} name={`GitHub · ${i.accountLogin}`} detail={i.accountType} connected={i.state === "active"} status={i.state === "active" ? "Connected" : `Needs attention · ${i.state}`} actions={[{label: "Manage on GitHub", href: "https://github.com/settings/installations", external: true}, ...actions("github", String(i.installationId))]}>{result(`github:${i.installationId}`)}</IntegrationRow>)}
-        {data?.exeConnections.map(c => <IntegrationRow key={c.connectionId} kind="exe" credentialId={c.connectionId} name={`exe.dev · ${c.connectionId}`} detail={(c.accountTags ?? []).join(", ") || "Account connection"} actions={actions("exe", c.connectionId, () => open("Edit exe.dev integration", <IntegrationForm kind="exe" connectionId={c.connectionId} initialAgent={c.agentKind} initialTags={c.tags} />))}>{result(`exe:${c.connectionId}`)}</IntegrationRow>)}
+        {data?.exeConnections.map(c => <IntegrationRow key={c.connectionId} kind="exe" credentialId={c.connectionId} name={`exe.dev · ${c.connectionId}`} detail={(c.accountTags ?? []).join(", ") || "Account connection"} actions={actions("exe", c.connectionId, () => open("Edit exe.dev integration", <IntegrationForm kind="exe" connectionId={c.connectionId} initialTags={c.tags} />))}>{result(`exe:${c.connectionId}`)}</IntegrationRow>)}
         {data?.ampConnections.map(c => <IntegrationRow key={c.connectionId} kind="amp" credentialId={c.connectionId} name={`Amp · ${c.project}`} detail="Project connection" actions={actions("amp", c.connectionId, () => open("Edit Amp integration", <IntegrationForm kind="amp" connectionId={c.connectionId} initialName={c.project} initialApiBaseUrl={c.apiBaseUrl} />))}>{result(`amp:${c.connectionId}`)}</IntegrationRow>)}
         {fly.rows}{bearer.rows}{models.rows}{x.rows}
-        {data?.cloudflareTail.installations.map(c => <IntegrationRow key={c.integrationId} kind="tail" credentialId={c.integrationId} name={`Cloudflare Tail · ${c.name}`} detail={`Referenced by ${c.referencedJobCount} ${c.referencedJobCount === 1 ? "job" : "jobs"}`} actions={actions("cloudflareTail", c.integrationId, () => open("Edit Tail integration", <IntegrationForm kind="cloudflareTail" connectionId={c.integrationId} initialName={c.name} />))}>{result(`cloudflareTail:${c.integrationId}`)}</IntegrationRow>)}
+        {data?.cloudflareTail.installations.map(c => <IntegrationRow key={c.integrationId} kind="tail" credentialId={c.integrationId} name={`Cloudflare Tail · ${c.name}`} detail={`Referenced by ${c.referencedTriggerCount} ${c.referencedTriggerCount === 1 ? "trigger" : "triggers"}`} actions={actions("cloudflareTail", c.integrationId, () => open("Edit Tail integration", <IntegrationForm kind="cloudflareTail" connectionId={c.integrationId} initialName={c.name} />))}>{result(`cloudflareTail:${c.integrationId}`)}</IntegrationRow>)}
       </div>}
       {feedback && !feedback.error && feedback.message === "Integration disconnected." && <p role="status">Integration disconnected.</p>}
       {fly.feedback}{bearer.feedback}{models.feedback}{x.feedback}
     </section>
     <section aria-labelledby="available-integrations-heading" className="mt-10"><h2 id="available-integrations-heading" className="text-xl font-bold">Available integrations</h2><p className="mb-4 mt-1 text-sm text-slate-600 dark:text-slate-400">Choose a provider to connect or configure an integration.</p><div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
       <ProviderTile kind="linear" name="Linear" description="Create and update issues." count={data?.linear ? 1 : 0} href="/auth/linear" />
-      <ProviderTile kind="clickup" name="ClickUp" description="Trigger workflows from tasks and lists." count={data?.clickup ? 1 : 0} href="/auth/clickup" />
+      <ProviderTile kind="clickup" name="ClickUp" description="Event workflows from tasks and lists." count={data?.clickup ? 1 : 0} href="/auth/clickup" />
       <ProviderTile kind="github" name="GitHub" description="Connect repositories and pull requests." count={github.data?.length ?? 0} href="/auth/github/install" />
-      <ProviderTile kind="exe" name="exe.dev" description="Run jobs on your VMs." count={data?.exeConnections.length ?? 0} onAdd={() => open("Add exe.dev integration", <IntegrationForm kind="exe" />)} />
+      <ProviderTile kind="exe" name="exe.dev" description="Run triggers on your VMs." count={data?.exeConnections.length ?? 0} onAdd={() => open("Add exe.dev integration", <IntegrationForm kind="exe" />)} />
       <ProviderTile kind="amp" name="Amp" description="Run workflows against an Amp project." count={data?.ampConnections.length ?? 0} onAdd={() => open("Add Amp integration", <IntegrationForm kind="amp" />)} />
       {fly.tile}{bearer.tile}{models.tile}{x.tile}
       <ProviderTile kind="tail" name="Cloudflare Tail" description="Capture Worker logs through webhooks." count={data?.cloudflareTail.installations.length ?? 0} onAdd={() => open("Add Tail integration", <IntegrationForm kind="cloudflareTail" />)} />

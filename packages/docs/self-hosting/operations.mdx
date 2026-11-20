@@ -5,7 +5,7 @@ description: Operator checks, retained artifacts, and rollout evidence.
 
 Use the [deployment runbook](https://github.com/GenerationSoftware/factorize/blob/main/docs/package-migration.md) and [trace rollout runbook](https://github.com/GenerationSoftware/factorize/blob/main/docs/trace-rollout-runbook.md) for retention, canary gates and rollback. `npm run check` checks package boundaries, generated contracts, runtime tests and builds. The PostgreSQL auth suite uses an isolated database; see configuration for migration verification.
 
-For the breaking migration and job repair procedure, see [Credential proxy cutover and recovery](credential-cutover). The older [credential proxy security runbook](credential-proxy-security) describes the retired standalone proxy and unlock architecture.
+For the breaking migration and trigger repair procedure, see [Credential proxy cutover and recovery](credential-cutover). The older [credential proxy security runbook](credential-proxy-security) describes the retired standalone proxy and unlock architecture.
 
 `get_run_diagnostics` exposes declared trace sources, projection evidence, artifacts and fallback use. A trace may be partial when collection fails. A `matched` reconciliation result verifies the live prefix against the terminal artifact; missing evidence does not prove completeness.
 
@@ -13,7 +13,15 @@ Trace replay is REST-only and requires an interactive owner session with `runs:w
 
 Cloudflare Tail infrastructure is optional: use the [Tail relay deployment guide](https://github.com/GenerationSoftware/factorize/blob/main/docs/cloudflare-tail.md). Hosted users still supply their own source Worker/relay integration.
 
-## Per-run vendor identity
+## Hosted Pi and optional workspaces
+
+Pi runs in Factorize with PostgreSQL checkpoints and the same scoped MCP tools as external agents. It never starts a guest agent harness. Configure an OpenAI-compatible provider URL and optional access key through integrations. Workspace VMs are optional; selected workspaces must become ready before the first model turn. Reflection identifies the verified current VM, and `vm_exec` addresses only that workspace. Hosted MCP requests are fenced by the active run/session lease.
+
+The workspace adapters use documented exe.dev SSH or Fly Machines exec, bind an identity proof to the exact run, and retain cleanup receipts before provisioning. exe.dev workspaces also reject shared native Factorize proxy attachments that bypass scoped MCP. They do not install a guest identity helper or agent CLI.
+
+## Script-run vendor identity
+
+The following guest identity and helper requirements apply to VM script runs and retained historical guest execution, which use a separate path from hosted Pi.
 
 The exe.dev account token must allow VM list/create/SSH/delete and integration
 list/add/attach/remove. Each run creates one WIF integration, with the run's
@@ -31,7 +39,7 @@ Fly uses organization-slug OIDC discovery/JWKS and a fresh token from the guest
 Machine ID to the active run. Machines live in a tenant execution app with no
 standalone proxy Machine. Guest HTTP exec uses the documented Machines API.
 
-Both providers run a root-owned localhost identity helper. It forwards only
+Script runners on both providers use a root-owned localhost identity helper. It forwards only
 the configured backend routes and renews vendor proof for every request. No
 Factorize guest bearer, upstream token, browser capability or unlock key is
 installed. Cancel/terminal/disconnect checks occur in the backend, so failed

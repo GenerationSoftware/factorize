@@ -1,7 +1,7 @@
 export { SkillPushWorkflow } from "../../src/cloudflare-entry";
 import { RunScheduler } from "../../src/postgres/run-scheduler";
 import { databaseFor } from "../../src/postgres/database";
-import type {ExecutionBackend, JobResultReader} from "../../src/execution";
+import type {ExecutionBackend, TriggerResultReader} from "../../src/execution";
 import { cleanupVmGrants } from "../../src/vm-grants";
 import { WorkerEntrypoint } from "cloudflare:workers";
 import worker from "../../src/worker";
@@ -25,7 +25,7 @@ export class AgentApiMaintenance extends WorkerEntrypoint<Env> {
   async fetch(request:Request) {
     if (new URL(request.url).pathname === "/run-tick") {
       const launches:string[]=[];
-      const backend:ExecutionBackend & JobResultReader={
+      const backend:ExecutionBackend & TriggerResultReader={
         kind:"exe-vm", capabilities:["stop"],
         async launch(request) {
           launches.push(request.runId);
@@ -33,9 +33,12 @@ export class AgentApiMaintenance extends WorkerEntrypoint<Env> {
           return {handle:{backendKind:"exe-vm",id:request.runId},destinationUrl:"https://fixture.invalid/",capabilities:["stop"],observation:{state:"running"}};
         },
         async inspect(){return {state:"succeeded"};}, async stop(){return {state:"stopped"};},
-        async readJobResult(){return JSON.stringify({status:"succeeded",summary:"Review complete"});}
+        async readTriggerResult(){return JSON.stringify({status:"succeeded",summary:"Review complete"});}
       };
-      await new RunScheduler(databaseFor(this.env),this.env,()=>backend).process();
+      const database=databaseFor(this.env);
+      const pending=await database.pool.query("SELECT id FROM app.runs WHERE execution_backend_kind='hosted-pi' AND state IN ('queued','reserved') AND execution_handle IS NULL");
+      await new RunScheduler(database,this.env,()=>backend).process();
+      for(const row of pending.rows){const current=await database.pool.query("SELECT 1 FROM app.runs WHERE id=$1 AND execution_handle IS NOT NULL",[row.id]);if(current.rowCount)launches.push(row.id);}
       return Response.json(launches);
     }
     await cleanupAgentResponses(this.env); await cleanupVmGrants(this.env); return new Response("done"); }

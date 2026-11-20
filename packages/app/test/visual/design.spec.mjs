@@ -2,7 +2,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { test, expect } from "@playwright/test";
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
-import { mockApi, screens, jobId, projectId } from "./fixtures.mjs";
+import { mockApi, screens, triggerId, projectId } from "./fixtures.mjs";
 let server, origin;
 test.beforeAll(async () => {
   server = createServer(async (req, res) => {
@@ -62,19 +62,19 @@ test("system changes apply until the user chooses a saved preference", async ({ 
 });
 test("mobile profile, search and run dialog keyboard/focus behavior; long content", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 }); await mockApi(page, { long: true });
-  await page.goto(origin + "/jobs/" + jobId);
+  await page.goto(origin + "/triggers/" + triggerId);
   const profile = page.getByRole("button", { name: "Your account", exact: true });
   await profile.click(); await expect(page.getByRole("link", { name: "Account settings", exact: true }).last()).toBeVisible();
   await page.keyboard.press("Escape"); await expect(profile).toBeFocused();
-  await page.getByRole("button", { name: "Search jobs, runs, and messages", exact: true }).click();
-  await expect(page.getByRole("combobox", { name: "Search jobs and runs by name, title, or issue identifier", exact: true })).toBeFocused();
+  await page.getByRole("button", { name: "Search triggers, runs, and messages", exact: true }).click();
+  await expect(page.getByRole("combobox", { name: "Search triggers and runs by name, title, or issue identifier", exact: true })).toBeFocused();
   await page.keyboard.press("Escape"); await expect(page.getByRole("dialog")).toHaveCount(0);
   const run = page.getByRole("button", { name: "More run options", exact: true }); await run.click();
   await page.getByRole("menuitem", { name: "Run with prompt", exact: true }).click();
   await page.getByLabel("Prompt", { exact: true }).fill("Review");
   await expect(page.getByRole("dialog")).toBeVisible();
   await page.keyboard.press("Escape"); await expect(run).toBeFocused();
-  await expect(page.getByText("Prompt template", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Prompt", { exact: true })).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await expect(page).toHaveScreenshot("long-job-mobile.png", { fullPage: true });
 });
@@ -84,39 +84,39 @@ for (const state of ["running", "failed"]) test(`trace ${state} presentation`, a
   await expect(page.getByText("User · user_message", { exact: true })).toBeVisible();
   await expect(page).toHaveScreenshot(`trace-${state}.png`, { fullPage: true });
 });
-test("empty jobs", async ({ page }) => {
-  await mockApi(page, { empty: true }); await page.goto(origin + "/jobs");
-  await expect(page.getByRole("heading", { name: "No jobs found" })).toBeVisible();
+test("empty triggers", async ({ page }) => {
+  await mockApi(page, { empty: true }); await page.goto(origin + "/triggers");
+  await expect(page.getByRole("heading", { name: "No triggers found" })).toBeVisible();
   await expect(page).toHaveScreenshot("jobs-empty.png");
 });
-for (const [label, width, height] of [["desktop", 1721, 914], ["mobile", 390, 844]]) test(`project jobs layout ${label}`, async ({ page }) => {
+for (const [label, width, height] of [["desktop", 1721, 914], ["mobile", 390, 844]]) test(`project triggers layout ${label}`, async ({ page }) => {
   await page.setViewportSize({ width, height }); await page.emulateMedia({ colorScheme: "light" });
   await mockApi(page);
   await page.goto(origin + "/projects/" + projectId);
-  await expect(page.getByRole("heading", { name: "Release automation jobs", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Release automation triggers", exact: true })).toBeVisible();
   const navigation = page.getByRole("navigation", { name: "Project navigation" });
-  await expect(navigation.getByRole("link", { name: "Jobs", exact: true })).toHaveAttribute("aria-current", "page");
+  await expect(navigation.getByRole("link", { name: "Triggers", exact: true })).toHaveAttribute("aria-current", "page");
   await expect(navigation.getByRole("link", { name: "Runs", exact: true })).toBeVisible();
   await expect(navigation.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Project" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "List", exact: true })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("button", { name: "Graph", exact: true })).toHaveAttribute("aria-pressed", "false");
-  const viewGroup = page.getByRole("group", { name: "Project jobs view" });
+  const viewGroup = page.getByRole("group", { name: "Project triggers view" });
   const actionRow = viewGroup.locator("..");
   const viewBox = await viewGroup.boundingBox();
   const actionRowBox = await actionRow.boundingBox();
-  const createJob = page.getByRole("link", { name: "Create job" });
-  const createJobBox = await createJob.boundingBox();
+  const createTrigger = page.getByRole("link", { name: "Create trigger" });
+  const createTriggerBox = await createTrigger.boundingBox();
   expect(Math.abs(viewBox.x - actionRowBox.x)).toBeLessThan(2);
-  expect(Math.abs(createJobBox.x + createJobBox.width - actionRowBox.x - actionRowBox.width)).toBeLessThan(2);
-  await expect(createJob).toHaveAttribute("href", "/jobs/new?projectId=" + projectId);
-  await expect(page.getByRole("table", { name: "Jobs" })).toBeVisible();
+  expect(Math.abs(createTriggerBox.x + createTriggerBox.width - actionRowBox.x - actionRowBox.width)).toBeLessThan(2);
+  await expect(createTrigger).toHaveAttribute("href", "/triggers/new?projectId=" + projectId);
+  await expect(page.getByRole("table", { name: "Triggers" })).toBeVisible();
   await page.getByRole("button", { name: "Graph", exact: true }).click();
   await expect(page.getByRole("button", { name: "Graph", exact: true })).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("button", { name: "List", exact: true }).click();
   await expect(page.getByRole("button", { name: "List", exact: true })).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator("header")).toBeVisible();
-  await expect(page).toHaveScreenshot(`project-jobs-${label}.png`, { fullPage: true });
+  await expect(page).toHaveScreenshot(`project-triggers-${label}.png`, { fullPage: true });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   const accessibility = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();
   expect(accessibility.violations).toEqual([]);
@@ -129,8 +129,8 @@ for (const theme of ["light", "dark"]) test(`additional routes and feedback ${th
     await expect(page).toHaveScreenshot(`${name}-${theme}-390.png`, { fullPage: true });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   }
-  await page.goto(origin + "/jobs");
-  await page.getByRole("heading", { name: "Jobs", exact: true }).waitFor();
+  await page.goto(origin + "/triggers");
+  await page.getByRole("heading", { name: "Triggers", exact: true }).waitFor();
   await page.evaluate(() => window.dispatchEvent(new Event("vite:preloadError", { cancelable: true })));
   await expect(page.getByRole("alert")).toBeVisible();
   await expect(page).toHaveScreenshot(`chunk-recovery-${theme}-390.png`);
@@ -138,21 +138,21 @@ for (const theme of ["light", "dark"]) test(`additional routes and feedback ${th
 test("loading, error, disabled and search states", async ({ page }) => {
   await mockApi(page); await page.setViewportSize({ width: 390, height: 844 });
   let pending, fail = false;
-  await page.route("**/api/v1/job-summaries?**", route => fail ? route.fulfill({ status: 403, json: { error: { code: "forbidden", message: "This workspace is unavailable." } } }) : (pending = route));
-  await page.goto(origin + "/jobs");
+  await page.route("**/api/v1/trigger-summaries?**", route => fail ? route.fulfill({ status: 403, json: { error: { code: "forbidden", message: "This workspace is unavailable." } } }) : (pending = route));
+  await page.goto(origin + "/triggers");
   await expect(page.getByRole("status").filter({ hasText: "Loading…" })).toBeVisible();
   await expect(page).toHaveScreenshot("jobs-loading-mobile.png");
   fail = true; await pending.fulfill({ status: 403, json: { error: { code: "forbidden", message: "This workspace is unavailable." } } });
   await expect(page.getByRole("alert")).toHaveText("This workspace is unavailable.");
   await expect(page).toHaveScreenshot("jobs-error-mobile.png");
-  await page.getByRole("button", { name: "Search jobs, runs, and messages", exact: true }).click();
+  await page.getByRole("button", { name: "Search triggers, runs, and messages", exact: true }).click();
   await expect(page.getByRole("combobox")).toBeFocused();
   await expect(page).toHaveScreenshot("search-empty-mobile.png");
   await page.getByRole("combobox").fill("release");
   await expect(page.getByRole("option")).toBeVisible();
   await expect(page).toHaveScreenshot("search-results-mobile.png");
   expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
-  await page.keyboard.press("Escape"); await expect(page.getByRole("button", { name: "Search jobs, runs, and messages", exact: true })).toBeFocused();
+  await page.keyboard.press("Escape"); await expect(page.getByRole("button", { name: "Search triggers, runs, and messages", exact: true })).toBeFocused();
   await page.goto(origin + "/auth/signup");
   await expect(page.getByLabel("Email", { exact: true })).toBeVisible();
   await expect(page).toHaveScreenshot("signup-mobile.png");
@@ -162,9 +162,9 @@ for (const theme of ["light", "dark"]) test(`search loading, error and no result
   let mode = "pending", pending;
   const failure = { status: 403, json: { error: { code: "forbidden", message: "Search is unavailable for this workspace." } } };
   await page.route("**/api/v1/search?**", route => mode === "pending" ? (pending = route) : mode === "error" ? route.fulfill(failure) : route.fulfill({ json: { items: [] } }));
-  await page.goto(origin + "/jobs"); await page.getByRole("heading", { name: "Jobs", exact: true }).waitFor();
-  await page.getByRole("button", { name: "Search jobs, runs, and messages", exact: true }).click();
-  const dialog = page.getByRole("dialog"), input = dialog.getByRole("combobox", { name: "Search jobs and runs by name, title, or issue identifier", exact: true });
+  await page.goto(origin + "/triggers"); await page.getByRole("heading", { name: "Triggers", exact: true }).waitFor();
+  await page.getByRole("button", { name: "Search triggers, runs, and messages", exact: true }).click();
+  const dialog = page.getByRole("dialog"), input = dialog.getByRole("combobox", { name: "Search triggers and runs by name, title, or issue identifier", exact: true });
   await input.fill("release"); await expect(dialog.getByRole("status")).toHaveText("Searching…");
   await expect(page).toHaveScreenshot(`search-loading-${theme}-390.png`);
   mode = "error"; await pending.fulfill(failure);
@@ -200,19 +200,19 @@ for (const theme of ["light", "dark"]) test(`run tabs, context and breadcrumbs o
   expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
   const breadcrumbs = page.getByRole("navigation", { name: "Breadcrumb" });
   await breadcrumbs.getByRole("link", { name: "Review release builds", exact: true }).click();
-  await expect(page).toHaveURL(new RegExp("/jobs/" + jobId));
+  await expect(page).toHaveURL(new RegExp("/triggers/" + triggerId));
   await expect(page.getByRole("heading", { name: /^Long release review/ })).toBeVisible();
   await page.goto(origin + screens[3][1]);
-  await page.getByRole("navigation", { name: "Breadcrumb" }).getByRole("link", { name: "Jobs", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Jobs", exact: true })).toBeVisible();
+  await page.getByRole("navigation", { name: "Breadcrumb" }).getByRole("link", { name: "Triggers", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Triggers", exact: true })).toBeVisible();
 });
 
 for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 }, { width: 390, height: 400 }]) test(`search geometry stays stable through asynchronous query changes ${viewport.width}x${viewport.height}`, async ({ page }) => {
   await page.setViewportSize(viewport); await mockApi(page);
   let pending;
   await page.route("**/api/v1/search?**", route => { pending = route; });
-  await page.goto(origin + "/jobs");
-  const opener = page.getByRole("button", { name: "Search jobs, runs, and messages", exact: true });
+  await page.goto(origin + "/triggers");
+  const opener = page.getByRole("button", { name: "Search triggers, runs, and messages", exact: true });
   await opener.click();
   const dialog = page.getByRole("dialog"), input = dialog.getByRole("combobox");
   await expect(input).toBeFocused();
@@ -220,7 +220,7 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
   const initial = await geometry();
   expect(initial.panel.y).toBeGreaterThanOrEqual(0);
   expect(initial.panel.y + initial.panel.height).toBeLessThanOrEqual(viewport.height);
-  const items = count => Array.from({ length: count }, (_, index) => ({ kind: "job", id: jobId, title: `Result ${index + 1}`, subtitle: "Matching job " + "long text ".repeat(8), url: "/jobs/" + jobId, source: { kind: "job", label: "Review release builds", id: jobId }, match: { text: `Result ${index + 1}`, ranges: [{ start: 0, end: 6 }] } }));
+  const items = count => Array.from({ length: count }, (_, index) => ({ kind: "trigger", id: triggerId, title: `Result ${index + 1}`, subtitle: "Matching trigger " + "long text ".repeat(8), url: "/triggers/" + triggerId, source: { kind: "trigger", label: "Review release builds", id: triggerId }, match: { text: `Result ${index + 1}`, ranges: [{ start: 0, end: 6 }] } }));
   for (const [query, count] of [["missing", 0], ["few", 2], ["many", 30], ["changed", 1], ["empty again", 0]]) {
     pending = undefined;
     await input.fill(query);
@@ -246,7 +246,7 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
     }
   }
   await input.fill("");
-  await expect(dialog.getByText("Find jobs and runs by approximate name, title, or issue identifier", { exact: false })).toBeVisible();
+  await expect(dialog.getByText("Find triggers and runs by approximate name, title, or issue identifier", { exact: false })).toBeVisible();
   expect(await geometry()).toEqual(initial);
   await input.fill("select");
   await expect(dialog.getByRole("status")).toHaveText("Searching…");
@@ -254,7 +254,7 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
   await pending.fulfill({ json: { items: items(2) } });
   await expect(dialog.getByRole("option")).toHaveCount(2);
   await input.press("ArrowDown"); await input.press("Enter");
-  await expect(dialog).toHaveCount(0); await expect(page).toHaveURL(origin + "/jobs/" + jobId);
+  await expect(dialog).toHaveCount(0); await expect(page).toHaveURL(origin + "/triggers/" + triggerId);
   await opener.click(); await input.fill("click");
   await expect(dialog.getByRole("status")).toHaveText("Searching…");
   await expect.poll(() => pending && new URL(pending.request().url()).searchParams.get("q")).toBe("click");

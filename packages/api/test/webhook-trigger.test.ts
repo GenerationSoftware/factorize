@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { adaptWebhook, publicWebhookConfig } from "../src/webhook-trigger";
 
-describe("webhook Job trigger adapters", () => {
+describe("webhook Trigger event adapters", () => {
   it("matches Linear and derives a stable claim plus string invocation inputs", () => {
     const config = { provider: "linear" as const, projectId: "p1", matchRules: [{ type: "status" as const, targetId: "done" }] };
     const payload = { type: "Issue", action: "update", data: { id: "i1", project: { id: "p1" }, state: { id: "done" } }, updatedFrom: { stateId: "todo" } };

@@ -47,7 +47,7 @@ export class VendorRunIdentityRepository {
     if (expiresAt <= now) throw new TypeError("Vendor identity has expired");
 
     return this.database.transaction(async client => {
-      const active = await client.query(`SELECT 1 FROM app.job_runs WHERE tenant_id=$1 AND id=$2 AND state IN ${activeStates} FOR UPDATE`, [input.tenantId, input.identity.runId]);
+      const active = await client.query(`SELECT 1 FROM app.trigger_runs WHERE tenant_id=$1 AND id=$2 AND state IN ${activeStates} FOR UPDATE`, [input.tenantId, input.identity.runId]);
       if (!active.rowCount) throw new Error("Vendor identity run is not active");
 
       const current = await client.query<VendorRunIdentityBinding>(`SELECT tenant_id AS "tenantId",run_id AS "runId",provider,vm_id AS "vmId",issuer,subject,audience,issued_at AS "issuedAt",expires_at AS "expiresAt",revoked_at AS "revokedAt"
@@ -82,7 +82,7 @@ export class VendorRunIdentityRepository {
     if (!uuid.test(input.tenantId) || !uuid.test(input.runId)) throw new TypeError("Vendor identity tenant and run IDs must be UUIDs");
     const now = input.now ?? new Date();
     const result = await this.database.pool.query<VendorRunIdentityBinding>(`SELECT b.tenant_id AS "tenantId",b.run_id AS "runId",b.provider,b.vm_id AS "vmId",b.issuer,b.subject,b.audience,b.issued_at AS "issuedAt",b.expires_at AS "expiresAt",b.revoked_at AS "revokedAt"
-      FROM app.vendor_run_identity_bindings b JOIN app.job_runs r ON r.tenant_id=b.tenant_id AND r.id=b.run_id
+      FROM app.vendor_run_identity_bindings b JOIN app.trigger_runs r ON r.tenant_id=b.tenant_id AND r.id=b.run_id
       WHERE b.tenant_id=$1 AND b.run_id=$2 AND b.provider=$3 AND b.revoked_at IS NULL AND b.expires_at>$4 AND r.state IN ${activeStates}`,
     [input.tenantId, input.runId, input.provider, now]);
     return result.rows[0] ?? null;

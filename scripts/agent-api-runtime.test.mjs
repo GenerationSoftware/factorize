@@ -91,6 +91,11 @@ test('agent API OAuth, policy, connection isolation, run identity and response l
       if(target.hostname==='oidc.fly.io') {res.setHeader('Content-Type','application/json');res.end(JSON.stringify(target.pathname.endsWith('openid-configuration')?{issuer:'https://oidc.fly.io/fixture',jwks_uri:'https://oidc.fly.io/fixture/jwks'}:{keys:[jwk]}));return;}
       if(target.pathname==='/app/installations/17/access_tokens') {res.setHeader('Content-Type','application/json');res.end(JSON.stringify({token:'github-private',expires_at:new Date(Date.now()+3600000).toISOString()}));return;}
       if(target.pathname==='/oauth/token') {res.setHeader('Content-Type','application/json');res.end(JSON.stringify({access_token:target.hostname==='api.linear.app'?'linear-refreshed':'model-oauth-private',refresh_token:'refreshed-private',expires_in:3600}));return;}
+      if(target.pathname==='/v1/chat/completions') {
+        const input=JSON.parse(body);
+        if(JSON.stringify(input.messages).includes('Simulate a launch failure')) {res.writeHead(400,{'Content-Type':'application/json'});res.end(JSON.stringify({error:{message:'Fixture model unavailable',type:'invalid_request_error'}}));return;}
+        res.writeHead(200,{'Content-Type':'text/event-stream'});res.end('data: '+JSON.stringify({id:'background',object:'chat.completion.chunk',model:'fixture',choices:[{index:0,delta:{content:JSON.stringify({status:'succeeded',summary:'Review complete'})},finish_reason:'stop'}]})+'\n\ndata: [DONE]\n\n');return;
+      }
       if(target.pathname==='/large') {res.setHeader('Content-Type','application/octet-stream');res.end(Buffer.alloc(1140000,0xff));return;}
       if(target.pathname==='/bom') {res.end(Buffer.from([0xef,0xbb,0xbf,0x61]));return;}
       if(target.pathname==='/binary') {res.end(Buffer.from([0,255,254,1]));return;}
@@ -172,7 +177,7 @@ test('agent API OAuth, policy, connection isolation, run identity and response l
     const read=(token,args)=>proxy(token,'/api/v1/agent/responses/read',args);
     const request=(token,integration,path='/',extra={})=>proxy(token,'/api/v1/agent/requests',{integration:integration.id,method:'GET',path,...extra});
     const scopes=row=>'integration:'+row.id+':'+row.epoch;
-    const first=await authorize(['jobs:read']),second=await authorize(['jobs:read']);
+    const first=await authorize(['triggers:read']),second=await authorize(['triggers:read']);
     await rpc(first, 'rename_mcp_client', {name:'Release assistant'});
     const clients = await json('/api/v1/access/authorized-clients','GET',undefined,owner);
     const siblingConnections = clients.body.filter(client => client.clientId === clientId);
@@ -214,19 +219,19 @@ test('agent API OAuth, policy, connection isolation, run identity and response l
     const before=observed.length;
     const denied=await request(first,requestable,'/must-not-run',{method:'POST',body:'denied'});assert.equal(denied.status,403,denied.text);assert.match(denied.headers.get('WWW-Authenticate'),/error="insufficient_scope"/);assert.ok(denied.headers.get('WWW-Authenticate').includes(scopes(requestable)));assert.ok(denied.headers.get('WWW-Authenticate').includes('resource_metadata='));assert.equal(observed.length,before);
     const baselineCall=await request(first,baseline,'/items?q=1',{method:'POST',body:'payload',headers:{Authorization:'caller-secret',Cookie:'caller-cookie','X-Forwarded-Host':'hidden','Content-Type':'text/plain'}});assert.equal(baselineCall.result.body,'fixture response');assert.equal(baselineCall.result.status,200);assert.equal(baselineCall.result.headers['set-cookie'],undefined);assert.equal(baselineCall.result.headers.authorization,undefined);assert.equal(observed.at(-1).headers.authorization,'Bearer upstream-private');assert.equal(observed.at(-1).body,'payload');assert.ok(observed.at(-1).target.endsWith('/items?q=1'));assert.equal(observed.at(-1).headers.cookie,undefined);assert.ok(!baselineCall.text.includes('upstream-private'));
-    await authorize(['jobs:read',scopes(requestable)],'deny');assert.equal((await request(first,requestable)).status,403);
-    const unapproved=await authorize(['jobs:read',scopes(requestable)],'allow',scopes(requestable));assert.equal((await request(unapproved,requestable)).status,403);
-    const stepped=await authorize(['jobs:read',scopes(requestable)]);assert.equal((await request(stepped,requestable)).result.status,200);assert.equal((await rpc(stepped,'list_jobs')).status,200);assert.equal((await request(second,requestable)).status,403);
+    await authorize(['triggers:read',scopes(requestable)],'deny');assert.equal((await request(first,requestable)).status,403);
+    const unapproved=await authorize(['triggers:read',scopes(requestable)],'allow',scopes(requestable));assert.equal((await request(unapproved,requestable)).status,403);
+    const stepped=await authorize(['triggers:read',scopes(requestable)]);assert.equal((await request(stepped,requestable)).result.status,200);assert.equal((await rpc(stepped,'list_triggers')).status,200);assert.equal((await request(second,requestable)).status,403);
     assert.equal((await request(first,baseline)).result.status,200,'ordinary authorization preserves old connection');
     const refreshed=await form({grant_type:'refresh_token',client_id:clientId,refresh_token:stepped.refresh_token,resource:origin+'/mcp'});assert.equal((await request(refreshed,requestable)).result.status,200);
     assert.equal((await rpc(refreshed,'get_api_reflection')).result.identity.id,(await rpc(stepped,'get_api_reflection')).result.identity.id);
-    const narrowed=await form({grant_type:'refresh_token',client_id:clientId,refresh_token:refreshed.refresh_token,scope:'jobs:read proxy:use',resource:origin+'/mcp'});assert.equal((await request(narrowed,requestable)).status,403,'presented token narrowing wins over consent props');
+    const narrowed=await form({grant_type:'refresh_token',client_id:clientId,refresh_token:refreshed.refresh_token,scope:'triggers:read proxy:use',resource:origin+'/mcp'});assert.equal((await request(narrowed,requestable)).status,403,'presented token narrowing wins over consent props');
     const policy=async(row,value)=>{const current=(await db.query('SELECT revision FROM app.agent_integrations WHERE tenant_id=$1 AND id=$2',[tenant,row.id])).rows[0];const result=await json('/api/v1/integration-api-policies/'+row.id,'PUT',{policy:value,expectedRevision:current.revision},owner);assert.equal(result.status,200,JSON.stringify(result.body));return result;};
     await policy(requestable,'baseline');assert.equal((await request(first,requestable)).result.status,200);assert.equal((await rpc(first,'get_api_reflection')).result.integrations.find(row=>row.id===requestable.id).access,'granted');
     await policy(requestable,'requestable');assert.equal((await request(first,requestable)).status,403);assert.equal((await request(stepped,requestable)).result.status,200);
     await policy(requestable,'disabled');assert.equal((await request(stepped,requestable)).status,403);await policy(requestable,'requestable');assert.equal((await request(stepped,requestable)).status,403,'disable revokes approvals permanently');
     requestable.epoch=(await db.query('SELECT epoch FROM app.agent_integrations WHERE id=$1',[requestable.id])).rows[0].epoch;
-    const fresh=await authorize(['jobs:read',scopes(requestable)]);assert.equal((await request(fresh,requestable)).result.status,200);
+    const fresh=await authorize(['triggers:read',scopes(requestable)]);assert.equal((await request(fresh,requestable)).result.status,200);
     const bom=await request(first,baseline,'/bom');assert.equal(bom.result.body,'\ufeffa');assert.equal(bom.result.size,4);
     const binary=await request(first,baseline,'/binary');assert.equal(binary.result.encoding,'base64');assert.deepEqual(Buffer.from(binary.result.body,'base64'),Buffer.from([0,255,254,1]));
     const failure=await request(first,baseline,'/failure');assert.equal(failure.result.status,422);
@@ -234,7 +239,7 @@ test('agent API OAuth, policy, connection isolation, run identity and response l
     const large=await request(first,baseline,'/large');assert.equal(large.result.size,1140000,large.text);assert.ok(large.result.handle);assert.equal(large.result.body,undefined);
     const chunk=await read(first,{handle:large.result.handle,offset:1040000});assert.equal(Buffer.from(chunk.result.body,'base64').length,65536);assert.ok(Buffer.from(chunk.result.body,'base64').every(value=>value===255));
     assert.ok((await read(second,{handle:large.result.handle,offset:0})).text.includes('not_found'));
-    const removed=await rpc(first,'request_api',{integration:baseline.id,method:'GET',path:'/'},{progressToken:'fixture-progress'});assert.ok(!removed.result,'proxy tool removed');
+    const mcpRequest=await rpc(first,'request_api',{integration:baseline.id,method:'GET',path:'/'},{progressToken:'fixture-progress'});assert.equal(mcpRequest.result?.status,200,mcpRequest.text);assert.equal(mcpRequest.result.body,'fixture response');assert.ok(!mcpRequest.text.includes('upstream-private'));
     const policies=await json('/api/v1/integration-api-policies','GET',undefined,owner);assert.equal(policies.status,200);
     const otherTenant=randomUUID();await db.query('INSERT INTO app.tenants(id) VALUES($1)',[otherTenant]);
     const foreign=randomUUID();await db.query("INSERT INTO app.agent_integrations(tenant_id,id,kind,credential_id,name,available,policy) VALUES($1,$2,'bearer','foreign','Foreign',true,'baseline')",[otherTenant,foreign]);assert.equal((await request(first,{id:foreign})).status,403);
@@ -243,7 +248,7 @@ test('agent API OAuth, policy, connection isolation, run identity and response l
     const foreignSession=Buffer.from(JSON.stringify({tenantId:otherTenant,userId:user,email:'agent@example.test',exp:Math.floor(Date.now()/1000)+3600,sessionVersion:1})).toString('base64url');
     const foreignCookie=encodeURIComponent(foreignSession+'.'+createHmac('sha256',secret).update(foreignSession).digest('base64'));
     await context.addCookies([{name:'factorize_session',value:foreignCookie,domain:'localhost',path:'/',httpOnly:true,secure:true}]);
-    const foreignToken=await authorize(['jobs:read','runs:read','runs:start']);
+    const foreignToken=await authorize(['triggers:read','runs:read','runs:start']);
     assert.ok((await read(foreignToken,{handle:large.result.handle,offset:0})).text.includes('not_found'));
     assert.equal((await json('/api/v1/access/authorizations/'+foreignToken.access_token.split(':')[1],'DELETE',undefined,owner)).status,404);
     await context.addCookies([{name:'factorize_session',value:cookieValue,domain:'localhost',path:'/',httpOnly:true,secure:true}]);
@@ -259,7 +264,7 @@ test('agent API OAuth, policy, connection isolation, run identity and response l
     // All provider adapters use the same grants and forwarding boundary.
     await db.query("INSERT INTO app.github_installations(installation_id,tenant_id,account_login,account_type,state) VALUES(17,$1,'fixture','Organization','active')",[tenant]);
     await db.query("INSERT INTO app.connections(tenant_id,kind,encrypted_value) VALUES($1,'linear',$2)",[tenant,encrypt(JSON.stringify({accessToken:'linear-private',refreshToken:'linear-refresh',accessTokenExpiresAt:new Date(Date.now()-3600000).toISOString()}))]);
-    const model=await createIntegration('Model API','model',JSON.stringify({OPENAI_API_KEY:'model-private'}));
+    const model=await createIntegration('Model API','model',JSON.stringify({providerUrl:'https://api.openai.com/v1',apiKey:'model-private'}));
     for(const [kind,path,expected,auth] of [['github','/repos/fixture/repo','https://api.github.com/repos/fixture/repo','github-private'],['linear','/graphql','https://api.linear.app/graphql','linear-refreshed'],['model','/responses','https://api.openai.com/v1/responses','model-private']]) {
       const row=(await db.query('SELECT * FROM app.agent_integrations WHERE tenant_id=$1 AND kind=$2',[tenant,kind])).rows[0];await policy(row,'baseline');
       const result=await request(first,row,path);assert.equal(result.result.status,200,result.text);assert.equal(observed.at(-1).target,expected);assert.equal(observed.at(-1).headers.authorization,'Bearer '+auth);
@@ -279,7 +284,7 @@ test('agent API OAuth, policy, connection isolation, run identity and response l
       assert.ok(row,provider.kind+' is registered'); assert.equal(row.policy,'requestable');
       const count=observed.length;
       assert.equal((await request(first,row,provider.path)).status,403); assert.equal(observed.length,count,'unapproved calls never reach upstream');
-      const approved=await authorize(['jobs:read',scopes(row)]);
+      const approved=await authorize(['triggers:read',scopes(row)]);
       const forwarded=await request(approved,row,provider.path,{method:'POST',body:'fixture command',headers:{Authorization:'caller-secret',Cookie:'private-cookie','Content-Type':'text/plain'}});
       assert.equal(forwarded.result.status,200,forwarded.text); assert.equal(observed.at(-1).target,provider.target); assert.equal(observed.at(-1).headers.authorization,provider.authorization); assert.equal(observed.at(-1).headers.cookie,undefined); assert.equal(observed.at(-1).body,'fixture command');
       assert.ok(!forwarded.text.includes(provider.authorization));
@@ -358,7 +363,7 @@ test('agent API OAuth, policy, connection isolation, run identity and response l
     await db.query("INSERT INTO app.x_connections(tenant_id,id,name,client_id,scopes,encrypted_secret,status,account_id,account_handle,granted_scopes) VALUES($1,$2,'Social account','fixture',ARRAY['users.read','tweet.read','offline.access'],$3,'connected','123','fixture',ARRAY['users.read','tweet.read','offline.access'])",[tenant,xId,encrypt(JSON.stringify(xCredential))]);
     const xRow=(await db.query("SELECT * FROM app.agent_integrations WHERE tenant_id=$1 AND kind='x' AND credential_id=$2",[tenant,xId])).rows[0];
     assert.equal(xRow.available,true);assert.equal((await request(first,xRow,'/2/users/me')).status,403);
-    const xApproved=await authorize(['jobs:read',scopes(xRow)]);
+    const xApproved=await authorize(['triggers:read',scopes(xRow)]);
     assert.equal((await request(xApproved,xRow,'/2/users/me')).result.status,200);assert.equal(observed.at(-1).target,'https://api.x.com/2/users/me');assert.equal(observed.at(-1).headers.authorization,'Bearer x-private');
     const xCount=observed.length;
     const xWrite=await request(xApproved,xRow,'/2/tweets',{method:'POST',body:'{}'});
@@ -380,47 +385,43 @@ test('agent API OAuth, policy, connection isolation, run identity and response l
       assert.equal((await request(first,github,path)).result.status,200);assert.equal(observed.at(-1).target,target);
       if(path.includes('info/refs')) assert.equal(observed.at(-1).headers.authorization,'Basic '+Buffer.from('x-access-token:github-private').toString('base64'));
     }
-    const oauthModel=await createIntegration('OAuth Model','model',JSON.stringify({tokens:{access_token:'expired-model',refresh_token:'model-refresh'},last_refresh:'2000-01-01T00:00:00Z'}));
-    await policy(oauthModel,'baseline');assert.equal((await request(first,oauthModel,'/responses')).result.status,200);assert.equal(observed.at(-1).target,'https://chatgpt.com/backend-api/codex/responses');assert.equal(observed.at(-1).headers.authorization,'Bearer model-oauth-private');
-    assert.ok(observed.some(row=>row.target==='https://auth.openai.com/oauth/token'));assert.ok(observed.some(row=>row.target==='https://api.linear.app/oauth/token'));
+    assert.ok(observed.some(row=>row.target==='https://api.linear.app/oauth/token'));
     // Verified Fly OIDC reaches the same service using an immutable run snapshot.
-    const runId=randomUUID(),jobId=randomUUID(),invocationId=randomUUID(),now=Math.floor(Date.now()/1000);
-    await db.query("INSERT INTO app.projects(tenant_id,id,name) VALUES($1,md5(($1::uuid)::text || ':default')::uuid,'Default')",[tenant]);
-    await db.query("INSERT INTO app.jobs(tenant_id,id,project_id,name,slug,encrypted_prompt_template,execution_config,concurrency_limit) VALUES($1,$2,md5(($1::uuid)::text || ':default')::uuid,'Fixture','fixture','cipher','{}',1)",[tenant,jobId]);
-    await db.query("INSERT INTO app.triggers(tenant_id,id,job_id,kind,slug) VALUES($1,gen_random_uuid(),$2,'manual','manual')",[tenant,jobId]);
-    await db.query("INSERT INTO app.invocations(tenant_id,id,job_id,source,claim_key,context,trigger_id) VALUES($1,$2,$3,'manual','fixture','{}',(SELECT id FROM app.triggers WHERE tenant_id=$1 AND job_id=$3))",[tenant,invocationId,jobId]);
-    await db.query("INSERT INTO app.job_runs(tenant_id,id,job_id,invocation_id,state,encrypted_prompt) VALUES($1,$2,$3,$4,'running','cipher')",[tenant,runId,jobId,invocationId]);
-    await db.query("INSERT INTO app.runs(tenant_id,id,job_id,invocation_id,provider,issue_id,agent_name,state,execution_config,execution_handle) VALUES($1,$2,$3,$4,'manual','fixture','codex','running',$5,$6)",[tenant,runId,jobId,invocationId,{portableIntegrationIds:[baseline.credential_id]},{id:'fixture-app/machine'}]);
+    const runId=randomUUID(),triggerId=randomUUID(),invocationId=randomUUID(),now=Math.floor(Date.now()/1000);
+    await db.query("INSERT INTO app.triggers(tenant_id,id,name,slug,encrypted_prompt,execution_config,concurrency_limit) VALUES($1,$2,'fixture','fixture','cipher','{}',1)",[tenant,triggerId]);
+    await db.query("INSERT INTO app.events(tenant_id,id,trigger_id,kind,slug) VALUES($1,gen_random_uuid(),$2,'manual','manual')",[tenant,triggerId]);
+    await db.query("INSERT INTO app.invocations(tenant_id,id,trigger_id,source,claim_key,context,event_id) VALUES($1,$2,$3,'manual','fixture','{}',(SELECT id FROM app.events WHERE tenant_id=$1 AND trigger_id=$3))",[tenant,invocationId,triggerId]);
+    await db.query("INSERT INTO app.trigger_runs(tenant_id,id,trigger_id,invocation_id,state,encrypted_prompt) VALUES($1,$2,$3,$4,'running','cipher')",[tenant,runId,triggerId,invocationId]);
+    await db.query("INSERT INTO app.runs(tenant_id,id,trigger_id,invocation_id,provider,issue_id,agent_name,state,execution_config,execution_handle) VALUES($1,$2,$3,$4,'manual','fixture','codex','running',$5,$6)",[tenant,runId,triggerId,invocationId,{portableIntegrationIds:[baseline.credential_id]},{id:'fixture-app/machine'}]);
     await db.query("INSERT INTO app.fly_connections(tenant_id,organization_slug,organization_name,encrypted_token) VALUES($1,'fixture','Fixture','cipher')",[tenant]);
     await db.query("INSERT INTO app.run_authorizations(tenant_id,run_id,user_id,session_version,scopes) VALUES($1,$2,$3,1,'[]')",[tenant,runId,user]);
     const subject='fixture:fixture-app:machine';
     await db.query("INSERT INTO app.vendor_run_identity_bindings(tenant_id,run_id,provider,vm_id,issuer,subject,audience,issued_at,expires_at) VALUES($1,$2,'fly.io','machine','https://oidc.fly.io/fixture',$3,$4,now(),now()+interval '1 hour')",[tenant,runId,subject,origin]);
     const runHeaders={'X-Factorize-Run-Id':runId,Authorization:'Bearer '+jwt({machine_id:'machine',iss:'https://oidc.fly.io/fixture',sub:subject,aud:origin,iat:now,exp:now+300})};
     const runResponse=await send('/api/v1/agent/reflection','GET',undefined,runHeaders);assert.equal(runResponse.status,200,await runResponse.clone().text());assert.equal((await runResponse.json()).integrations.length,1);
-    const nestedRequest={prompt:'Background review'};
+    const nestedRequest={script:'echo Background review'};
     assert.equal((await json('/api/v1/runs','POST',nestedRequest,runHeaders)).status,403);
     await db.query("UPDATE app.run_authorizations SET scopes=$3 WHERE tenant_id=$1 AND run_id=$2",[tenant,runId,JSON.stringify(['runs:start'])]);
-    const parentProject=(await db.query('SELECT project_id FROM app.runs WHERE tenant_id=$1 AND id=$2',[tenant,runId])).rows[0].project_id;
     const nestedTarget=randomUUID();
     await db.query('INSERT INTO app.connections(tenant_id,kind,encrypted_value) VALUES($1,$2,$3)',[tenant,'exe:'+nestedTarget,encrypt(JSON.stringify({agentKind:'codex',connectionId:nestedTarget}))]);
-    assert.equal((await json('/api/v1/projects/'+parentProject+'/run-defaults','PUT',{executionConfigId:nestedTarget},owner)).status,200);
-    assert.equal((await json('/api/v1/runs','POST',{...nestedRequest,projectId:randomUUID()},runHeaders)).status,403);
+    assert.equal((await json('/api/v1/team/run-defaults','PUT',{executionConfigId:nestedTarget,requiresVm:true},owner)).status,200);
+    assert.equal((await json('/api/v1/runs','POST',{...nestedRequest,projectId:randomUUID()},runHeaders)).status,400);
     const child=await json('/api/v1/runs','POST',nestedRequest,runHeaders);
     assert.ok(child.body.runId,JSON.stringify(child.body));
     const childRow=(await db.query('SELECT r.project_id,i.source_run_id,a.scopes FROM app.runs r JOIN app.invocations i ON i.tenant_id=r.tenant_id AND i.id=r.invocation_id JOIN app.run_authorizations a ON a.tenant_id=r.tenant_id AND a.run_id=r.id WHERE r.tenant_id=$1 AND r.id=$2',[tenant,child.body.runId])).rows[0];
-    assert.deepEqual(childRow,{project_id:parentProject,source_run_id:runId,scopes:[]});
+    assert.deepEqual(childRow,{project_id:null,source_run_id:runId,scopes:[]});
     assert.equal((await json('/api/v1/runs/'+child.body.runId+'/stop','POST',{},owner)).status,200);
     const stream=await send('/internal/run-proxy/'+runId+'/integrations/'+baseline.credential_id+'/stream','GET',undefined,runHeaders);assert.equal(stream.status,200);
     const streamReader=stream.body.getReader();assert.match(new TextDecoder().decode((await streamReader.read()).value),/first/);releaseStream();assert.match(new TextDecoder().decode((await streamReader.read()).value),/last/);
     assert.equal((await send('/internal/run-proxy/'+runId+'/integrations/'+requestable.credential_id+'/','GET',undefined,runHeaders)).status,403);
     assert.equal((await send('/api/v1/agent/reflection','GET',undefined,{...runHeaders,Authorization:'Bearer '+first.access_token})).status,401,'invalid vendor identity cannot fall back to OAuth');
-    await db.query("UPDATE app.jobs SET execution_config=$3 WHERE tenant_id=$1 AND id=$2",[tenant,jobId,{portableIntegrationIds:[baseline.credential_id,requestable.credential_id]}]);
-    assert.equal((await send('/internal/run-proxy/'+runId+'/integrations/'+requestable.credential_id+'/','GET',undefined,runHeaders)).status,403,'job edits cannot expand the run snapshot');
+    await db.query("UPDATE app.triggers SET execution_config=$3 WHERE tenant_id=$1 AND id=$2",[tenant,triggerId,{portableIntegrationIds:[baseline.credential_id,requestable.credential_id]}]);
+    assert.equal((await send('/internal/run-proxy/'+runId+'/integrations/'+requestable.credential_id+'/','GET',undefined,runHeaders)).status,403,'trigger edits cannot expand the run snapshot');
     await db.query("UPDATE app.integration_records SET deleted_at=now(),encrypted_payload=NULL WHERE tenant_id=$1 AND id=$2",[tenant,baseline.credential_id]);
     await db.query("UPDATE app.integration_records SET deleted_at=NULL,encrypted_payload=$3 WHERE tenant_id=$1 AND id=$2",[tenant,baseline.credential_id,encrypt('factorize-managed-bearer-v1:upstream-private')]);
     assert.equal((await send('/internal/run-proxy/'+runId+'/integrations/'+baseline.credential_id+'/','GET',undefined,runHeaders)).status,403,'run disconnect revocation survives reconnect');
     assert.equal((await read(first,{handle:large.result.handle,offset:0})).status,403,'retained responses cannot cross a disconnect epoch');
-    await db.query("UPDATE app.job_runs SET state='stopped' WHERE tenant_id=$1 AND id=$2",[tenant,runId]);assert.equal((await send('/internal/run-proxy/'+runId+'/integrations/'+baseline.credential_id+'/','GET',undefined,runHeaders)).status,403);
+    await db.query("UPDATE app.trigger_runs SET state='stopped' WHERE tenant_id=$1 AND id=$2",[tenant,runId]);assert.equal((await send('/internal/run-proxy/'+runId+'/integrations/'+baseline.credential_id+'/','GET',undefined,runHeaders)).status,403);
     await policy(baseline,'requestable');assert.equal((await request(first,baseline)).status,403);assert.equal((await read(first,{handle:large.result.handle,offset:0})).status,403,'reads require current grants');await policy(baseline,'baseline');
     const grantId=first.access_token.split(':')[1];assert.equal((await json('/api/v1/access/authorizations/'+grantId,'DELETE',undefined,owner)).status,200);assert.equal((await request(first,baseline)).status,401);assert.equal((await read(first,{handle:large.result.handle,offset:0})).status,401);assert.equal((await request(second,baseline)).result.status,200);
     await t.test("background a skill and deliver its outcome to the originating idle session",()=>backgroundRunAcceptance({db,tenant,encrypt,json,owner,rpc,authorize,worker,origin,maintenance,foreignToken,readOnly:second}));

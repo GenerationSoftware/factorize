@@ -41,7 +41,7 @@ describe.skipIf(!url)("vendor identity request admission (PostgreSQL and Worker 
   afterAll(async () => { await f?.cleanup(); });
   beforeEach(async () => {
     const now = Math.floor(Date.now() / 1000);
-    await f.db.pool.query("UPDATE app.job_runs SET state='running' WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId]);
+    await f.db.pool.query("UPDATE app.trigger_runs SET state='running' WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId]);
     await f.db.pool.query("UPDATE app.runs SET encrypted_launch_payload=NULL WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId]);
     await f.db.pool.query("UPDATE app.runs SET state='running',execution_handle=$3,execution_config=$4 WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId, {backendKind: "fly", id: `run-app/${machineId}`}, {executionProvider: "fly", connectionId: "config", runScopes: ["runs:read"]}]);
     await new FlyConnectionRepository(f.db, f.tenantId, f.env.CREDENTIAL_ENCRYPTION_KEY).save({organizationSlug: "connected-org", organizationName: "A different display name"}, "fixture-token");
@@ -60,14 +60,14 @@ describe.skipIf(!url)("vendor identity request admission (PostgreSQL and Worker 
 
   it("authenticates at the Worker boundary with only snapshotted scopes and server tenant", async () => {
     const auth = await authenticateVendorRunRequest(request(jwt, f.runId, undefined, {"X-Factorize-Tenant-Id": f.otherTenant}), f.env);
-    expect(auth).toMatchObject({tenantId: f.tenantId, runId: f.runId, runJobId: f.jobIds[0], authMethod: "vendor_identity", scopes: ["runs:read"]});
+    expect(auth).toMatchObject({tenantId: f.tenantId, runId: f.runId, runTriggerId: f.triggerIds[0], authMethod: "vendor_identity", scopes: ["runs:read"]});
     expect(auth).not.toHaveProperty("runCredentialDigest");
     const response = await worker.fetch(request(), f.env, {waitUntil() {}} as any);
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({authMethod: "vendor_identity", scopes: ["runs:read"], runId: f.runId});
-    expect((await worker.fetch(request(jwt, f.runId, "/api/v1/jobs"), f.env, {waitUntil() {}} as any)).status).toBe(403);
-    await f.db.pool.query("UPDATE app.jobs SET run_scopes='[\"jobs:write\",\"jobs:read\"]' WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.jobIds[0]]);
-    await snapshotRunAuthorization(f.db, {tenantId: f.tenantId, runId: f.runId, scopes: ["jobs:read", "jobs:write"]});
+    expect((await worker.fetch(request(jwt, f.runId, "/api/v1/triggers"), f.env, {waitUntil() {}} as any)).status).toBe(403);
+    await f.db.pool.query("UPDATE app.triggers SET run_scopes='[\"triggers:write\",\"triggers:read\"]' WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.triggerIds[0]]);
+    await snapshotRunAuthorization(f.db, {tenantId: f.tenantId, runId: f.runId, scopes: ["triggers:read", "triggers:write"]});
     expect((await authenticateVendorRunRequest(request(), f.env))?.scopes).toEqual(["runs:read"]);
     await f.db.pool.query("UPDATE app.run_authorizations SET scopes='[]' WHERE tenant_id=$1 AND run_id=$2", [f.tenantId, f.runId]);
     expect((await authenticateVendorRunRequest(request(), f.env))?.scopes).toEqual([]);
@@ -99,13 +99,13 @@ describe.skipIf(!url)("vendor identity request admission (PostgreSQL and Worker 
     expect(stored).not.toContain("Exact snapshot");
     expect(JSON.parse(await decrypt(stored, f.env.CREDENTIAL_ENCRYPTION_KEY))).toEqual(payload);
     expect(await repository.activeLaunchPayload(f.otherTenant, f.runId)).toBeNull();
-    // Subsequent job/prompt edits cannot change the launch snapshot.
-    await f.db.pool.query("UPDATE app.job_runs SET encrypted_prompt=$3 WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId, await encrypt("changed prompt", f.env.CREDENTIAL_ENCRYPTION_KEY)]);
+    // Subsequent trigger/prompt edits cannot change the launch snapshot.
+    await f.db.pool.query("UPDATE app.trigger_runs SET encrypted_prompt=$3 WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId, await encrypt("changed prompt", f.env.CREDENTIAL_ENCRYPTION_KEY)]);
     await f.db.pool.query("UPDATE app.run_authorizations SET scopes='[]' WHERE tenant_id=$1 AND run_id=$2", [f.tenantId, f.runId]);
     const ctx = {waitUntil() {}} as any;
     const call = (token = jwt, id = f.runId) => worker.fetch(request(token, id, "/api/v1/runtime-launch"), f.env, ctx);
     for (const state of ["starting", "running", "blocked"]) {
-      await f.db.pool.query("UPDATE app.job_runs SET state=$3 WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId, state]);
+      await f.db.pool.query("UPDATE app.trigger_runs SET state=$3 WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId, state]);
       await f.db.pool.query("UPDATE app.runs SET state=$3 WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId, state]);
       const response = await call();
       expect(response.status).toBe(200);
@@ -120,7 +120,7 @@ describe.skipIf(!url)("vendor identity request admission (PostgreSQL and Worker 
     for (const token of [await sign({aud: "other-run"}), await sign({machine_id: "foreign-vm"})]) expect((await call(token)).status).toBe(401);
     expect((await call(jwt, crypto.randomUUID())).status).toBe(401);
     for (const state of ["stopping", "stopped", "failed", "succeeded"]) {
-      await f.db.pool.query("UPDATE app.job_runs SET state=$3 WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId, state]);
+      await f.db.pool.query("UPDATE app.trigger_runs SET state=$3 WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId, state]);
       expect((await call()).status).toBe(401);
     }
   });
@@ -137,16 +137,16 @@ describe.skipIf(!url)("vendor identity request admission (PostgreSQL and Worker 
   });
 
   it("requires explicit destination permission and prevents a run from granting itself permission", async () => {
-    await f.db.pool.query("UPDATE app.run_authorizations SET scopes='[\"runs:invoke\",\"jobs:write\"]' WHERE tenant_id=$1 AND run_id=$2", [f.tenantId, f.runId]);
-    const invoke = () => worker.fetch(new Request(request(jwt, f.runId, `/api/v1/jobs/${f.jobIds[1]}/invocations`), {
+    await f.db.pool.query("UPDATE app.run_authorizations SET scopes='[\"runs:invoke\",\"triggers:write\"]' WHERE tenant_id=$1 AND run_id=$2", [f.tenantId, f.runId]);
+    const invoke = () => worker.fetch(new Request(request(jwt, f.runId, `/api/v1/triggers/${f.triggerIds[1]}/invocations`), {
       method: "POST", headers: {Authorization: `Bearer ${jwt}`, "X-Factorize-Run-Id": f.runId, "Content-Type": "application/json"}, body: JSON.stringify({prompt: "selected destination", idempotencyKey: "vendor-run-test"}),
     }), f.env, {waitUntil() {}} as any);
     expect((await invoke()).status).toBe(403);
-    const escalate = await worker.fetch(new Request(request(jwt, f.runId, `/api/v1/jobs/${f.jobIds[0]}/invocation-permissions`), {
-      method: "PUT", headers: {Authorization: `Bearer ${jwt}`, "X-Factorize-Run-Id": f.runId, "Content-Type": "application/json"}, body: JSON.stringify({destinationJobIds: [f.jobIds[1]]}),
+    const escalate = await worker.fetch(new Request(request(jwt, f.runId, `/api/v1/triggers/${f.triggerIds[0]}/invocation-permissions`), {
+      method: "PUT", headers: {Authorization: `Bearer ${jwt}`, "X-Factorize-Run-Id": f.runId, "Content-Type": "application/json"}, body: JSON.stringify({destinationTriggerIds: [f.triggerIds[1]]}),
     }), f.env, {waitUntil() {}} as any);
     expect(escalate.status).toBe(403);
-    await f.db.pool.query("INSERT INTO app.manual_invocation_permissions(tenant_id,source_job_id,destination_job_id) VALUES($1,$2,$3)", [f.tenantId, f.jobIds[0], f.jobIds[1]]);
+    await f.db.pool.query("INSERT INTO app.manual_invocation_permissions(tenant_id,source_trigger_id,destination_trigger_id) VALUES($1,$2,$3)", [f.tenantId, f.triggerIds[0], f.triggerIds[1]]);
     const accepted = await invoke();
     expect(accepted.status).toBe(202);
     const first = await accepted.json() as Record<string, unknown>;
@@ -213,7 +213,7 @@ describe.skipIf(!url)("vendor identity request admission (PostgreSQL and Worker 
     const disconnected = await worker.fetch(request(jwt, f.runId, "/api/v1/runtime-integrations"), f.env, {waitUntil() {}} as any);
     expect((await disconnected.json() as any).integrations[0].available).toBe(false);
 
-    await f.db.pool.query("UPDATE app.job_runs SET state='stopping' WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId]);
+    await f.db.pool.query("UPDATE app.trigger_runs SET state='stopping' WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId]);
     expect((await call()).status).toBe(403);
     expect(outbound).toHaveLength(1);
   });
@@ -257,7 +257,7 @@ describe.skipIf(!url)("vendor identity request admission (PostgreSQL and Worker 
     const metadata = await discovery.json() as any;
     expect(metadata.xConnections).toEqual([{id, name: "Selected X", accountHandle: null, scopes: [], path: `/x/${id}/`, available: false}]);
     expect(JSON.stringify(metadata)).not.toMatch(/selected-x-access|selected-x-refresh|private-client-secret|api\.x\.com/);
-    await f.db.pool.query("UPDATE app.job_runs SET state='stopping' WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId]);
+    await f.db.pool.query("UPDATE app.trigger_runs SET state='stopping' WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId]);
     expect((await call()).status).toBe(403);
     expect(sent).toHaveLength(3);
   });
@@ -307,44 +307,20 @@ describe.skipIf(!url)("vendor identity request admission (PostgreSQL and Worker 
     expect(sent).toHaveLength(7);
   });
 
-  it("refreshes the selected model server-side, streams it, restores after restart, and revokes on disconnect", async () => {
-    const records = new CredentialRepository(f.db, f.tenantId, f.env.CREDENTIAL_ENCRYPTION_KEY);
-    const id = crypto.randomUUID();
-    const access = (exp: number) => `${encode({alg: "none"})}.${encode({exp})}.upstream-fixture`;
-    const old = access(Math.floor(Date.now()/1000)-5), renewed = access(Math.floor(Date.now()/1000)+3600);
-    await records.write({id, kind: "model", name: "selected-model", origin: null, description: null, expectedRevision: await records.revision(), idempotencyKey: crypto.randomUUID(), operation: "upsert", managedModelPayload: JSON.stringify({tokens: {access_token: old, refresh_token: "old-refresh", account_id: "selected-account"}})});
-    await f.db.pool.query("UPDATE app.runs SET execution_config=execution_config || $3::jsonb WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId, JSON.stringify({modelAccess: "portable", modelAccountId: id})]);
-    const vendorFetch = globalThis.fetch;
-    let refreshes = 0, requests = 0, failRefresh = false;
-    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      if (String(input).startsWith(issuer)) return vendorFetch(input, init);
-      if (String(input) === "https://auth.openai.com/oauth/token") {
-        refreshes++;
-        expect(JSON.parse(String(init!.body))).toMatchObject({grant_type: "refresh_token", refresh_token: "old-refresh"});
-        if (failRefresh) return Response.json({error: "invalid_grant"}, {status: 400});
-        return Response.json({access_token: renewed, refresh_token: "rotated-refresh"});
-      }
-      expect(String(input)).toBe("https://chatgpt.com/backend-api/codex/responses");
-      expect((init!.headers as Headers).get("Authorization")).toBe(`Bearer ${renewed}`);
-      expect((init!.headers as Headers).get("chatgpt-account-id")).toBe("selected-account");
-      requests++;
-      return new Response("data: model-stream\n\n", {headers: {"Content-Type": "text/event-stream"}});
+  it("uses the selected OpenAI-compatible model integration, observes rotation and keeps disconnect revocation permanent",async()=>{
+    const records=new CredentialRepository(f.db,f.tenantId,f.env.CREDENTIAL_ENCRYPTION_KEY),id=crypto.randomUUID();
+    const write=async(apiKey:string)=>records.write({id,kind:"model",name:"Selected model",origin:null,description:null,expectedRevision:await records.revision(),idempotencyKey:crypto.randomUUID(),operation:"upsert",managedModelPayload:JSON.stringify({providerUrl:"https://models.fixture/v1",apiKey})});
+    await write("first-key");await f.db.pool.query("UPDATE app.runs SET execution_config=execution_config||$3::jsonb WHERE tenant_id=$1 AND id=$2",[f.tenantId,f.runId,JSON.stringify({modelAccess:"portable",modelAccountId:id})]);
+    const vendorFetch=globalThis.fetch;const keys:string[]=[];
+    vi.stubGlobal("fetch",vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
+      if(String(input).startsWith(issuer))return vendorFetch(input,init);
+      expect(String(input)).toBe("https://models.fixture/v1/responses");keys.push(new Headers(init?.headers).get("Authorization")!);
+      return new Response("data: model-stream\n\n",{headers:{"Content-Type":"text/event-stream"}});
     }));
-    const call = () => worker.fetch(new Request(request(jwt, f.runId, `/internal/run-proxy/${f.runId}/providers/model/v1/responses`), {method: "POST", body: "model-input"}), f.env, {waitUntil() {}} as any);
-    const concurrent = await Promise.all([call(), call()]);
-    for (const response of concurrent) expect(await response.text()).toBe("data: model-stream\n\n");
-    const restored = await new CredentialRepository(f.db, f.tenantId, f.env.CREDENTIAL_ENCRYPTION_KEY).managedCredential(id, "model");
-    expect(JSON.parse(restored!.payload).tokens.refresh_token).toBe("rotated-refresh");
-    expect((await call()).status).toBe(200);
-    expect(refreshes).toBe(1);
-    failRefresh = true;
-    await records.write({id, kind: "model", name: "selected-model", origin: null, description: null, expectedRevision: await records.revision(), idempotencyKey: crypto.randomUUID(), operation: "upsert", managedModelPayload: JSON.stringify({tokens: {access_token: old, refresh_token: "old-refresh", account_id: "selected-account"}})});
-    expect((await call()).status).toBe(502); // Failed refresh never uses the expired credential.
-    await records.write({id, kind: "model", name: "selected-model", origin: null, description: null, expectedRevision: await records.revision(), idempotencyKey: crypto.randomUUID(), operation: "delete"});
-    expect((await call()).status).toBe(403);
-    await records.write({id, kind: "model", name: "selected-model", origin: null, description: null, expectedRevision: await records.revision(), idempotencyKey: crypto.randomUUID(), operation: "upsert", managedModelPayload: JSON.stringify({tokens: {access_token: renewed, refresh_token: "new-refresh", account_id: "selected-account"}})});
-    expect((await call()).status).toBe(403);
-    expect(requests).toBe(3);
+    const call=()=>worker.fetch(new Request(request(jwt,f.runId,`/internal/run-proxy/${f.runId}/providers/model/v1/responses`),{method:"POST",body:"model-input"}),f.env,{waitUntil(){}} as any);
+    expect(await (await call()).text()).toBe("data: model-stream\n\n");await write("rotated-key");expect((await call()).status).toBe(200);
+    expect(JSON.parse((await new CredentialRepository(f.db,f.tenantId,f.env.CREDENTIAL_ENCRYPTION_KEY).managedCredential(id,"model"))!.payload).apiKey).toBe("rotated-key");expect(keys).toEqual(["Bearer first-key","Bearer rotated-key"]);
+    await records.write({id,kind:"model",name:"Selected model",origin:null,description:null,expectedRevision:await records.revision(),idempotencyKey:crypto.randomUUID(),operation:"delete"});expect((await call()).status).toBe(403);await write("reconnected-key");expect((await call()).status).toBe(403);expect(keys).toHaveLength(2);
   });
 
   it("requires vendor identity as well as a matching artifact grant, including finalization", async () => {
@@ -355,11 +331,11 @@ describe.skipIf(!url)("vendor identity request admission (PostgreSQL and Worker 
     expect((await put()).status).toBe(503); // Authentication passed; this fixture deliberately has no R2 storage.
     const foreign = await issueArtifactUploadGrant({tenantId: f.otherTenant, runId: f.runId, path: "native/session.jsonl", contentType: "application/x-ndjson", provider: "claude", format: "jsonl", expiresAt: Date.now()+60_000}, f.env.SESSION_SIGNING_SECRET);
     expect((await put(request(jwt, f.runId, `/internal/run-artifacts/${encodeURIComponent(foreign)}`))).status).toBe(401);
-    await f.db.pool.query("UPDATE app.job_runs SET state='stopping' WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId]);
+    await f.db.pool.query("UPDATE app.trigger_runs SET state='stopping' WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId]);
     await f.db.pool.query("UPDATE app.runs SET state='stopping' WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId]);
     expect((await worker.fetch(request(), f.env, {waitUntil() {}} as any)).status).toBe(401);
     expect((await put()).status).toBe(503); // Only the signed, run-bound finalization protocol remains eligible.
-    await f.db.pool.query("UPDATE app.job_runs SET state='stopped' WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId]);
+    await f.db.pool.query("UPDATE app.trigger_runs SET state='stopped' WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId]);
     expect((await put()).status).toBe(401);
   });
 
@@ -373,10 +349,10 @@ describe.skipIf(!url)("vendor identity request admission (PostgreSQL and Worker 
 
   it("rechecks current run lifecycle, revocation, handle and execution connection", async () => {
     for (const state of ["queued", "reserved", "stopping", "stopped", "succeeded", "failed"]) {
-      await f.db.pool.query("UPDATE app.job_runs SET state=$3 WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId, state]);
+      await f.db.pool.query("UPDATE app.trigger_runs SET state=$3 WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId, state]);
       expect(await authenticateVendorRunRequest(request(), f.env), state).toBeNull();
     }
-    await f.db.pool.query("UPDATE app.job_runs SET state='running' WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId]);
+    await f.db.pool.query("UPDATE app.trigger_runs SET state='running' WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId]);
     await f.db.pool.query("UPDATE app.vendor_run_identity_bindings SET revoked_at=now() WHERE tenant_id=$1 AND run_id=$2", [f.tenantId, f.runId]);
     expect(await authenticateVendorRunRequest(request(), f.env)).toBeNull();
     await f.db.pool.query("UPDATE app.vendor_run_identity_bindings SET revoked_at=NULL WHERE tenant_id=$1 AND run_id=$2", [f.tenantId, f.runId]);

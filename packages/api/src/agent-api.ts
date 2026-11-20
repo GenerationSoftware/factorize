@@ -1,3 +1,6 @@
+import {AgentApiError} from "./agent-api-error";
+export {AgentApiError} from "./agent-api-error";
+import {activeHostedRunIdentity} from "./hosted-run-auth";
 import { Buffer } from "node:buffer";
 import type { Env, OAuthProps } from "./types";
 import { databaseFor } from "./postgres/database";
@@ -9,9 +12,7 @@ import { forwardRunOutbound } from "./run-outbound-forwarder";
 import { XConnectionRepository, XReconnectRequiredError } from "./postgres/x-connection-repository";
 import type { z } from "zod";
 
-export class AgentApiError extends Error {
-  constructor(readonly status: number, readonly code: string, message: string, readonly scope?: string) { super(message); }
-}
+
 export type AgentIntegration = {id: string; kind: "bearer" | "model" | "github" | "linear" | "fly" | "exe" | "amp" | "clickup" | "x"; credential_id: string; name: string; description: string | null; available: boolean; policy: "baseline" | "requestable" | "disabled"; epoch: number; revision: number};
 export const requiredIntegrationScope = (row: AgentIntegration) => `integration:${row.id}:${row.epoch}`;
 type ConnectionPolicy = { integration_overrides: Record<string, string | false>; disabled_scopes: string[] };
@@ -64,10 +65,15 @@ export class AgentApiService {
     const member = await new IdentityRepository(this.database, auth.tenantId).member(auth.userId);
     if (member?.role !== "owner" || member.sessionVersion !== auth.sessionVersion) throw invalidIdentity();
     let kind: "run" | "oauth" | "vm", subject: string, config: Record<string, any> | null = null;
-    if (auth.authMethod === "vendor_identity" && auth.runId) {
+    if(auth.authMethod==="hosted_pi" && auth.runId){
+      if(!await activeHostedRunIdentity(this.database,auth))throw invalidIdentity();
+      kind="run";subject=auth.runId;
+      config=(await this.database.pool.query("SELECT execution_config FROM app.runs WHERE tenant_id=$1 AND id=$2",[auth.tenantId,auth.runId])).rows[0]?.execution_config;
+      if(!config)throw invalidIdentity();
+    } else if (auth.authMethod === "vendor_identity" && auth.runId) {
       kind = "run"; subject = auth.runId;
       const row = (await this.database.pool.query<{execution_config: Record<string, any>}>(`SELECT r.execution_config FROM app.runs r
-        JOIN app.job_runs j ON j.tenant_id=r.tenant_id AND j.id=r.id
+        JOIN app.trigger_runs j ON j.tenant_id=r.tenant_id AND j.id=r.id
         JOIN app.vendor_run_identity_bindings b ON b.tenant_id=j.tenant_id AND b.run_id=j.id
         JOIN app.run_authorizations a ON a.tenant_id=j.tenant_id AND a.run_id=j.id
         WHERE r.tenant_id=$1 AND r.id=$2 AND b.provider=$3 AND b.revoked_at IS NULL
@@ -110,7 +116,7 @@ export class AgentApiService {
   async authorize(integration: string) {
     const identity = await this.identity();
     const row = (await this.database.pool.query<AgentIntegration>("SELECT * FROM app.agent_integrations WHERE tenant_id=$1 AND id=$2", [this.auth.tenantId, integration])).rows[0];
-    if (!row) throw forbidden();
+    if (!row || row.policy==="disabled") throw forbidden();
     if (identity.kind === "vm") {
       const grant = identity.config!;
       if (grant.permissions[row.id] !== row.epoch || connectionAccess(row, grant.parent_scopes, grant as ConnectionPolicy) !== "granted") throw forbidden();
@@ -141,7 +147,7 @@ export class AgentApiService {
     return {identity: {id: identity.id, kind: identity.kind}, scopes: normalizeScopes(this.auth.scopes).filter(scope => !identity.policy.disabled_scopes.includes(scope)), proxy: {
       requestUrl: this.env.APP_ORIGIN + "/api/v1/agent/requests",
       readResponseUrl: this.env.APP_ORIGIN + "/api/v1/agent/responses/read",
-      authentication: identity.kind === "run" ? "Use your run identity helper." : "POST JSON with integration, method, and path. Use the agent OAuth credential with proxy:use. With the Factorize device launcher, curl -H @\"$FACTORIZE_AGENT_AUTH_FILE\" reads the authorization header.",
+      authentication: identity.kind === "run" ? "Use MCP request_api and read_api_response with this run identity." : "POST JSON with integration, method, and path. Use the agent OAuth credential with proxy:use. With the Factorize device launcher, curl -H @\"$FACTORIZE_AGENT_AUTH_FILE\" reads the authorization header.",
     }, integrations: result};
   }
   async forward(integration: string, path: string, request: Request) {
@@ -162,6 +168,7 @@ export class AgentApiService {
     let apiGrant: {integration: AgentIntegration} | undefined;
     if (identity.kind === "run") {
       if (!Array.isArray(identity.config?.xConnectionIds) || !identity.config.xConnectionIds.includes(connectionId)) throw forbidden();
+      if((await this.database.pool.query("SELECT 1 FROM app.run_credential_revocations WHERE tenant_id=$1 AND run_id=$2 AND kind='x' AND credential_id=$3",[this.auth.tenantId,this.auth.runId,connectionId])).rowCount)throw forbidden();
     } else {
       const row = (await this.database.pool.query<{id: string}>("SELECT id FROM app.agent_integrations WHERE tenant_id=$1 AND kind='x' AND credential_id=$2", [this.auth.tenantId, connectionId])).rows[0];
       if (!row) throw forbidden();
@@ -205,6 +212,7 @@ export class AgentApiService {
     catch { throw new AgentApiError(502, "proxy_failed", "The X API request failed. Check X API access, credits, and rate limits, then retry if safe."); }
   }
   async request(input: z.infer<typeof requestApiInput>, signal?: AbortSignal) {
+    if(this.auth.authMethod==="oauth"&&!this.auth.scopes.includes("proxy:use"))throw new AgentApiError(403,"insufficient_scope","The proxy:use scope is required.","proxy:use");
     const parsed = requestApiInput.parse(input);
     // Decode and size-check before any upstream operation.
     let bytes: Uint8Array | undefined;
@@ -270,6 +278,7 @@ export class AgentApiService {
     return row;
   }
   async read(input: z.infer<typeof readApiResponseInput>) {
+    if(this.auth.authMethod==="oauth"&&!this.auth.scopes.includes("proxy:use"))throw new AgentApiError(403,"insufficient_scope","The proxy:use scope is required.","proxy:use");
     const {handle,offset} = readApiResponseInput.parse(input), row = await this.authorizeRead(input);
     const length = Math.min(65536,row.size-offset), body = new Uint8Array(length);
     let copied=0;

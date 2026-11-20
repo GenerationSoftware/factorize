@@ -23,20 +23,20 @@ An expired or completed request cannot be extended by resending email or recover
 
 | Scope | Allows |
 | --- | --- |
-| `projects:read` | View projects |
-| `projects:write` | Create, update, and delete projects |
-| `jobs:read` | View jobs and job configuration |
-| `jobs:write` | Create, update, enable, disable, and delete jobs |
+| `team:read` | View projects |
+| `team:write` | Create, update, and delete projects |
+| `triggers:read` | View triggers and trigger configuration |
+| `triggers:write` | Create, update, enable, disable, and delete triggers |
 | `runs:read` | Inspect runs, context, traces, and diagnostics |
-| `runs:invoke` | Invoke jobs |
+| `runs:invoke` | Invoke triggers |
 | `runs:cancel` | Stop or cancel runs, including `kill` |
 | `runs:write` | Rename runs; legacy grants also retain invocation and cancellation access |
 | `integrations:read` | View integration metadata and provider resources |
 | `integrations:write` | Create, configure, test, and remove integrations |
 
-Scopes are independent: write does not imply read. Job configuration can cause future execution through schedules, webhooks, and lifecycle triggers; existing runs survive template deletion. Key and OAuth grant administration and trace replay always require an interactive owner session.
+Scopes are independent: write does not imply read. Trigger configuration can cause future execution through schedules, webhooks, and lifecycle events; existing runs survive template deletion. Key and OAuth grant administration and trace replay always require an interactive owner session.
 
-Legacy `flows:read` and `flows:write` grants remain usable during migration and are normalized at authentication (`flows:read` → all three read domains, `flows:write` → all three write domains). `runs:write` is now an available scope for run renaming; grants using that name also retain invocation and cancellation access. New API keys, OAuth consent, and discovery expose 12 scopes. No new legacy `flows:*` grant is issued.
+Factorize exposes 13 application scopes, plus `proxy:use` and `vm:grant` for agent integration access. Each scope grants its documented operations. `runs:write` covers run renaming and error reports. Invocation uses `runs:invoke`, cancellation uses `runs:cancel`, and inspection uses `runs:read`.
 
 Authorization-code clients must use PKCE S256. Implicit and plain PKCE are disabled. Access tokens last 1 hour; refresh tokens can last 30 days. RFC 7009 revocation is advertised by discovery.
 
@@ -51,4 +51,4 @@ Device codes expire after 10 minutes from issuance, including time spent signing
 
 Never send Linear, exe.dev, or connection credentials to an API client. Tokens are revocable and responses omit stored secrets.
 
-Job run scopes are configurable per job, including privileged orchestration writes. See [manual invocation and run permissions](/work/manual-invocation-permissions) for defaults, snapshot timing, and destination authorization.
+Trigger run scopes are configurable per trigger, including privileged orchestration writes. See [manual invocation and run permissions](/work/manual-invocation-permissions) for defaults, snapshot timing, and destination authorization.

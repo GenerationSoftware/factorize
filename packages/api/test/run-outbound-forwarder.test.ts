@@ -25,6 +25,12 @@ describe("backend streaming outbound protocol", () => {
     expect(await result.text()).toBe("pack-response");
   });
 
+  it("supports an explicitly configured keyless model endpoint without forwarding caller credentials",async()=>{
+    const selected={origin:"http://127.0.0.1:1234",path:"/v1/models",credential:"",authorization:"none" as const,allowInsecureHttp:true};
+    await expect(forwardRunOutbound(new Request("https://factorize.test/"),{...selected,allowInsecureHttp:false})).rejects.toThrow("Invalid outbound");
+    const response=await forwardRunOutbound(new Request("https://factorize.test/",{headers:{Authorization:"Bearer run-secret"}}),selected,{fetcher:async(_input,init)=>{expect(new Headers(init!.headers).has("Authorization")).toBe(false);return Response.json({data:[]});}});
+    expect(await response.json()).toEqual({data:[]});
+  });
   it("exposes streamed response chunks before the upstream finishes", async () => {
     let release!: () => void;
     const gate = new Promise<void>(resolve => { release = resolve; });

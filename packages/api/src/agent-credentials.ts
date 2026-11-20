@@ -3,7 +3,7 @@ import { databaseFor } from "./postgres/database";
 import { CredentialRepository } from "./postgres/credential-repository";
 import { resolveRunProviderCredentials } from "./provider-credentials";
 import type { OutboundCredential } from "./run-outbound-forwarder";
-import { resolveManagedModelCredential } from "./managed-model-credentials";
+import {configuredPiProvider} from "./pi-provider";
 import { CLICKUP_API_BASE } from "./clickup";
 import { ConnectionRepository } from "./postgres/connection-repository";
 import { FlyConnectionRepository } from "./postgres/fly-connection-repository";
@@ -69,13 +69,11 @@ export async function resolveAgentCredential(env: Env, tenantId: string, kind: s
       if (!resolved.linearConnection?.available || !resolved.linearConnection.accessToken) return null;
       selected = {origin: "https://api.linear.app", path: `${linear[1] ?? "/graphql"}${url.search}`, credential: resolved.linearConnection.accessToken};
     } else if (model) {
-      const credential = await resolveManagedModelCredential({database, env, tenantId: tenantId, accountId: modelAccountId});
-      if (!credential) return null;
-      const suffix = model[1] ?? "/";
-      const target = new URL(`${credential.origin}${credential.prefix}${suffix}`);
-      if (!target.pathname.startsWith(`${credential.prefix}/`)) return null;
-      selected = {origin: credential.origin, path: `${target.pathname}${url.search}`, credential: credential.accessToken,
-        ...(credential.accountId ? {headers: {"chatgpt-account-id": credential.accountId}} : {})};
+      const configured=await new CredentialRepository(database,tenantId,env.CREDENTIAL_ENCRYPTION_KEY).managedCredential(modelAccountId,"model");
+      const credential=configured && configuredPiProvider(configured.payload);if(!credential)return null;
+      const base=new URL(credential.providerUrl),prefix=base.pathname.replace(/\/$/,""),suffix=model[1] ?? "/";
+      const target=new URL(`${base.origin}${prefix}${suffix}`);if(!target.pathname.startsWith(`${prefix}/`))return null;
+      selected={origin:base.origin,path:`${target.pathname}${url.search}`,credential:credential.apiKey ?? "",...(credential.apiKey?{}:{authorization:"none" as const}),...(base.protocol==="http:"?{allowInsecureHttp:true}:{})};
     }
   return selected;
 }

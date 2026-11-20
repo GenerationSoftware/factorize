@@ -8,11 +8,11 @@ describe("Worker-compatible Fly guest exec transport", () => {
     const guest = createFlyHttpGuestTransport({...options, fetcher: async (input, init) => {
       expect(String(input)).toBe("https://api.machines.dev/v1/apps/selected-app/machines/machine-1/exec");
       expect(init?.headers).toMatchObject({Authorization: "Bearer server-held-token"});
-      expect(JSON.parse(String(init?.body))).toEqual({command, stdin: "job input", timeout: 30});
+      expect(JSON.parse(String(init?.body))).toEqual({command, stdin: "trigger input", timeout: 30});
       expect(init?.redirect).toBe("manual");
       return Response.json({stdout: "output", stderr: "failure", exit_code: 7});
     }});
-    expect(await guest.run(command, "job input")).toEqual({ok: false, exitCode: 7, stdout: "output", stderr: "failure"});
+    expect(await guest.run(command, "trigger input")).toEqual({ok: false, exitCode: 7, stdout: "output", stderr: "failure"});
   });
 
   it("transports file bytes without interpolating a guest filename into shell text", async () => {

@@ -1,58 +1,66 @@
 ---
-title: Your first job
-description: Run a hosted repository review through MCP.
+title: Your first Trigger
+description: Configure a personal team and run hosted Pi through MCP.
 ---
 
 ## Set up in the browser
 
-1. Open [app.factorize.sh/auth/signup](https://app.factorize.sh/auth/signup). Sign up with **email and password** (12–200 characters), verify the email, then sign in. Use [resend verification](https://app.factorize.sh/auth/verify/request) if needed.
-2. Open [Integrations](https://app.factorize.sh/integrations). Add an exe.dev account token, test credentials, select the execution agent and VM tags, then save. Saving validates the agent/models on a temporary VM. Alternatively connect an Amp project and its access token.
-3. Ensure the execution account can access your repository and the required model/integrations. For exe.dev, the account token must permit VM listing, creation, SSH and deletion (`ls`, `new`, `ssh`, `rm`). VM tags attach your execution integrations. Current exe.dev targets do **not** store a repository URL or checkout ref: put the repository URL and checkout instructions in the job prompt.
-4. [Connect your MCP client](/mcp/overview), approve the four workflow scopes, and ask “List my Factorize jobs.”
+1. Sign up at [app.factorize.sh/auth/signup](https://app.factorize.sh/auth/signup),
+   verify your email and sign in. A personal team is created automatically.
+2. In **Settings → Integrations**, add a model integration with an
+   OpenAI-compatible provider URL and optional access key. In **Team settings**,
+   choose that integration and a provider model ID. Configure run permissions.
+3. For repository or shell work, connect an exe.dev or Fly account and enable
+   **Requires VM** in the Team defaults. exe.dev tokens need ls, new, ssh and rm.
+   The guest needs a workspace shell; it does not need Pi, Codex, Claude or model
+   credentials. Pi runs in Factorize and uses MCP to reach that workspace.
+4. [Connect your MCP client](/mcp/overview), approve the workflow scopes and ask
+   it to call get_team and get_api_reflection. Integration grants are separate
+   from application scopes. Select provider credentials in Permissions.
 
-To reuse a VM setup, open dashboard **Settings**, choose **Add preset**, and save a name and provider settings. Apply it from **VM preset** in a job’s Execution settings or a project’s direct run defaults. Editing or deleting the preset leaves those saved settings in place.
+A VM preset copies workspace settings into a Trigger's **VM** section or Team
+run defaults. Editing the preset does not change accepted runs or existing
+saved configurations.
 
-These account, credential and consent steps happen in the browser. MCP can discover saved targets, manage jobs and invoke/inspect runs; it cannot sign you up, verify email, connect execution credentials or select provider resources.
+## Create and run a Trigger
 
-## Ask your agent
+Ask your agent:
 
-Copy this request and replace the repository URL:
-
-> Show me my available execution integrations. Create a manual job called ‘Review recent changes’ using my repository’s target. Have it clone https://github.com/YOUR_ORG/YOUR_REPO.git, review the latest commit and summarize any problems. Run it once and report the result.
-
-If several targets are available, choose one by its agent/account metadata. Target discovery does not imply a repository binding.
+> Inspect my team defaults and permissions. Create a manual Trigger named
+> review-recent-changes. Have it reflect on the environment, clone
+> https://github.com/YOUR_ORG/YOUR_REPO.git in its required workspace, review the
+> latest commit, run relevant checks and summarize the results. Invoke it once
+> with a stable idempotency key and report the observed result.
 
 Expected tools:
 
-1. `list_execution_configs({})`: choose a returned `id`; never invent one. Empty results mean browser execution setup is incomplete.
-2. `list_jobs({})`: check whether this job already exists before creating it.
-3. `create_job` with the input below. Save its returned `id` as `JOB_ID`.
-4. `invoke_job` with `JOB_ID` and a stable key. Save `runId`.
-5. `get_run({runId: RUN_ID})`: check periodically until terminal; inspect prompt, context and activity. Current MCP does not expose execution output: open the returned run in the browser trace view to read the review, or use authorized REST trace pagination. The agent should report the observed state and result link rather than invent findings.
+1. get_team: inspect the saved defaults. Do not invent integration IDs.
+2. list_triggers: check for an existing Trigger before creating one.
+3. create_trigger: supply the definition below and save its returned id.
+4. invoke_trigger: use that ID and a stable idempotencyKey; save runId.
+5. get_run: poll for state, failure diagnostics and trigger_result. Open its
+   browser trace when more execution output is needed.
 
 ```json
 {
-  "name": "Review recent changes",
-  "slug": "review-recent-changes",
-  "executionConfigId": "TARGET_ID",
-  "promptTemplate": "Clone https://github.com/YOUR_ORG/YOUR_REPO.git into the workspace. Review the latest commit on the default branch, run relevant checks, and summarize any problems. {{trigger-1.prompt}}",
+  "name": "review-recent-changes",
+  "requiresVm": true,
+  "prompt": "Reflect on the environment. Clone https://github.com/YOUR_ORG/YOUR_REPO.git into the workspace. Review the latest commit, run relevant checks, and summarize problems.",
   "concurrencyLimit": 1,
-  "triggers": [{"kind": "manual", "config": {}}]
+  "events": [{"kind": "manual", "config": {}}]
 }
 ```
 
-Invoke input:
-
 ```json
-{"jobId":"JOB_ID","prompt":"Review now","idempotencyKey":"review-recent-changes-first-run"}
+{"triggerId":"TRIGGER_ID","prompt":"Review now","idempotencyKey":"review-recent-changes-first-run"}
 ```
 
-Example invocation result (identifiers are illustrative):
+The Trigger must return an id and manual Event with a stable generated slug.
+Invocation returns runId promptly. Submission alone is not completion: inspect
+get_run until terminal and assess the actual result. A selected unavailable VM
+or model integration is an error; Factorize does not silently switch providers.
 
-```json
-{"invocationId":"INVOCATION_ID","runId":"RUN_ID","state":"queued","duplicate":false}
-```
-
-Success means target discovery returned a usable target, the created job returned an `id` and manual trigger with a stable slug, invocation returned `runId`, and `get_run` reports `succeeded` with the rendered repository prompt. Open its browser trace and confirm the review output; state alone does not prove the review findings. Submission alone is not completion. You can also open `https://app.factorize.sh/job-runs/RUN_ID` to inspect it.
-
-If the request times out, repeat **the invocation with the same key**, not job creation; it returns the original run with `duplicate: true`. A failed run is still the original run for that key. Follow [failed-run troubleshooting](/troubleshooting/runs) before requesting a new run with a new key. After a successful manual review, add a [schedule](/recipes/scheduled-review).
+After a timeout, repeat the invocation with the same key to recover its original
+receipt. A failed run still owns that key. Inspect external effects before
+starting a new run. After a successful manual review, add a
+[schedule](/recipes/scheduled-review) or [provider Event](/integrations/events).

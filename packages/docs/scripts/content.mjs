@@ -11,7 +11,7 @@ export function checkInventory(implementation, reference) {
 export async function checkContent() {
   const config = JSON.parse(await readFile(resolve(root, "docs.json"), "utf8"));
   const groups = config.navigation.groups;
-  const expected = ["Get started", "Work with your agent", "Automate jobs", "Troubleshooting", "Reference", "Self-hosting"];
+  const expected = ["Get started", "Work with your agent", "Automate triggers", "Troubleshooting", "Reference", "Self-hosting"];
   if (JSON.stringify(groups.map(g => g.group)) !== JSON.stringify(expected)) throw new Error("Task navigation order changed");
   const pages = groups.flatMap(g => g.pages).filter(page => typeof page === "string");
   const rest = groups.find(group => group.group === "Reference").pages.find(page => page.openapi);
@@ -27,9 +27,9 @@ export async function checkContent() {
   }
   const main = ["index", "quickstart", "mcp/overview"].map(name => guides.get(name)).join("\n");
   for (const url of ["https://app.factorize.sh", "https://app.factorize.sh/mcp"]) if (!main.includes(url)) throw new Error("Missing hosted URL");
-  for (const phrase of ["list_execution_configs", "create_job", "invoke_job", "get_run", "idempotencyKey", "browser", "output"]) if (!guides.get("quickstart").includes(phrase)) throw new Error(`Incomplete first-job guide: ${phrase}`);
+  for (const phrase of ["get_team", "get_api_reflection", "requiresVm", "create_trigger", "invoke_trigger", "get_run", "idempotencyKey", "browser", "output"]) if (!guides.get("quickstart").includes(phrase)) throw new Error(`Incomplete first-trigger guide: ${phrase}`);
   if (/Worker secrets|POSTMARK_SERVER_TOKEN|LINEAR_CLIENT_SECRET|Cloudflare account/.test(main)) throw new Error("Operator prerequisite in main onboarding");
-  for (const body of guides.values()) if (/username\/password|username, email|Job create object|mirrors REST/.test(body)) throw new Error("Stale auth or capability claim");
+  for (const body of guides.values()) if (/username\/password|username, email|Trigger create object|mirrors REST/.test(body)) throw new Error("Stale auth or capability claim");
   const cutover = guides.get("self-hosting/credential-cutover");
   for (const phrase of ["verify that each is terminal", "verify deletion of only the", "prepare-credential-cutover.mjs", "re-enter unreadable custom bearer", "must not select every tenant credential automatically", "do not substitute another credential silently"]) {
     if (!cutover.includes(phrase)) throw new Error(`Incomplete credential cutover and repair procedure: ${phrase}`);

@@ -1,9 +1,10 @@
+import {publishedFiles} from "./mcp-skills";
 import { SkillContent, repositoryToken, type ArtifactVersion } from "./skill-content";
 import { decrypt } from "./crypto";
 import { githubHeaders, installationToken } from "./github";
 import { databaseFor, type DatabaseClient } from "./postgres/database";
 import { SkillConflict, SkillRepository } from "./postgres/skill-repository";
-import { SkillContentError, bodyOf, markdown, type Directory, type SkillVersion } from "./skill-files";
+import { SkillContentError, bodyOf, markdown, validateLibrary, type Directory, type SkillVersion } from "./skill-files";
 import { withSkillGit, type GitRemote } from "./skill-git";
 import { GitHubSkills } from "./skill-github";
 import { librarySource, type LibrarySource } from "./skill-library-contract";
@@ -162,6 +163,7 @@ export class SkillLibrary {
       upstreamCommit = github.head;
       tree = github.folderTree;
     }
+    await this.validateNames(client, directories);
     const created = await this.artifacts().create(name, { setDefaultBranch: "main" });
     const remote: GitRemote = {
       url: created.remote,
@@ -195,6 +197,7 @@ export class SkillLibrary {
     tree: string | null = null,
     preserveRenames = true,
   ) {
+    await this.validateNames(client, dirs);
     const keys = new Set(dirs.map((dir) => dir.key));
     const previousByKey = new Map(current.map((item) => [item.key, item]));
     const added = dirs.filter((dir) => !previousByKey.has(dir.key));
@@ -218,14 +221,14 @@ export class SkillLibrary {
         continue;
       }
       await client.query(
-        `UPDATE app.jobs j SET execution_config=CASE WHEN execution_config->>'launchSkillId'=$2::text
-           THEN execution_config-'launchSkillId' ELSE execution_config END,
+        `UPDATE app.triggers j SET execution_config=CASE WHEN execution_config->>'skillId'=$2::text
+           THEN execution_config-'skillId' ELSE execution_config END,
            updated_at=greatest(now(),date_trunc('milliseconds',updated_at)+interval '1 millisecond')
-         WHERE tenant_id=$1 AND (execution_config->>'launchSkillId'=$2::text OR EXISTS (
-           SELECT 1 FROM app.job_skills js WHERE js.tenant_id=j.tenant_id AND js.job_id=j.id AND js.skill_id=($2::text)::uuid))`,
+         WHERE tenant_id=$1 AND (execution_config->>'skillId'=$2::text OR EXISTS (
+           SELECT 1 FROM app.trigger_skills js WHERE js.tenant_id=j.tenant_id AND js.trigger_id=j.id AND js.skill_id=($2::text)::uuid))`,
         [this.tenant, item.id],
       );
-      await client.query("DELETE FROM app.job_skills WHERE tenant_id=$1 AND skill_id=$2", [
+      await client.query("DELETE FROM app.trigger_skills WHERE tenant_id=$1 AND skill_id=$2", [
         this.tenant,
         item.id,
       ]);
@@ -255,6 +258,16 @@ export class SkillLibrary {
       "UPDATE app.skill_libraries SET commit_sha=$2,upstream_sha=$3,github_tree=$4,error=NULL,checked_at=now() WHERE tenant_id=$1",
       [this.tenant, commit, upstream, tree],
     );
+  }
+
+  private async validateNames(client: DatabaseClient, directories: Directory[]) {
+    validateLibrary(directories);
+    for(const directory of directories)publishedFiles({key:directory.key,body:bodyOf(directory),version:{commit:"candidate",files:directory.files}});
+    const collisions = await client.query<{name: string}>(
+      "SELECT name FROM app.resource_names WHERE tenant_id=$1 AND kind='trigger' AND name=ANY($2::text[])",
+      [this.tenant, directories.map(directory => directory.key)],
+    );
+    if (collisions.rowCount) throw new SkillConflict("A Trigger already uses this skill name: " + collisions.rows.map(row => row.name).join(", "));
   }
 
   async migrate() {
@@ -374,6 +387,7 @@ export class SkillLibrary {
         );
       }
       const source = row.source;
+      await this.validateNames(client, after);
       const write = async (repo: Pick<GitHubSkills, "head" | "write">) => {
         if (repo.head !== row.upstream_sha)
           throw new SkillConflict("The repository changed. Sync before editing.");

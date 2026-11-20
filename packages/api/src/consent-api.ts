@@ -12,7 +12,7 @@ export const consentPreviewInput = z.object({ authorizationQuery: z.string().min
 export const consentDecisionInput = z.object({ request: z.string().min(1).max(16384), signature: z.string().min(1).max(256), decision: z.enum(["allow", "deny"]), scopes: z.array(z.string()) }).strict();
 export const consentPreviewResponse = z.object({ clientName: z.string(), scopes: z.array(z.string()), request: z.string(), signature: z.string(), expiresAt: z.string(), integrationLabels: z.array(z.object({ scope: z.string(), name: z.string(), description: z.string().nullable() })).optional() });
 export const consentDecisionResponse = z.object({ redirectTo: z.string() });
-const supported = [...AGENT_SCOPES, "flows:read", "flows:write", "runs:write"];
+const supported: readonly string[] = AGENT_SCOPES;
 const encode = (value: unknown) => btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(value))));
 const decode = (value: string) => JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(value), char => char.charCodeAt(0))));
 const binding = (payload: string, session: Session) => `${payload}.${session.tenantId}.${session.userId}.${session.sessionVersion}`;
@@ -51,9 +51,8 @@ export async function consentDecision(env: Env, session: Session, input: z.infer
   const client = await env.OAUTH_PROVIDER.lookupClient(parsed.clientId);
   if (!client || !matchesRegisteredRedirect(parsed.redirectUri, client.redirectUris)) return null;
   const allowed = new Set(normalizeScopes(parsed.scope.filter(scope => supported.includes(scope) || isIntegrationScope(scope))));
-  const legacyRequest = parsed.scope.some(scope => scope === "flows:read" || scope === "flows:write");
   const selected = normalizeScopes(input.scopes);
-  const issuedScopes = legacyRequest ? input.scopes : selected;
+  const issuedScopes = selected;
   if (input.scopes.some(scope => !allowed.has(scope) && !allowed.has(normalizeScopes([scope])[0] ?? "") ) || selected.some(scope => !(AGENT_SCOPES as readonly string[]).includes(scope) && !isIntegrationScope(scope))) return null;
   return databaseFor(env).transaction(async transaction => {
     const preview = await transaction.query("UPDATE app.oauth_consent_previews SET used_at=now() WHERE id=$1 AND used_at IS NULL AND expires_at>clock_timestamp() RETURNING id", [envelope.nonce]);

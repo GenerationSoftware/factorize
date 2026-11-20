@@ -1,2 +1,2 @@
-/** Backwards-compatible defaults for agent and code execution credentials. */
-export const DEFAULT_RUN_SCOPES = ["projects:read", "jobs:read", "runs:read", "integrations:read", "skills:read", "runs:invoke"];
+/** Initial application permissions for team-managed runs. */
+export const DEFAULT_RUN_SCOPES = ["team:read", "triggers:read", "runs:read", "integrations:read", "skills:read", "runs:invoke"] as const;

@@ -15,7 +15,7 @@ describe("flow webhook matching", () => {
     expect(matchingIssue({ ...event, updatedFrom: { stateId: "todo" } }, statusFlow)).toBeNull();
   });
 
-  it("does not trigger a status flow for a new issue in another status", () => {
+  it("does not event a status flow for a new issue in another status", () => {
     expect(matchingIssue({ type: "Issue", action: "create", data: { id: "issue-1", project: { id: "project-1" }, state: { id: "backlog" } } }, statusFlow)).toBeNull();
   });
 

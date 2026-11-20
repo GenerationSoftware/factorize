@@ -1,0 +1,24 @@
+---
+title: Create and edit triggers
+description: Discover a target and replace configuration safely.
+---
+
+Ask: “List execution integrations and triggers, then create a review trigger for this repository.” Use [the first-trigger input](/quickstart) and [MCP tool contract](/mcp/tools). Reuse an existing trigger when its name/purpose matches; trigger creation has no idempotency key.
+
+`update_trigger` **replaces configuration**, rather than patching one field. Always call `get_trigger` first. Build a write object containing `triggerId`, `name`, `prompt`, `requiresVm`, optional `executionConfigId`, `runNameTemplate`, `concurrencyLimit`, `model`, optional `effort`, and the full intended `events` array. Preserve each existing event's `id`, `slug`, `kind`, `enabled`, and writable `config`. Strip read-only response fields (`triggerId` inside events, timestamps, reflection, secretConfigured and destination). Do not pass the entire read response unchanged.
+
+Triggers using exe.dev may set optional `vmImage` to a public Docker/OCI image reference such as `ghcr.io/org/image:tag`. Leaving it blank uses exe.dev's default image. In the trigger editor, **Verify image** creates a temporary owned VM, checks SSH and workspace prerequisites, and deletes the VM; it never runs the trigger prompt. Verification is explicit and autosaving does not create VMs. Private images and registry credentials are not supported. Verification records what worked at that time; mutable tags may later resolve to a different image.
+
+Supply `expectedUpdatedAt` from the fetched trigger's `updatedAt` to protect against concurrent edits. On `stale_trigger`, fetch again and reapply the desired changes. Omitting it retains last-writer-wins behavior. Omitted optional configuration resets to defaults; omitted events remove the configured automatic events. Preserve all events you want to keep.
+
+After saving, call `get_trigger` and compare prompt, target and events. `enable_trigger` and `disable_trigger` change enabled state without rebuilding configuration. Disabling automation does not stop an existing run. Trigger saves can event `edited` lifecycle subscribers. Deleting a Trigger removes its template and events. Runs and artifacts follow their normal retention period.
+
+## Names
+
+A Trigger has one name, shared with the team skill namespace. Follow the [Agent Skills naming rules](https://agentskills.io/specification): 1–64 lowercase letters, digits, and hyphens, with no leading, trailing, or consecutive hyphens. `manual` is reserved. A skill and Trigger cannot use the same name. Renames preserve resource IDs and run history. Migrated names and their previous display names are recorded for review.
+
+## Team defaults and settings
+
+In Team settings, configure VM, model, concurrency, application scopes, provider credentials, and allowed invocation destinations. New Triggers copy concrete defaults when they are created. Explicit values override defaults, including empty permission lists. Later default changes apply to future Triggers and direct runs. They do not rewrite existing Triggers. Missing or unavailable VM configuration is an error.
+
+Trigger General settings contain model and capacity choices. VM settings contain workspace configuration. Permissions contains scopes, provider credentials, and manual invocation destinations. Direct runs narrow default scopes, integrations, and destinations to the caller’s access. Explicit requests outside that access fail. Delegated runs cannot gain scopes or destinations that their active parent lacks.

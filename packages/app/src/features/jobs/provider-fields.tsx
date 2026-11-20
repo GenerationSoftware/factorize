@@ -2,10 +2,10 @@ import { Button, Input, Select, Label } from "../../shared/ui";
 import type { operations } from "factorize-api-client";
 import { ConditionsEditor } from "./conditions-editor";
 import { useQuery } from "@tanstack/react-query";
-import type { Trigger } from "./editor-state";
+import type { Event } from "./editor-state";
 import { availabilityQuery } from "./editor-queries";
 import { linearProjectsQuery, linearOptionsQuery, clickupListsQuery, clickupOptionsQuery, installationsQuery, repositoriesQuery, githubOptionsQuery, tailsQuery } from "./provider-queries";
-type Config = Extract<Trigger, { kind: "webhook" }>["config"];
+type Config = Extract<Event, { kind: "webhook" }>["config"];
 type Rule = Extract<Config, { provider: "linear" }>["matchRules"][number];
 type Options = operations["get_api_v1_providers_linear_options"]["responses"][200]["content"]["application/json"];
 function Rules({ rules, options, onChange }: { rules: Rule[]; options?: Options; onChange: (rules: Rule[]) => void }) {

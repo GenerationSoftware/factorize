@@ -24,6 +24,7 @@ test('API-first rollback anchor restores legacy pages and retains compiled SPA c
     const session=await read('/api/v1/session');assert.equal(session.status,200);assert.equal(session.headers['x-factorize-contract'],'gen-2157-static-v1');assert.deepEqual(JSON.parse(session.body),{authenticated:false});
     const chunk=await read('/assets/'+entry);assert.equal(chunk.status,200);assert.deepEqual(chunk.body,await readFile('packages/app/dist/assets/'+entry));
     const stylesheet=await read('/styles.css');assert.equal(stylesheet.status,200);assert.ok(stylesheet.body.length>1000);
+    // The archived rollback anchor predates the Trigger/Event cutover.
     const jobs=await read('/jobs');assert.equal(jobs.status,302);assert.equal(jobs.headers.location,'/auth/login');
   } finally {
     if(child){try{process.kill(-child.pid,'SIGTERM');}catch(error){if(error.code!=='ESRCH')throw error;}await new Promise(resolve=>child.exitCode!==null||child.signalCode!==null?resolve():child.once('exit',resolve));}

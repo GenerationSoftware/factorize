@@ -3,22 +3,35 @@ import { useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { api } from "factorize-api-client";
 import { Button, Card, Label, Select, Textarea } from "../../shared/ui";
-import { projectsQuery } from "../projects/queries";
 import { skillsQuery } from "../skills/queries";
 import { messageOf } from "../auth/session";
 
-export function StartRun({ projectId }: { projectId?: string }) {
+export function StartRun() {
   const [open, setOpen] = useState(false),
-    [selected, setSelected] = useState(""),
     [skill, setSkill] = useState(""),
-    [prompt, setPrompt] = useState("");
-  const projects = useQuery({ ...projectsQuery, enabled: open && !projectId }),
-    skills = useQuery({ ...skillsQuery(), enabled: open });
+    [prompt, setPrompt] = useState(""),[files,setFiles]=useState<File[]>([]);
+  const uploads=useRef(new Map<File,{key:string;id?:string}>());
+  const skills = useQuery({ ...skillsQuery(), enabled: open });
   const retry = useRef({ body: "", key: "" }),
     navigate = useNavigate();
   const launch = useMutation({
     mutationFn: async () => {
-      const body = { prompt, projectId: projectId || selected || undefined, skill: skill || undefined };
+      if(files.length>16)throw new Error("Select at most 16 images.");
+      if(files.reduce((sum,file)=>sum+file.size,0)>16*1024*1024)throw new Error("Launch images must total at most 16 MiB.");
+      const attachments:{artifactId:string}[]=[];
+      for(const file of files){
+        let upload=uploads.current.get(file);if(!upload){upload={key:crypto.randomUUID()};uploads.current.set(file,upload);}
+        if(!upload.id){
+          const digest=await crypto.subtle.digest("SHA-256",await file.arrayBuffer());
+          const sha256=Array.from(new Uint8Array(digest)).map(byte=>byte.toString(16).padStart(2,"0")).join("");
+          const receipt=await api.POST("/api/v1/media/uploads",{body:{mediaType:file.type,byteSize:file.size,sha256,idempotencyKey:upload.key}});
+          if(!receipt.data || receipt.error)throw new Error(messageOf(receipt.error));
+          const stored=await api.PUT("/api/v1/media/{artifactId}",{params:{path:{artifactId:receipt.data.artifactId}},body:file as unknown as string,bodySerializer:()=>file,headers:{"Content-Type":file.type}});
+          if(stored.error)throw new Error(messageOf(stored.error));upload.id=receipt.data.artifactId;
+        }
+        attachments.push({artifactId:upload.id});
+      }
+      const body = { prompt:prompt.trim() ? prompt : undefined, skill: skill || undefined,attachments:attachments.length?attachments:undefined };
       const encoded = JSON.stringify(body);
       if (retry.current.body !== encoded) retry.current = { body: encoded, key: crypto.randomUUID() };
       const { data, error } = await api.POST("/api/v1/runs", {
@@ -28,7 +41,7 @@ export function StartRun({ projectId }: { projectId?: string }) {
       return data;
     },
     onSuccess: async (receipt) => {
-      await navigate({ to: "/job-runs/$runId", params: { runId: receipt.runId }, search: { after: 0 } });
+      await navigate({ to: "/runs/$runId", params: { runId: receipt.runId }, search: { after: 0 } });
     },
   });
   if (!open) return <Button onClick={() => setOpen(true)}>Start run</Button>;
@@ -41,23 +54,10 @@ export function StartRun({ projectId }: { projectId?: string }) {
           launch.mutate();
         }}
       >
-        {!projectId && (
-          <Label>
-            Project
-            <Select required value={selected} onChange={(event) => setSelected(event.target.value)}>
-              <option value="">Select project</option>
-              {projects.data?.map((project) => (
-                <option key={project.id} value={project.id}>
-                  {project.name}
-                </option>
-              ))}
-            </Select>
-          </Label>
-        )}
         <Label>
-          Launch skill
+          Skill
           <Select value={skill} onChange={(event) => setSkill(event.target.value)}>
-            <option value="">No launch skill</option>
+            <option value="">No skill</option>
             {skills.data?.items?.map((item) => (
               <option key={item.id} value={item.id}>
                 {item.key}
@@ -68,12 +68,14 @@ export function StartRun({ projectId }: { projectId?: string }) {
         <Label>
           Prompt
           <Textarea
-            required
+            required={!skill && !files.length}
             maxLength={50000}
             value={prompt}
             onChange={(event) => setPrompt(event.target.value)}
           />
         </Label>
+        <Label>Images<input type="file" accept="image/*" multiple disabled={launch.isPending} onChange={event=>setFiles(Array.from(event.target.files??[]))} /></Label>
+        <p className="text-sm">Original images pass directly to Pi. Up to 16 images totaling 16 MiB.</p>
         {launch.error && <p role="alert">{launch.error.message}</p>}
         <div className="flex gap-2">
           <Button type="submit" variant="primary" disabled={launch.isPending}>

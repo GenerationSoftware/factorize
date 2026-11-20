@@ -1,4 +1,4 @@
-import { jobResponse } from "../src/job-contracts";
+import { triggerResponse } from "../src/job-contracts";
 import { describe, expect, it, vi } from "vitest";
 import { chromium } from "playwright";
 import { loadingFixture } from "./helpers/loading-fixture";
@@ -9,7 +9,7 @@ vi.mock("@cloudflare/workers-oauth-provider", () => ({ OAuthProvider: class {}, 
 vi.mock("cloudflare:workers", () => ({ WorkerEntrypoint: class {}, DurableObject: class {} }));
 const url = process.env.AUTH_TEST_DATABASE_URL;
 describe.skipIf(!url)("compiled React + actual Worker API + PostgreSQL", () => {
-  it("authenticates, navigates a project's runs, invokes once, refreshes the run and resets a projected trace", async () => {
+  it("authenticates, navigates team runs, invokes once, refreshes the run and resets a projected trace", async () => {
     const f = await loadingFixture(url!), browser = await chromium.launch({ headless: true });
     const failures: string[] = [], calls: string[] = [];
     try {
@@ -31,7 +31,7 @@ describe.skipIf(!url)("compiled React + actual Worker API + PostgreSQL", () => {
       });
       const page = await context.newPage(); page.setDefaultTimeout(10000); page.on("pageerror", error => failures.push(error.message));
       // Exercise the compiled client's repeated parameters through the real API and SQL.
-      for (const path of ["/job-runs", `/jobs/${f.jobIds[0]}`]) {
+      for (const path of ["/runs", `/triggers/${f.triggerIds[0]}`]) {
         await page.goto(`https://factorize.test${path}`);
         await page.getByRole("img", { name: "Status: Queued", exact: true }).waitFor();
         await page.getByRole("button", { name: /Status, all statuses/ }).click();
@@ -62,32 +62,24 @@ describe.skipIf(!url)("compiled React + actual Worker API + PostgreSQL", () => {
         await page.getByRole("img", { name: "Status: Running", exact: true }).waitFor();
         await page.getByRole("img", { name: "Status: Succeeded", exact: true }).waitFor();
       }
-      await page.goto(`https://factorize.test/projects/${f.projectId}`);
-      await page.getByRole("button", { name: "Your account", exact: true }).waitFor();
-      expect(await page.getByRole("link", { name: "owner", exact: true }).count()).toBe(0);
-      await page.getByRole("link", { name: "Default", exact: true }).waitFor();
-      await page.getByRole("button", { name: "Switch project", exact: true }).click();
-      await page.getByRole("combobox", { name: "Search projects", exact: true }).waitFor();
-      expect(await page.getByRole("link", { name: "Factorize", exact: true }).count()).toBe(0);
-      expect(await page.locator("html").getAttribute("data-theme")).toBe("light");
-      expect(await page.locator("body").evaluate((element: any) => (globalThis as any).getComputedStyle(element).backgroundColor)).toBe("rgb(252, 251, 246)");
-      expect(await page.getByRole("navigation", { name: "Project navigation" }).getByRole("link", { name: "Runs", exact: true }).count()).toBe(0);
-      await page.getByRole("link", { name: "Job-0", exact: true }).first().waitFor();
-      await page.goto(`https://factorize.test/jobs/${f.jobIds[1]}`);
+      await page.goto("https://factorize.test/runs");
+      await page.getByRole("heading", { name: "Runs", exact: true }).waitFor();
+      expect(await page.getByRole("columnheader", { name: "Project", exact: true }).count()).toBe(0);
+      await page.goto(`https://factorize.test/triggers/${f.triggerIds[1]}`);
       await page.getByRole("button", { name: "More run options", exact: true }).click();
       await page.getByRole("menuitem", { name: "Run with prompt", exact: true }).click();
       await page.getByLabel("Prompt", { exact: true }).fill("Real invocation");
       await page.getByRole("button", { name: "Run with prompt", exact: true }).click();
       await page.getByRole("heading", { name: "Trace", exact: true }).waitFor();
       const runId = new URL(page.url()).pathname.split("/").at(-1)!;
-      expect(calls.filter(call => call === `POST /api/v1/jobs/${f.jobIds[1]}/invocations`)).toHaveLength(1);
-      const row = (await f.db.pool.query("SELECT i.context,jr.state FROM app.invocations i JOIN app.job_runs jr ON jr.tenant_id=i.tenant_id AND jr.invocation_id=i.id WHERE jr.tenant_id=$1 AND jr.id=$2", [f.tenantId, runId])).rows[0];
+      expect(calls.filter(call => call === `POST /api/v1/triggers/${f.triggerIds[1]}/invocations`)).toHaveLength(1);
+      const row = (await f.db.pool.query("SELECT i.context,jr.state FROM app.invocations i JOIN app.trigger_runs jr ON jr.tenant_id=i.tenant_id AND jr.invocation_id=i.id WHERE jr.tenant_id=$1 AND jr.id=$2", [f.tenantId, runId])).rows[0];
       expect(row).toMatchObject({ state: "reserved", context: { manual: { prompt: "Real invocation", data: {} } } });
       await page.reload(); await page.getByText("No assistant messages yet.", { exact: true }).waitFor();
       await f.db.transaction(async client => {
         await client.query("INSERT INTO app.run_trace_events(tenant_id,run_id,sequence,id,event_type,title,preview_text,display_data) VALUES ($1,$2,1,'canonical','assistant_message','Final output','Safe output','{}')", [f.tenantId, runId]);
         await client.query("INSERT INTO app.run_trace_projections(tenant_id,run_id,source_kind,artifact_sha256,parser_version,reconciliation) VALUES ($1,$2,'native_session',$3,'test','{}')", [f.tenantId, runId, "b".repeat(64)]);
-        await client.query("UPDATE app.job_runs SET state='succeeded' WHERE tenant_id=$1 AND id=$2", [f.tenantId, runId]);
+        await client.query("UPDATE app.trigger_runs SET state='succeeded' WHERE tenant_id=$1 AND id=$2", [f.tenantId, runId]);
         await client.query("UPDATE app.runs SET state='succeeded',artifact_state='stored',vm_cleanup_complete=true WHERE tenant_id=$1 AND id=$2", [f.tenantId, runId]);
       });
       await page.getByText("Safe output", { exact: true }).waitFor();
@@ -100,12 +92,12 @@ describe.skipIf(!url)("compiled React + actual Worker API + PostgreSQL", () => {
       await context.close();
     } finally { await browser.close(); await f.cleanup(); }
   }, 90_000);
-  it("edits a real job with a racing write, reconciles safely and creates/revokes a real API key", async () => {
+  it("edits a real trigger with a racing write, reconciles safely and creates/revokes a real API key", async () => {
     const f = await loadingFixture(url!), browser = await chromium.launch({ headless: true });
     try {
       const service = new ApiService(f.env, f.auth);
-      const job = await service.createJob({ name: "Editor fixture", slug: "editor-fixture", promptTemplate: "Original", executionConfigId: "local", concurrencyLimit: 1, triggers: [{ kind: "manual", enabled: true, config: {} }] });
-      expect(jobResponse.safeParse(job).success).toBe(true);
+      const trigger = await service.createTrigger({ name: "editor-fixture",  prompt: "Original", executionConfigId: "local", concurrencyLimit: 1, events: [{ kind: "manual", enabled: true, config: {} }] });
+      expect(triggerResponse.safeParse(trigger).success).toBe(true);
       let releaseBrowserWrite!: () => void, browserWriteStarted!: () => void;
       const browserWriteGate = new Promise<void>(resolve => { releaseBrowserWrite = resolve; });
       const browserWriteRequest = new Promise<void>(resolve => { browserWriteStarted = resolve; });
@@ -114,7 +106,7 @@ describe.skipIf(!url)("compiled React + actual Worker API + PostgreSQL", () => {
       await context.route("**/*", async route => {
         const request = route.request(), target = new URL(request.url());
         if (target.pathname.startsWith("/api/v1/")) {
-          if (target.pathname === `/api/v1/jobs/${job.id}` && request.method() === "PUT") { browserWriteStarted(); await browserWriteGate; }
+          if (target.pathname === `/api/v1/triggers/${trigger.id}` && request.method() === "PUT") { browserWriteStarted(); await browserWriteGate; }
           const response = await worker.fetch(new Request(target.toString(), { method: request.method(), headers: await request.allHeaders(), ...(request.postData() ? { body: request.postData()! } : {}) }), f.env, { waitUntil() {} } as any);
           return route.fulfill({ status: response.status, contentType: "application/json", body: await response.text() });
         }
@@ -124,22 +116,22 @@ describe.skipIf(!url)("compiled React + actual Worker API + PostgreSQL", () => {
         return route.fulfill({ status: response.status, headers, body: Buffer.from(await response.arrayBuffer()) });
       });
       const page = await context.newPage(); page.setDefaultTimeout(10000);
-      await page.goto(`https://factorize.test/jobs/${job.id}/settings/context`);
-      await page.getByLabel("Prompt template", { exact: true }).fill("My edited prompt");
+      await page.goto(`https://factorize.test/triggers/${trigger.id}/settings/context`);
+      await page.getByLabel("Prompt", { exact: true }).fill("My edited prompt");
       await browserWriteRequest;
-      await service.updateJob(job.id, { name: "Concurrent name", slug: job.slug, promptTemplate: job.promptTemplate, executionConfigId: job.executionConfigId, concurrencyLimit: 1, triggers: [{ id: job.triggers[0].id, slug: job.triggers[0].slug, kind: "manual", enabled: true, config: {} }], expectedUpdatedAt: job.updatedAt });
+      await service.updateTrigger(trigger.id, { name: "concurrent-name",  prompt: trigger.prompt, executionConfigId: trigger.executionConfigId, concurrencyLimit: 1, events: [{ id: trigger.events[0].id, slug: trigger.events[0].slug, kind: "manual", enabled: true, config: {} }], expectedUpdatedAt: trigger.updatedAt });
       releaseBrowserWrite();
       await page.getByRole("button", { name: "Reconcile my changes" }).waitFor();
       await page.getByRole("button", { name: "Reconcile my changes" }).click();
-      await page.getByRole("status").filter({ hasText: "Job settings saved." }).waitFor();
-      expect(new URL(page.url()).pathname).toBe(`/jobs/${job.id}/settings/context`);
-      const saved = await service.getJob(job.id); expect(saved.name).toBe("Concurrent name"); expect(saved.promptTemplate).toBe("My edited prompt"); expect(saved.triggers[0].id).toBe(job.triggers[0].id);
-      const row = (await f.db.pool.query("SELECT encrypted_prompt_template FROM app.jobs WHERE tenant_id=$1 AND id=$2", [f.tenantId, job.id])).rows[0]; expect(await decrypt(row.encrypted_prompt_template, f.env.CREDENTIAL_ENCRYPTION_KEY)).toBe("My edited prompt");
+      await page.getByRole("status").filter({ hasText: "Trigger settings saved." }).waitFor();
+      expect(new URL(page.url()).pathname).toBe(`/triggers/${trigger.id}/settings/context`);
+      const saved = await service.getTrigger(trigger.id); expect(saved.name).toBe("concurrent-name"); expect(saved.prompt).toBe("My edited prompt"); expect(saved.events[0].id).toBe(trigger.events[0].id);
+      const row = (await f.db.pool.query("SELECT encrypted_prompt FROM app.triggers WHERE tenant_id=$1 AND id=$2", [f.tenantId, trigger.id])).rows[0]; expect(await decrypt(row.encrypted_prompt, f.env.CREDENTIAL_ENCRYPTION_KEY)).toBe("My edited prompt");
       await page.reload();
-      await page.getByLabel("Prompt template", { exact: true }).waitFor();
-      expect(await page.getByLabel("Prompt template", { exact: true }).inputValue()).toBe("My edited prompt");
-      await page.goto(`https://factorize.test/jobs/${job.id}/settings/general`);
-      expect(await page.getByLabel("Name", { exact: true }).inputValue()).toBe("Concurrent name");
+      await page.getByLabel("Prompt", { exact: true }).waitFor();
+      expect(await page.getByLabel("Prompt", { exact: true }).inputValue()).toBe("My edited prompt");
+      await page.goto(`https://factorize.test/triggers/${trigger.id}/settings/general`);
+      expect(await page.getByLabel("Name", { exact: true }).inputValue()).toBe("concurrent-name");
       await page.goto("https://factorize.test/settings/api-keys"); await page.getByRole("button", { name: "Create API Key" }).click(); await page.waitForURL("**/settings/api-keys/new"); await page.getByLabel("Key name").fill("Real key"); await page.getByRole("button", { name: "Create key" }).click(); await page.getByText("Copy this key now. It will only be displayed once.", { exact: true }).waitFor();
       await page.getByRole("button", { name: "Dismiss key" }).click(); await page.reload(); await page.getByText("Real key", { exact: true }).waitFor();
       page.once("dialog", dialog => dialog.accept()); await page.getByRole("button", { name: "Revoke key" }).click(); await page.getByText("Revoked", { exact: true }).waitFor();

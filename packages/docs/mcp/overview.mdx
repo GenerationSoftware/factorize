@@ -34,14 +34,26 @@ Start Claude Code, enter `/mcp`, choose Factorize and authenticate when prompted
 
 ## Authorize in the browser
 
-The client opens Factorize authorization in your browser. Sign in with your verified Factorize email/password and approve the requested scopes. For the full workflow, grant `flows:read`, `flows:write`, `runs:read`, and `runs:write`. Read-only access cannot create or invoke jobs. Return to your client after consent.
+The client opens Factorize authorization in your browser. Sign in with your verified Factorize email/password and approve the requested scopes. Select `triggers:read` for discovery, `triggers:write` for edits, `runs:read` for inspection, `runs:invoke` for Trigger invocation, `runs:start` for direct runs, and `runs:cancel` for cancellation. Integration and skill operations use their respective scopes. Read-only access cannot create or invoke triggers. Return to your client after consent.
 
 Consent lists 12 permissions, including `runs:write` for renaming runs. Run write grants also retain invocation and cancellation access for compatibility. Write does not imply read. If you need to create an account or verify your email, finish those steps and restart client authorization; do not assume the signup screen will automatically resume the original request. No Linear or execution token belongs in the MCP client.
 
-Ask **“List my Factorize jobs.”** The agent should call `list_jobs({})`. An empty `items` list is a successful connection to a workspace with no jobs. Next ask it to list execution integrations and follow the [first-job walkthrough](/quickstart).
+Ask **“List my Factorize triggers.”** The agent should call `list_triggers({})`. An empty `items` list is a successful connection to a workspace with no triggers. Next ask it to list execution integrations and follow the [first-trigger walkthrough](/quickstart).
 
 Other clients must support remote Streamable HTTP and Factorize's OAuth discovery/PKCE flow. Their UI and plan availability vary; consult their own documentation rather than pasting either configuration above.
 
 ## Connection problems
 
 For rejected consent, expired authorization, missing targets, scope errors and reconnection steps, see [connection troubleshooting](/troubleshooting/connection). Protocol implementers should use [authentication](/api/authentication) and [discovery](/api/discovery).
+
+## Team skills
+
+Factorize publishes every active team skill using the [MCP Skills extension](https://skills.extensions.modelcontextprotocol.io/specification/beta/skills), `io.modelcontextprotocol/skills`, on protocol revision 2026-07-28 or later. A compatible client sees the declaration in `server/discover`, pages through `skills/list`, and refreshes individual entries with `skills/get`. These methods and each `resources/read` require `skills:read` and an active authorized identity.
+
+Skill URIs have the form `skill://teams/TEAM_ID/SKILL_NAME/SKILL.md`. Each entry includes the full frontmatter and a complete manifest with SHA-256 digests and byte lengths. Read supporting files at the URIs in that manifest. Files remain separate resources; Factorize does not execute their scripts. Editor and successful Git publications are visible on the next read. A failed publication preserves the last valid package. Renaming removes the previous URI.
+
+Literal skills without frontmatter receive a published `name` and description wrapper. Existing author metadata is retained, with the shared team name authoritative after a rename. Stored instructions and existing run snapshots are preserved. Skill metadata has no VM dependency.
+
+Factorize-managed Pi uses this same MCP session boundary. Its short-lived identity is bound to the active run and current execution lease, with application scopes and selected integrations taken from the accepted run snapshot. Cancellation, lease replacement, owner revocation and integration disconnection are checked on subsequent requests. Provider credentials never enter the model context.
+
+Selected run skills are pinned inputs under `skill://runs/TEAM_ID/RUN_ID/SKILL_NAME/SKILL.md`, including their supporting files. An active run may discover and read these inputs even with no `skills:read` permission. That capability grants access only to its own accepted package. Broader team-library discovery still requires `skills:read`. Unrelated edits, renames or deletes do not replace the run's pinned inputs.

@@ -6,7 +6,7 @@ import { RunQueryRepository } from "../src/postgres/run-query-repository";
 vi.mock("cloudflare:workers", () => ({ WorkerEntrypoint: class {} }));
 afterEach(() => vi.restoreAllMocks());
 
-async function call(transport: "REST" | "MCP", input: Record<string, unknown>, scopes = ["runs:write"]) {
+async function call(transport: "REST" | "MCP", input: Record<string, unknown>, scopes = ["runs:read", "runs:invoke", "runs:cancel", "runs:write"]) {
   const request = new Request(`https://example.com${transport === "REST" ? "/api/v1/runs/00000000-0000-4000-8000-000000000001" : "/mcp"}`, {
     method: transport === "REST" ? "PATCH" : "POST",
     headers: { Host: "example.com", "Content-Type": "application/json", Accept: "application/json, text/event-stream" },

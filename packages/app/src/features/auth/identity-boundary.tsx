@@ -8,7 +8,7 @@ export function IdentityBoundary({ children }: { children: ReactNode }) {
   const session = useQuery(sessionQuery);
   const previous = useRef<string | undefined>(undefined);
   const identity = session.data?.authenticated
-    ? session.data.user.id + ":" + session.data.workspace.id + ":" + session.data.expiresAt
+    ? session.data.user.id + ":" + session.data.team.id + ":" + session.data.expiresAt
     : session.data ? "anonymous" : undefined;
   useLayoutEffect(() => {
     if (identity === undefined) return;

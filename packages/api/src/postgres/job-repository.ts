@@ -1,194 +1,202 @@
 import { SkillContent } from "../skill-content";
 import { DEFAULT_RUN_SCOPES } from "../run-scopes";
 import { submitRun } from "./run-submission";
-import { lockJobQueue } from "./queue-admission";
-import type { Invocation, Job, JobRepository, JobRun, Trigger } from "../job-domain";
+import { lockTriggerQueue } from "./queue-admission";
+import type { Invocation, Trigger, TriggerRepository, TriggerRun, Event } from "../job-domain";
 import type { Database, DatabaseClient } from "./database";
 import { nextOccurrence, validateScheduleConfig } from "../schedule";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
-import { invocations, jobs, jobEditDeliveries, lifecycleDeliveries, pendingVerifications, scheduleState, triggers } from "./schema";
+import { invocations, manualInvocationPermissions, triggers, triggerEditDeliveries, lifecycleDeliveries, pendingVerifications, scheduleState, events } from "./schema";
 
-export class StaleJobEdit extends Error {}
+export class StaleTriggerEdit extends Error {}
+export class ContextReviewRequired extends Error {}
 
 type Crypt = (value: string) => Promise<string>;
-type JobRow = typeof jobs.$inferSelect;
 type TriggerRow = typeof triggers.$inferSelect;
+type EventRow = typeof events.$inferSelect;
 
-export class PostgresJobRepository implements JobRepository {
+export class PostgresTriggerRepository implements TriggerRepository {
   constructor(private database: Database, private tenantId: string, private encrypt: Crypt, private decrypt: Crypt, private content = new SkillContent()) {
     if (!tenantId) throw new Error("tenantId is required");
   }
 
-  private trigger(row: TriggerRow): Trigger { return { id: row.id, jobId: row.jobId, kind: row.kind, slug: row.slug, enabled: row.enabled, config: row.config, createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString() }; }
-  private async defaultProjectId(db: any = this.database.orm): Promise<string> {
-    const result = await db.execute(sql`INSERT INTO app.projects(tenant_id,id,name,description) VALUES (${this.tenantId}::uuid,md5(${this.tenantId}::text || ':default')::uuid,'Default','Jobs created by legacy clients') ON CONFLICT (tenant_id,name) DO UPDATE SET updated_at=app.projects.updated_at RETURNING id`);
-    return result.rows[0].id as string;
+  private async decryptTemplate(value: string, eventRows: EventRow[]): Promise<string> {
+    const text = await this.decrypt(value);
+    const lifecycleSlugs = new Set(eventRows.filter(event => event.kind === "triggerLifecycle" || event.kind === "triggerIdle").map(event => event.slug));
+    return text.replace(/\{\{\{?[^}]+\}\}\}?/g, expression => {
+      const renamed = expression.replace(/(\{\{\{?\s*)trigger-([0-9]+)/g, "$1event-$2");
+      return renamed.replace(/^(\{\{\{?\s*)([a-z][a-z0-9_-]*)\.(sourceJobId|source_job_id)(?=[.\s}])/, (match, prefix, slug, field) =>
+        lifecycleSlugs.has(slug) ? `${prefix}${slug}.${field === "sourceJobId" ? "sourceTriggerId" : "source_trigger_id"}` : match);
+    });
   }
-  private async mapped(row: JobRow, db: any = this.database.orm, loadedTriggers?: TriggerRow[], loadedSkills?: any[]): Promise<Job> {
-    let triggerRows: TriggerRow[];
+
+  private async event(row: EventRow, eventRows:EventRow[]): Promise<Event> {
+    return {id:row.id,triggerId:row.triggerId,kind:row.kind,slug:row.slug,enabled:row.enabled,config:row.config,
+      template:row.encryptedTemplate ? await (row.legacyTemplate ? this.decryptTemplate(row.encryptedTemplate,eventRows) : this.decrypt(row.encryptedTemplate)) : undefined,
+      createdAt:row.createdAt.toISOString(),updatedAt:row.updatedAt.toISOString()};
+  }
+  private async mapped(row: TriggerRow, db: any = this.database.orm, loadedEvents?: EventRow[], loadedSkills?: any[]): Promise<Trigger> {
+    let eventRows: EventRow[];
     let skillRows: any[];
     if (db === this.database.orm) {
-      [triggerRows, skillRows] = await Promise.all([
-        loadedTriggers ?? db.select().from(triggers).where(and(eq(triggers.tenantId, this.tenantId), eq(triggers.jobId, row.id), isNull(triggers.removedAt))).orderBy(triggers.position, triggers.createdAt, triggers.id),
-        loadedSkills?.filter(skill => skill.job_id === row.id) ?? this.database.pool.query<any>("SELECT s.id,s.key,s.revision,s.encrypted_body,s.encrypted_directory,s.artifact_version,js.position,js.context_skill FROM app.job_skills js JOIN app.skills s ON s.tenant_id=js.tenant_id AND s.id=js.skill_id WHERE js.tenant_id=$1 AND js.job_id=$2 ORDER BY js.position", [this.tenantId, row.id]).then(result => result.rows),
+      [eventRows, skillRows] = await Promise.all([
+        loadedEvents ?? db.select().from(events).where(and(eq(events.tenantId, this.tenantId), eq(events.triggerId, row.id), isNull(events.removedAt))).orderBy(events.position, events.createdAt, events.id),
+        loadedSkills?.filter(skill => skill.trigger_id === row.id) ?? this.database.pool.query<any>("SELECT s.id,s.key,s.revision,s.encrypted_body,s.encrypted_directory,s.artifact_version,js.position,js.context_skill FROM app.trigger_skills js JOIN app.skills s ON s.tenant_id=js.tenant_id AND s.id=js.skill_id WHERE js.tenant_id=$1 AND js.trigger_id=$2 ORDER BY js.position", [this.tenantId, row.id]).then(result => result.rows),
       ]);
     } else {
-      triggerRows = loadedTriggers ?? await db.select().from(triggers).where(and(eq(triggers.tenantId, this.tenantId), eq(triggers.jobId, row.id), isNull(triggers.removedAt))).orderBy(triggers.position, triggers.createdAt, triggers.id);
-      skillRows = loadedSkills?.filter(skill => skill.job_id === row.id) ?? (await db.execute(sql`SELECT s.id,s.key,s.revision,s.encrypted_body,s.encrypted_directory,s.artifact_version,js.position,js.context_skill FROM app.job_skills js JOIN app.skills s ON s.tenant_id=js.tenant_id AND s.id=js.skill_id WHERE js.tenant_id=${this.tenantId}::uuid AND js.job_id=${row.id}::uuid ORDER BY js.position`)).rows;
+      eventRows = loadedEvents ?? await db.select().from(events).where(and(eq(events.tenantId, this.tenantId), eq(events.triggerId, row.id), isNull(events.removedAt))).orderBy(events.position, events.createdAt, events.id);
+      skillRows = loadedSkills?.filter(skill => skill.trigger_id === row.id) ?? (await db.execute(sql`SELECT s.id,s.key,s.revision,s.encrypted_body,s.encrypted_directory,s.artifact_version,js.position,js.context_skill FROM app.trigger_skills js JOIN app.skills s ON s.tenant_id=js.tenant_id AND s.id=js.skill_id WHERE js.tenant_id=${this.tenantId}::uuid AND js.trigger_id=${row.id}::uuid ORDER BY js.position`)).rows;
     }
     const skills = await Promise.all(skillRows.map(async skill => ({
       id:skill.id, key:skill.key, revision:skill.revision, position:skill.position, ...await this.content.read(skill, this.decrypt),
     })));
-    const launchSkill = skills.find(skill=>skill.id === row.executionConfig.launchSkillId);
-    return { id: row.id, runScopes: row.runScopes ?? [...DEFAULT_RUN_SCOPES], projectId: row.projectId, name: row.name, description: row.description ?? "", slug: row.slug, promptTemplate: await this.decrypt(row.encryptedPromptTemplate), executionType: row.executionConfig.executionType ?? "agent", script: row.executionConfig.script, runNameTemplate: row.encryptedRunNameTemplate ? await this.decrypt(row.encryptedRunNameTemplate) : "", tags: row.tags ?? [], model: row.model, ...(row.effort ? { effort: row.effort } : {}), executionConfig: row.executionConfig, portableIntegrationIds: row.executionConfig.portableIntegrationIds ?? [], modelAccess: row.executionConfig.modelAccess ?? "native", modelAccountId: row.executionConfig.modelAccountId, githubInstallationIds: row.executionConfig.githubInstallationIds ?? [], linearConnectionId: row.executionConfig.linearConnectionId, xConnectionIds: row.executionConfig.xConnectionIds ?? [], concurrencyLimit: row.concurrencyLimit, enabled: row.enabled, triggers: triggerRows.map(value => this.trigger(value)), launchSkill, selectedSkills: skills.filter((_,index)=>skillRows[index].context_skill !== false), createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString() };
+    const skill = skills[0]; // The unique relational selection is authoritative.
+    return { id: row.id, requiresVm:row.executionConfig.requiresVm ?? (row.executionConfig.executionType==="code" || Boolean(row.executionConfig.connectionId)), runScopes: row.runScopes ?? [...DEFAULT_RUN_SCOPES], name: row.name, description: row.description ?? "", slug: row.slug, prompt: row.encryptedPrompt ? await this.decrypt(row.encryptedPrompt) : "", executionType: row.executionConfig.executionType ?? "agent", script: row.executionConfig.script, runNameTemplate: row.encryptedRunNameTemplate ? await (row.contextVersion<2 ? this.decryptTemplate(row.encryptedRunNameTemplate,eventRows) : this.decrypt(row.encryptedRunNameTemplate)) : "", tags: row.tags ?? [], model: row.model, ...(row.effort ? { effort: row.effort } : {}), executionConfig: row.executionConfig, portableIntegrationIds: row.executionConfig.portableIntegrationIds ?? [], modelAccess: row.executionConfig.modelAccess ?? "native", modelAccountId: row.executionConfig.modelAccountId, githubInstallationIds: row.executionConfig.githubInstallationIds ?? [], linearConnectionId: row.executionConfig.linearConnectionId, xConnectionIds: row.executionConfig.xConnectionIds ?? [], concurrencyLimit: row.concurrencyLimit, enabled: row.enabled, events: await Promise.all(eventRows.map(value => this.event(value,eventRows))), skill, contextReviewRequired:row.contextReviewRequired, createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString() };
   }
 
-  async getJob(id: string): Promise<Job | null> {
-    const row = (await this.database.orm.select().from(jobs).where(and(eq(jobs.tenantId, this.tenantId), eq(jobs.id, id))).limit(1))[0];
+  async getTrigger(id: string): Promise<Trigger | null> {
+    const row = (await this.database.orm.select().from(triggers).where(and(eq(triggers.tenantId, this.tenantId), eq(triggers.id, id))).limit(1))[0];
     return row ? this.mapped(row) : null;
   }
 
-  async list(): Promise<Job[]> {
-    const rows = await this.database.orm.select().from(jobs).where(eq(jobs.tenantId, this.tenantId)).orderBy(sql`${jobs.createdAt} desc`);
+  async list(): Promise<Trigger[]> {
+    const rows = await this.database.orm.select().from(triggers).where(eq(triggers.tenantId, this.tenantId)).orderBy(sql`${triggers.createdAt} desc`);
     if (!rows.length) return [];
-    const triggerRows = await this.database.orm.select().from(triggers).where(and(eq(triggers.tenantId, this.tenantId), inArray(triggers.jobId, rows.map(row => row.id)), isNull(triggers.removedAt))).orderBy(triggers.position, triggers.createdAt, triggers.id);
-    const byJob = new Map<string, TriggerRow[]>();
-    for (const trigger of triggerRows) {
-      const group = byJob.get(trigger.jobId) ?? [];
-      group.push(trigger);
-      byJob.set(trigger.jobId, group);
+    const eventRows = await this.database.orm.select().from(events).where(and(eq(events.tenantId, this.tenantId), inArray(events.triggerId, rows.map(row => row.id)), isNull(events.removedAt))).orderBy(events.position, events.createdAt, events.id);
+    const byTrigger = new Map<string, EventRow[]>();
+    for (const event of eventRows) {
+      const group = byTrigger.get(event.triggerId) ?? [];
+      group.push(event);
+      byTrigger.set(event.triggerId, group);
     }
-    return Promise.all(rows.map(row => this.mapped(row, this.database.orm, byJob.get(row.id) ?? [], [])));
+    return Promise.all(rows.map(row => this.mapped(row, this.database.orm, byTrigger.get(row.id) ?? [], [])));
   }
 
-  async create(job: Job): Promise<Job> {
+  async create(trigger: Trigger, destinationTriggerIds: string[] = []): Promise<Trigger> {
     return this.database.orm.transaction(async tx => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${this.tenantId}::text, 1))`);
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${this.tenantId}::text, 0))`);
-      const [row] = await tx.insert(jobs).values({ tenantId: this.tenantId, id: job.id, projectId: job.projectId ?? await this.defaultProjectId(tx), name: job.name, description: job.description ?? "", slug: job.slug, encryptedPromptTemplate: await this.encrypt(job.promptTemplate), encryptedRunNameTemplate: job.runNameTemplate ? await this.encrypt(job.runNameTemplate) : "", executionConfig: job.executionConfig, runScopes: job.runScopes ?? [...DEFAULT_RUN_SCOPES], tags: job.tags ?? [], model: job.model, effort: job.effort ?? "", concurrencyLimit: job.concurrencyLimit, enabled: job.enabled, createdAt: new Date(job.createdAt), updatedAt: new Date(job.updatedAt) }).returning();
-      await this.reconcileTriggers(tx, job, []);
-      await this.reconcileSkills(tx, job, []);
+      const [row] = await tx.insert(triggers).values({ tenantId: this.tenantId, id: trigger.id, name: trigger.name, description: trigger.description ?? "", slug: trigger.slug, encryptedPrompt: await this.encrypt(trigger.prompt), contextVersion:2, contextReviewRequired:trigger.contextReviewRequired ?? false, encryptedRunNameTemplate: trigger.runNameTemplate ? await this.encrypt(trigger.runNameTemplate) : "", executionConfig: trigger.executionConfig, runScopes: trigger.runScopes ?? [...DEFAULT_RUN_SCOPES], tags: trigger.tags ?? [], model: trigger.model, effort: trigger.effort ?? "", concurrencyLimit: trigger.concurrencyLimit, enabled: trigger.enabled, createdAt: new Date(trigger.createdAt), updatedAt: new Date(trigger.updatedAt) }).returning();
+      if (destinationTriggerIds.length) await tx.insert(manualInvocationPermissions).values(destinationTriggerIds.map(destinationTriggerId => ({ tenantId: this.tenantId, sourceTriggerId: trigger.id, destinationTriggerId })));
+      await this.reconcileEvents(tx, trigger, []);
+      await this.reconcileSkills(tx, trigger, []);
       return this.mapped(row!, tx);
     });
   }
 
-  async update(job: Job, expectedUpdatedAt?: string): Promise<Job> {
+  async update(trigger: Trigger, expectedUpdatedAt?: string): Promise<Trigger> {
     return this.database.orm.transaction(async tx => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${this.tenantId}::text, 1))`);
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${this.tenantId}::text, 0))`);
-      const [current] = await tx.select().from(jobs).where(and(eq(jobs.tenantId, this.tenantId), eq(jobs.id, job.id))).for("update").limit(1);
-      if (!current) throw new Error("Job not found");
-      if (expectedUpdatedAt && current.updatedAt.toISOString() !== expectedUpdatedAt) throw new StaleJobEdit("Job changed since it was loaded");
-      job = { ...job, updatedAt: new Date(Math.max(Date.parse(job.updatedAt), current.updatedAt.getTime() + 1)).toISOString() };
-      const existing: TriggerRow[] = await tx.select().from(triggers).where(and(eq(triggers.tenantId, this.tenantId), eq(triggers.jobId, job.id), isNull(triggers.removedAt))).orderBy(triggers.position);
-      const [row] = await tx.update(jobs).set({ projectId: job.projectId, name: job.name, description: job.description ?? "", slug: job.slug, encryptedPromptTemplate: await this.encrypt(job.promptTemplate), encryptedRunNameTemplate: job.runNameTemplate ? await this.encrypt(job.runNameTemplate) : "", executionConfig: job.executionConfig, runScopes: job.runScopes ?? [...DEFAULT_RUN_SCOPES], tags: job.tags ?? [], model: job.model, effort: job.effort ?? "", concurrencyLimit: job.concurrencyLimit, enabled: job.enabled, updatedAt: new Date(job.updatedAt) }).where(and(eq(jobs.tenantId, this.tenantId), eq(jobs.id, job.id))).returning();
-      await this.reconcileTriggers(tx, job, existing);
-      await this.reconcileSkills(tx, job, []);
-      await this.recordEdit(tx, job.id, job.updatedAt);
+      const [current] = await tx.select().from(triggers).where(and(eq(triggers.tenantId, this.tenantId), eq(triggers.id, trigger.id))).for("update").limit(1);
+      if (!current) throw new Error("Trigger not found");
+      if (expectedUpdatedAt && current.updatedAt.toISOString() !== expectedUpdatedAt) throw new StaleTriggerEdit("Trigger changed since it was loaded");
+      trigger = { ...trigger, updatedAt: new Date(Math.max(Date.parse(trigger.updatedAt), current.updatedAt.getTime() + 1)).toISOString() };
+      const existing: EventRow[] = await tx.select().from(events).where(and(eq(events.tenantId, this.tenantId), eq(events.triggerId, trigger.id), isNull(events.removedAt))).orderBy(events.position);
+      const [row] = await tx.update(triggers).set({ name: trigger.name, description: trigger.description ?? "", slug: trigger.slug, encryptedPrompt: await this.encrypt(trigger.prompt), contextVersion:2, contextReviewRequired:trigger.contextReviewRequired ?? false, encryptedRunNameTemplate: trigger.runNameTemplate ? await this.encrypt(trigger.runNameTemplate) : "", executionConfig: trigger.executionConfig, runScopes: trigger.runScopes ?? [...DEFAULT_RUN_SCOPES], tags: trigger.tags ?? [], model: trigger.model, effort: trigger.effort ?? "", concurrencyLimit: trigger.concurrencyLimit, enabled: trigger.enabled, updatedAt: new Date(trigger.updatedAt) }).where(and(eq(triggers.tenantId, this.tenantId), eq(triggers.id, trigger.id))).returning();
+      await this.reconcileEvents(tx, trigger, existing);
+      await this.reconcileSkills(tx, trigger, []);
+      if (!trigger.contextReviewRequired) await tx.execute(sql`DELETE FROM app.configuration_diagnostics WHERE tenant_id=${this.tenantId}::uuid AND resource_id=${trigger.id}::uuid AND code='multiple_skills_require_review'`);
+      await this.recordEdit(tx, trigger.id, trigger.updatedAt);
       return this.mapped(row!, tx);
     });
   }
 
-  async move(id: string, projectId: string, expectedUpdatedAt?: string): Promise<Job> {
-    return this.database.orm.transaction(async tx => {
-      const [current] = await tx.select().from(jobs).where(and(eq(jobs.tenantId, this.tenantId), eq(jobs.id, id))).for("update").limit(1);
-      if (!current) throw new Error("Job not found");
-      if (expectedUpdatedAt && current.updatedAt.toISOString() !== expectedUpdatedAt) throw new StaleJobEdit("Job changed since it was loaded");
-      const project = await tx.execute(sql`SELECT 1 FROM app.projects WHERE tenant_id=${this.tenantId}::uuid AND id=${projectId}::uuid`);
-      if (!project.rows.length) throw new Error("Project not found");
-      const [row] = await tx.update(jobs).set({ projectId, updatedAt: sql`greatest(now(), date_trunc('milliseconds', ${jobs.updatedAt}) + interval '1 millisecond')` }).where(and(eq(jobs.tenantId, this.tenantId), eq(jobs.id, id))).returning();
-      return this.mapped(row!, tx);
-    });
-  }
 
   async setEnabled(id: string, enabled: boolean, changedAt: string): Promise<boolean> {
     return this.database.orm.transaction(async tx => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${this.tenantId}::text, 1))`);
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${this.tenantId}::text, 0))`);
-      const [job] = await tx.update(jobs).set({ enabled, updatedAt: sql`greatest(${new Date(changedAt)}::timestamptz, date_trunc('milliseconds', ${jobs.updatedAt}) + interval '1 millisecond')` }).where(and(eq(jobs.tenantId, this.tenantId), eq(jobs.id, id))).returning();
-      if (!job) return false;
-      const schedules: TriggerRow[] = await tx.select().from(triggers).where(and(eq(triggers.tenantId, this.tenantId), eq(triggers.jobId, id), eq(triggers.kind, "schedule"), isNull(triggers.removedAt)));
-      for (const trigger of schedules) await tx.update(scheduleState).set({ nextRunAt: enabled && trigger.enabled ? nextOccurrence(validateScheduleConfig(trigger.config), new Date()) : null }).where(and(eq(scheduleState.tenantId, this.tenantId), eq(scheduleState.triggerId, trigger.id)));
-      await this.recordEdit(tx, id, job.updatedAt.toISOString());
+      if (enabled) {
+        const [current]=await tx.select({review:triggers.contextReviewRequired}).from(triggers).where(and(eq(triggers.tenantId,this.tenantId),eq(triggers.id,id))).for("update").limit(1);
+        if (current?.review) throw new ContextReviewRequired("Select one skill in Context before enabling this Trigger.");
+      }
+      const [trigger] = await tx.update(triggers).set({ enabled, updatedAt: sql`greatest(${new Date(changedAt)}::timestamptz, date_trunc('milliseconds', ${triggers.updatedAt}) + interval '1 millisecond')` }).where(and(eq(triggers.tenantId, this.tenantId), eq(triggers.id, id))).returning();
+      if (!trigger) return false;
+      const schedules: EventRow[] = await tx.select().from(events).where(and(eq(events.tenantId, this.tenantId), eq(events.triggerId, id), eq(events.kind, "schedule"), isNull(events.removedAt)));
+      for (const event of schedules) await tx.update(scheduleState).set({ nextRunAt: enabled && event.enabled ? nextOccurrence(validateScheduleConfig(event.config), new Date()) : null }).where(and(eq(scheduleState.tenantId, this.tenantId), eq(scheduleState.eventId, event.id)));
+      await this.recordEdit(tx, id, trigger.updatedAt.toISOString());
       return true;
     });
   }
 
-  private async recordEdit(tx: any, sourceJobId: string, editedAt: string): Promise<void> {
+  private async recordEdit(tx: any, sourceTriggerId: string, editedAt: string): Promise<void> {
     // Snapshot matching subscribers with the edit, so later subscriptions cannot
-    // replay old edits. The outbox commits or rolls back with the job update.
-    await tx.execute(sql`INSERT INTO app.job_edit_deliveries(tenant_id,event_id,trigger_id,source_job_id,edited_at)
-      SELECT t.tenant_id,${crypto.randomUUID()}::uuid,t.id,${sourceJobId}::uuid,${editedAt}::timestamptz
-      FROM app.triggers t JOIN app.jobs j ON j.tenant_id=t.tenant_id AND j.id=t.job_id
-      WHERE t.tenant_id=${this.tenantId}::uuid AND t.job_id<>${sourceJobId}::uuid
-        AND t.kind='jobLifecycle' AND t.enabled AND t.removed_at IS NULL AND j.enabled
-        AND t.config->'sourceJobIds' ? ${sourceJobId} AND t.config->'states' ? 'edited'`);
+    // replay old edits. The outbox commits or rolls back with the trigger update.
+    await tx.execute(sql`INSERT INTO app.trigger_edit_deliveries(tenant_id,delivery_id,event_id,source_trigger_id,edited_at)
+      SELECT t.tenant_id,${crypto.randomUUID()}::uuid,t.id,${sourceTriggerId}::uuid,${editedAt}::timestamptz
+      FROM app.events t JOIN app.triggers j ON j.tenant_id=t.tenant_id AND j.id=t.trigger_id
+      WHERE t.tenant_id=${this.tenantId}::uuid AND t.trigger_id<>${sourceTriggerId}::uuid
+        AND t.kind='triggerLifecycle' AND t.enabled AND t.removed_at IS NULL AND j.enabled
+        AND t.config->'sourceTriggerIds' ? ${sourceTriggerId} AND t.config->'states' ? 'edited'`);
   }
 
-  private async reconcileTriggers(tx: any, job: Job, existing: TriggerRow[]): Promise<void> {
-    const desiredIds = new Set(job.triggers.map(trigger => trigger.id));
-    for (const old of existing.filter(trigger => !desiredIds.has(trigger.id))) {
-      const referenced = await tx.select({ value: sql<number>`1` }).from(invocations).where(and(eq(invocations.tenantId, this.tenantId), eq(invocations.triggerId, old.id))).limit(1)
-        .then((rows: unknown[]) => rows.length > 0) || await tx.select({ value: sql<number>`1` }).from(lifecycleDeliveries).where(and(eq(lifecycleDeliveries.tenantId, this.tenantId), eq(lifecycleDeliveries.triggerId, old.id))).limit(1).then((rows: unknown[]) => rows.length > 0)
-        || await tx.select({ value: sql<number>`1` }).from(pendingVerifications).where(and(eq(pendingVerifications.tenantId, this.tenantId), eq(pendingVerifications.triggerId, old.id))).limit(1).then((rows: unknown[]) => rows.length > 0);
-      await tx.delete(jobEditDeliveries).where(and(eq(jobEditDeliveries.tenantId, this.tenantId), eq(jobEditDeliveries.triggerId, old.id)));
-      if (referenced) await tx.update(triggers).set({ enabled: false, removedAt: new Date(job.updatedAt), updatedAt: new Date(job.updatedAt) }).where(and(eq(triggers.tenantId, this.tenantId), eq(triggers.id, old.id)));
-      else await tx.delete(triggers).where(and(eq(triggers.tenantId, this.tenantId), eq(triggers.id, old.id)));
-      await tx.delete(scheduleState).where(and(eq(scheduleState.tenantId, this.tenantId), eq(scheduleState.triggerId, old.id)));
+  private async reconcileEvents(tx: any, trigger: Trigger, existing: EventRow[]): Promise<void> {
+    const desiredIds = new Set(trigger.events.map(event => event.id));
+    for (const old of existing.filter(event => !desiredIds.has(event.id))) {
+      const referenced = await tx.select({ value: sql<number>`1` }).from(invocations).where(and(eq(invocations.tenantId, this.tenantId), eq(invocations.eventId, old.id))).limit(1)
+        .then((rows: unknown[]) => rows.length > 0) || await tx.select({ value: sql<number>`1` }).from(lifecycleDeliveries).where(and(eq(lifecycleDeliveries.tenantId, this.tenantId), eq(lifecycleDeliveries.eventId, old.id))).limit(1).then((rows: unknown[]) => rows.length > 0)
+        || await tx.select({ value: sql<number>`1` }).from(pendingVerifications).where(and(eq(pendingVerifications.tenantId, this.tenantId), eq(pendingVerifications.eventId, old.id))).limit(1).then((rows: unknown[]) => rows.length > 0);
+      await tx.delete(triggerEditDeliveries).where(and(eq(triggerEditDeliveries.tenantId, this.tenantId), eq(triggerEditDeliveries.eventId, old.id)));
+      if (referenced) await tx.update(events).set({ enabled: false, removedAt: new Date(trigger.updatedAt), updatedAt: new Date(trigger.updatedAt) }).where(and(eq(events.tenantId, this.tenantId), eq(events.id, old.id)));
+      else await tx.delete(events).where(and(eq(events.tenantId, this.tenantId), eq(events.id, old.id)));
+      await tx.delete(scheduleState).where(and(eq(scheduleState.tenantId, this.tenantId), eq(scheduleState.eventId, old.id)));
     }
-    const existingById = new Map(existing.map(trigger => [trigger.id, trigger]));
-    for (const [position, trigger] of job.triggers.entries()) {
-      const old = existingById.get(trigger.id);
-      if (old && old.kind !== trigger.kind) throw new Error("Trigger kind is immutable; replace the trigger with a new id");
-      if (old) await tx.update(triggers).set({ slug: trigger.slug, enabled: trigger.enabled, config: trigger.config, position, updatedAt: new Date(trigger.updatedAt) }).where(and(eq(triggers.tenantId, this.tenantId), eq(triggers.id, trigger.id)));
-      else await tx.insert(triggers).values({ tenantId: this.tenantId, id: trigger.id, jobId: job.id, kind: trigger.kind, slug: trigger.slug, enabled: trigger.enabled, config: trigger.config, position, createdAt: new Date(trigger.createdAt), updatedAt: new Date(trigger.updatedAt) });
-      if (trigger.kind === "schedule") {
-        const next = job.enabled && trigger.enabled ? nextOccurrence(validateScheduleConfig(trigger.config), new Date()) : null;
-        await tx.insert(scheduleState).values({ tenantId: this.tenantId, triggerId: trigger.id, jobId: job.id, nextRunAt: next }).onConflictDoUpdate({ target: [scheduleState.tenantId, scheduleState.triggerId], set: { nextRunAt: next } });
-      } else await tx.delete(scheduleState).where(and(eq(scheduleState.tenantId, this.tenantId), eq(scheduleState.triggerId, trigger.id)));
+    const existingById = new Map(existing.map(event => [event.id, event]));
+    for (const [position, event] of trigger.events.entries()) {
+      const old = existingById.get(event.id);
+      if (old && old.kind !== event.kind) throw new Error("Event kind is immutable; replace the event with a new id");
+      if (old) await tx.update(events).set({ slug: event.slug, enabled: event.enabled, config: event.config, encryptedTemplate:event.template===undefined ? null : await this.encrypt(event.template), legacyTemplate:false, position, updatedAt: new Date(event.updatedAt) }).where(and(eq(events.tenantId, this.tenantId), eq(events.id, event.id)));
+      else await tx.insert(events).values({ tenantId: this.tenantId, id: event.id, triggerId: trigger.id, kind: event.kind, slug: event.slug, enabled: event.enabled, config: event.config, encryptedTemplate:event.template===undefined ? null : await this.encrypt(event.template), legacyTemplate:false, position, createdAt: new Date(event.createdAt), updatedAt: new Date(event.updatedAt) });
+      if (event.kind === "schedule") {
+        const next = trigger.enabled && event.enabled ? nextOccurrence(validateScheduleConfig(event.config), new Date()) : null;
+        await tx.insert(scheduleState).values({ tenantId: this.tenantId, eventId: event.id, triggerId: trigger.id, nextRunAt: next }).onConflictDoUpdate({ target: [scheduleState.tenantId, scheduleState.eventId], set: { nextRunAt: next } });
+      } else await tx.delete(scheduleState).where(and(eq(scheduleState.tenantId, this.tenantId), eq(scheduleState.eventId, event.id)));
     }
   }
-  private async reconcileSkills(tx: any, job: Job, _existing: unknown[]): Promise<void> {
-    const context = job.selectedSkills ?? [];
-    const selected = job.launchSkill && !context.some(skill => skill.id === job.launchSkill!.id) ? [...context,job.launchSkill] : context;
+  private async reconcileSkills(tx: any, trigger: Trigger, _existing: unknown[]): Promise<void> {
+    const selected = trigger.skill ? [trigger.skill] : [];
     const ids = selected.map(skill => skill.id);
-    if (new Set(ids).size !== ids.length) throw new Error("A skill may only be selected once per job");
+    if (new Set(ids).size !== ids.length) throw new Error("A skill may only be selected once per trigger");
     if (ids.length) {
       const found = await tx.execute(sql`SELECT id FROM app.skills WHERE tenant_id=${this.tenantId}::uuid AND id IN (${sql.join(ids.map(id => sql`${id}::uuid`), sql`, `)}) FOR SHARE`);
       if (found.rows.length !== ids.length) throw new Error("One or more selected skills are unavailable");
     }
-    await tx.execute(sql`DELETE FROM app.job_skills WHERE tenant_id=${this.tenantId}::uuid AND job_id=${job.id}::uuid`);
-    for (const [position, skill] of selected.entries()) await tx.execute(sql`INSERT INTO app.job_skills(tenant_id,job_id,skill_id,position,context_skill) VALUES(${this.tenantId}::uuid,${job.id}::uuid,${skill.id}::uuid,${position},${position < context.length})`);
+    await tx.execute(sql`DELETE FROM app.trigger_skills WHERE tenant_id=${this.tenantId}::uuid AND trigger_id=${trigger.id}::uuid`);
+    for (const [position, skill] of selected.entries()) await tx.execute(sql`INSERT INTO app.trigger_skills(tenant_id,trigger_id,skill_id,position,context_skill) VALUES(${this.tenantId}::uuid,${trigger.id}::uuid,${skill.id}::uuid,${position},false)`);
   }
 
   async delete(id: string): Promise<boolean> {
     return this.database.transaction(async client => {
-      const result = await client.query("DELETE FROM app.jobs WHERE tenant_id=$1 AND id=$2 RETURNING id", [this.tenantId, id]);
+      const result = await client.query("DELETE FROM app.triggers WHERE tenant_id=$1 AND id=$2 RETURNING id", [this.tenantId, id]);
       return result.rowCount === 1;
     });
   }
-  async findInvocation(jobId: string, claimKey: string) {
-    const result = await this.database.pool.query<any>(`SELECT i.id invocation_id,i.job_id,i.source,i.claim_key,i.trigger_id,i.context,i.occurrence,i.source_job_id,i.source_run_id,i.created_at invocation_created_at,r.id run_id,r.state run_state,r.encrypted_prompt,r.encrypted_skill_snapshot,r.run_name,r.created_at run_created_at,r.updated_at run_updated_at,r.started_at
-      FROM app.invocations i JOIN app.job_runs r ON r.tenant_id=i.tenant_id AND r.invocation_id=i.id WHERE i.tenant_id=$1 AND i.job_id=$2 AND i.claim_key=$3`, [this.tenantId, jobId, claimKey]);
+  async findInvocation(triggerId: string, claimKey: string) {
+    const result = await this.database.pool.query<any>(`SELECT i.id invocation_id,i.trigger_id,i.source,i.claim_key,i.event_id,i.context,i.occurrence,i.source_trigger_id,i.source_run_id,i.created_at invocation_created_at,r.id run_id,r.state run_state,r.encrypted_prompt,r.encrypted_skill_snapshot,r.run_name,r.created_at run_created_at,r.updated_at run_updated_at,r.started_at
+      FROM app.invocations i JOIN app.trigger_runs r ON r.tenant_id=i.tenant_id AND r.invocation_id=i.id WHERE i.tenant_id=$1 AND i.trigger_id=$2 AND i.claim_key=$3`, [this.tenantId, triggerId, claimKey]);
     const row = result.rows[0]; if (!row) return null;
-    return { invocation: { id: row.invocation_id, jobId: row.job_id, source: row.source, claimKey: row.claim_key, triggerId: row.trigger_id, context: row.context, ...(row.source_job_id ? { sourceJobId: row.source_job_id } : {}), ...(row.source_run_id ? { sourceRunId: row.source_run_id } : {}), ...(row.occurrence ? { occurrence: row.occurrence } : {}), createdAt: row.invocation_created_at.toISOString() } as Invocation, run: { id: row.run_id, jobId: row.job_id, invocationId: row.invocation_id, state: row.run_state, encryptedPrompt: row.encrypted_prompt, ...(row.encrypted_skill_snapshot ? { encryptedSkillSnapshot: row.encrypted_skill_snapshot } : {}), ...(row.run_name ? { runName: row.run_name } : {}), createdAt: row.run_created_at.toISOString(), updatedAt: row.run_updated_at.toISOString(), ...(row.started_at ? { startedAt: row.started_at.toISOString() } : {}) } as JobRun };
+    return { invocation: { id: row.invocation_id, triggerId: row.trigger_id, source: row.source, claimKey: row.claim_key, eventId: row.event_id, context: row.context, ...(row.source_trigger_id ? { sourceTriggerId: row.source_trigger_id } : {}), ...(row.source_run_id ? { sourceRunId: row.source_run_id } : {}), ...(row.occurrence ? { occurrence: row.occurrence } : {}), createdAt: row.invocation_created_at.toISOString() } as Invocation, run: { id: row.run_id, triggerId: row.trigger_id, invocationId: row.invocation_id, state: row.run_state, encryptedPrompt: row.encrypted_prompt, ...(row.encrypted_skill_snapshot ? { encryptedSkillSnapshot: row.encrypted_skill_snapshot } : {}), ...(row.run_name ? { runName: row.run_name } : {}), createdAt: row.run_created_at.toISOString(), updatedAt: row.run_updated_at.toISOString(), ...(row.started_at ? { startedAt: row.started_at.toISOString() } : {}) } as TriggerRun };
   }
-  async insertInvocationAndRun(invocation: Invocation, run: JobRun): Promise<boolean> {
+  async insertInvocationAndRun(invocation: Invocation, run: TriggerRun): Promise<boolean> {
     return this.database.transaction(async client => {
-      const concurrencyLimit = await lockJobQueue(client, this.tenantId, invocation.jobId);
-      const inserted = await client.query("INSERT INTO app.invocations(tenant_id,id,job_id,source,claim_key,trigger_id,context,occurrence,source_job_id,source_run_id,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (tenant_id,job_id,claim_key) DO NOTHING", [this.tenantId, invocation.id, invocation.jobId, invocation.source, invocation.claimKey, invocation.triggerId, invocation.context, invocation.occurrence ?? null, invocation.sourceJobId ?? null, invocation.sourceRunId ?? null, invocation.createdAt]);
+      const concurrencyLimit = await lockTriggerQueue(client, this.tenantId, invocation.triggerId);
+      const inserted = await client.query("INSERT INTO app.invocations(tenant_id,id,trigger_id,source,claim_key,event_id,context,occurrence,source_trigger_id,source_run_id,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (tenant_id,trigger_id,claim_key) DO NOTHING", [this.tenantId, invocation.id, invocation.triggerId, invocation.source, invocation.claimKey, invocation.eventId, invocation.context, invocation.occurrence ?? null, invocation.sourceTriggerId ?? null, invocation.sourceRunId ?? null, invocation.createdAt]);
       if (!inserted.rowCount) return false;
-      const job = (await client.query("SELECT project_id, slug, execution_config, model, effort, tags, run_scopes FROM app.jobs WHERE tenant_id=$1 AND id=$2", [this.tenantId, invocation.jobId])).rows[0];
+      const trigger = (await client.query("SELECT slug, execution_config, model, effort, tags, run_scopes FROM app.triggers WHERE tenant_id=$1 AND id=$2", [this.tenantId, invocation.triggerId])).rows[0];
       run.state = await submitRun(client, this.tenantId, {
-        id: run.id, jobId: invocation.jobId, projectId: job.project_id, invocationId: invocation.id, name: run.runName ?? "",
-        source: invocation.source, claim: invocation.claimKey, encryptedPrompt: run.encryptedPrompt, encryptedSkills: run.encryptedSkillSnapshot,
-        skill: run.launchSkill, workspaceName: job.slug, jobLimit: concurrencyLimit, createdAt: run.createdAt,
-        config: {...job.execution_config, model: job.model, effort: job.effort, tags: job.tags, inputContext: invocation.context, runScopes: job.run_scopes},
+        id: run.id, triggerId: invocation.triggerId, invocationId: invocation.id, name: run.runName ?? "",
+        source: invocation.source, claim: invocation.claimKey, encryptedPrompt: run.encryptedPrompt, encryptedSkills: run.encryptedSkillSnapshot,encryptedPromptPreview:run.encryptedPromptPreview,encryptedContextPrompt:run.encryptedContextPrompt,
+        skill: run.skill, workspaceName: trigger.slug, triggerLimit: concurrencyLimit, createdAt: run.createdAt,
+        config: {...trigger.execution_config, model: trigger.model, effort: trigger.effort, tags: trigger.tags, inputContext: invocation.context, runScopes: trigger.run_scopes},
       });
       return true;
     });
   }
-  async countActiveRuns(jobId: string): Promise<number> { return Number((await this.database.pool.query<{ count: string }>("SELECT count(*)::text count FROM app.job_runs WHERE tenant_id=$1 AND job_id=$2 AND state IN ('reserved','starting','running','blocked','stopping')", [this.tenantId, jobId])).rows[0]?.count ?? 0); }
-  async markRunRunning(runId: string, startedAt: string): Promise<JobRun> {
-    const row = (await this.database.pool.query<any>("UPDATE app.job_runs SET state='running',started_at=$3,updated_at=$3 WHERE tenant_id=$1 AND id=$2 AND state='queued' RETURNING *", [this.tenantId, runId, startedAt])).rows[0];
+  async countActiveRuns(triggerId: string): Promise<number> { return Number((await this.database.pool.query<{ count: string }>("SELECT count(*)::text count FROM app.trigger_runs WHERE tenant_id=$1 AND trigger_id=$2 AND state IN ('reserved','starting','running','blocked','stopping')", [this.tenantId, triggerId])).rows[0]?.count ?? 0); }
+  async markRunRunning(runId: string, startedAt: string): Promise<TriggerRun> {
+    const row = (await this.database.pool.query<any>("UPDATE app.trigger_runs SET state='running',started_at=$3,updated_at=$3 WHERE tenant_id=$1 AND id=$2 AND state='queued' RETURNING *", [this.tenantId, runId, startedAt])).rows[0];
     if (!row) throw new Error("Run is no longer queued");
-    return { id: row.id, jobId: row.job_id, invocationId: row.invocation_id, state: row.state, encryptedPrompt: row.encrypted_prompt, createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString(), startedAt: row.started_at.toISOString() };
+    return { id: row.id, triggerId: row.trigger_id, invocationId: row.invocation_id, state: row.state, encryptedPrompt: row.encrypted_prompt, createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString(), startedAt: row.started_at.toISOString() };
   }
 }

@@ -31,7 +31,7 @@ describe("run history retention pause switch", () => {
     vi.spyOn(RunRetentionRepository.prototype, "sweep").mockResolvedValue({ selected: 8, deleted: 6, cleanupQueued: 2 });
     vi.spyOn(RunRetentionRepository.prototype, "processArtifactCleanup").mockResolvedValue({ attempted: 3, completed: 1, retried: 2 });
     vi.spyOn(RunRetentionRepository.prototype, "cleanupIndependentHistory").mockResolvedValue([
-      { queue: "job_events", deleted: 12 }, { queue: "webhook_deliveries", deleted: 4 },
+      { queue: "trigger_events", deleted: 12 }, { queue: "webhook_deliveries", deleted: 4 },
     ]);
     vi.spyOn(RunRetentionRepository.prototype, "backlogSnapshot").mockResolvedValue([
       { queue: "terminal_provider", pending: 2, oldestAgeSeconds: 7200 },
@@ -48,7 +48,7 @@ describe("run history retention pause switch", () => {
       paused: false,
       sweep: { selected: 8, deleted: 6, cleanupQueued: 2 },
       artifacts: { attempted: 3, completed: 1, retried: 2 },
-      independentHistory: [{ queue: "job_events", deleted: 12 }, { queue: "webhook_deliveries", deleted: 4 }],
+      independentHistory: [{ queue: "trigger_events", deleted: 12 }, { queue: "webhook_deliveries", deleted: 4 }],
       backlog: [{ queue: "terminal_provider", pending: 2, oldestAgeSeconds: 7200 }, { queue: "artifact_objects", pending: 1, oldestAgeSeconds: 90 }],
     });
     expect(JSON.stringify(event)).not.toMatch(/tenant|runId|objectKey|providerHandle/i);

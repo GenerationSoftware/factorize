@@ -15,9 +15,9 @@ describe("run proxy identity boundary", () => {
   it("reports a verified run with an empty scope snapshot", async () => {
     vi.spyOn(IdentityRepository.prototype, "member").mockResolvedValue({role:"owner",sessionVersion:1} as any);
     const response=await protectedApiFetch(new Request("https://app.test/api/v1/runtime-context"), {DATABASE:{}} as any,
-      {tenantId:"tenant",userId:"owner",sessionVersion:1,authMethod:"vendor_identity",runId:"run",runJobId:"source",runIdentityProvider:"fly.io",scopes:[]},{} as any);
+      {tenantId:"tenant",userId:"owner",sessionVersion:1,authMethod:"vendor_identity",runId:"run",runTriggerId:"source",runIdentityProvider:"fly.io",scopes:[]},{} as any);
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({authMethod:"vendor_identity",runId:"run",jobId:"source",scopes:[]});
+    expect(await response.json()).toMatchObject({authMethod:"vendor_identity",runId:"run",triggerId:"source",scopes:[]});
   });
 
   it("can verify that an integration is read-only", async () => {
@@ -26,7 +26,7 @@ describe("run proxy identity boundary", () => {
       { tenantId: "tenant", userId: "owner", sessionVersion: 1, authMethod: "access_token", scopes: ["runs:read"] }, {} as ExecutionContext);
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ scopes: ["runs:read"] });
-    expect(RUN_SCOPES).not.toContain("jobs:write");
+    expect(RUN_SCOPES).not.toContain("triggers:write");
   });
 
   it("distinguishes a broader owner credential from the required run proxy", async () => {
@@ -34,6 +34,6 @@ describe("run proxy identity boundary", () => {
     const response = await protectedApiFetch(new Request("https://app.test/api/v1/runtime-context"), { DATABASE: {} } as any,
       { tenantId: "tenant", userId: "owner", sessionVersion: 1, authMethod: "oauth", scopes: ["runs:read", "runs:invoke"] }, {} as ExecutionContext);
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ kind: "factorize-runtime-context-v1", authMethod: "oauth", runId: null, jobId: null, scopes: ["runs:read", "runs:invoke"] });
+    expect(await response.json()).toEqual({ kind: "factorize-runtime-context-v1", authMethod: "oauth", runId: null, triggerId: null, scopes: ["runs:read", "runs:invoke"] });
   });
 });

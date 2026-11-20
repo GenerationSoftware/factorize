@@ -101,7 +101,7 @@ describe("RunRetentionRepository", () => {
   it("reports bounded backlog counts and oldest age without exposing row identifiers", async () => {
     const query = vi.fn().mockResolvedValue({ rows: [
       { queue: "artifact_objects", pending: 2, oldest_age_seconds: 120 },
-      { queue: "deleted_job_provider", pending: 0, oldest_age_seconds: null },
+      { queue: "deleted_trigger_provider", pending: 0, oldest_age_seconds: null },
       { queue: "finalization_pending", pending: 1, oldest_age_seconds: 240 },
       { queue: "lifecycle_handoff", pending: 2, oldest_age_seconds: 300 },
       { queue: "overdue_nonterminal", pending: 1, oldest_age_seconds: 90_000 },
@@ -113,7 +113,7 @@ describe("RunRetentionRepository", () => {
     const snapshot = await repository.backlogSnapshot();
     expect(snapshot).toEqual([
       { queue: "artifact_objects", pending: 2, oldestAgeSeconds: 120 },
-      { queue: "deleted_job_provider", pending: 0, oldestAgeSeconds: null },
+      { queue: "deleted_trigger_provider", pending: 0, oldestAgeSeconds: null },
       { queue: "finalization_pending", pending: 1, oldestAgeSeconds: 240 },
       { queue: "lifecycle_handoff", pending: 2, oldestAgeSeconds: 300 },
       { queue: "overdue_nonterminal", pending: 1, oldestAgeSeconds: 90_000 },

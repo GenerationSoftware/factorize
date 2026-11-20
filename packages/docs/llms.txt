@@ -1,48 +1,48 @@
 # Factorize
 
-Hosted workflow: connect your agent → create a job → run it → inspect the result → automate it.
+Hosted workflow: connect your agent → create a trigger → run it → inspect the result → automate it.
 
 Application: https://app.factorize.sh
 MCP (Streamable HTTP + OAuth): https://app.factorize.sh/mcp
 
 Browser: email/password signup, verification, execution/provider connections and consent.
-MCP: discover targets, manage jobs, invoke with retained idempotency keys, inspect state/context/diagnostics.
+MCP: discover targets, manage triggers, invoke with retained idempotency keys, inspect state/context/diagnostics.
 Current MCP does not return execution output; inspect browser traces or REST trace pages. REST is not full MCP parity.
 
 ## Get started
 
-- [Factorize with your agent](https://docs.factorize.sh/): Connect your agent, create a job, run it, inspect the result, and automate it.
+- [Factorize with your agent](https://docs.factorize.sh/): Connect your agent, create a trigger, run it, inspect the result, and automate it.
 - [Connect your agent](https://docs.factorize.sh/mcp/overview): Authorize Codex or Claude Code for hosted Factorize.
-- [Your first job](https://docs.factorize.sh/quickstart): Run a hosted repository review through MCP.
+- [Your first Trigger](https://docs.factorize.sh/quickstart): Configure a personal team and run hosted Pi through MCP.
 
 ## Work with your agent
 
-- [Create and edit jobs](https://docs.factorize.sh/work/jobs): Discover a target and replace configuration safely.
-- [Write job prompts](https://docs.factorize.sh/work/prompts): Use stable trigger context and explicit execution instructions.
-- [Inspect results](https://docs.factorize.sh/work/results): Read run state, output, prompt, and trigger context.
+- [Create and edit triggers](https://docs.factorize.sh/work/triggers): Discover a target and replace configuration safely.
+- [Write Trigger context](https://docs.factorize.sh/work/prompts): Combine one optional skill, a literal prompt, and selected Event data.
+- [Inspect results](https://docs.factorize.sh/work/results): Read run state, output, prompt, and event context.
 - [Stop and retry runs](https://docs.factorize.sh/work/stop-retry): Avoid duplicate work and understand current stop behavior.
 
-## Automate jobs
+## Automate triggers
 
 - [Schedule a repository review](https://docs.factorize.sh/recipes/scheduled-review): Turn a successful manual review into daily automation.
-- [Run a job from Linear](https://docs.factorize.sh/recipes/linear-job): Connect a workspace, select a project and match issues.
+- [Run a trigger from Linear](https://docs.factorize.sh/recipes/linear-trigger): Connect a workspace, select a project and match issues.
 - [Automate from GitHub](https://docs.factorize.sh/integrations/github): Select an installation, repository, and event.
 - [Automate from ClickUp](https://docs.factorize.sh/integrations/clickup): Connect a workspace and select matching tasks.
-- [Chain jobs](https://docs.factorize.sh/recipes/chaining): Start a follow-up after another job finishes or is edited.
-- [Manual job invocation permissions](https://docs.factorize.sh/work/manual-invocation-permissions): Authorize jobs to start other jobs with run-scoped credentials and manage destination permissions.
+- [Chain triggers](https://docs.factorize.sh/recipes/chaining): Start a follow-up after another trigger finishes or is edited.
+- [Manual trigger invocation permissions](https://docs.factorize.sh/work/manual-invocation-permissions): Authorize triggers to start other triggers with run-scoped credentials and manage destination permissions.
 - [Connect your accounts](https://docs.factorize.sh/integrations/oauth): Browser setup, resource access, and delivery verification.
-- [Trigger configuration](https://docs.factorize.sh/integrations/triggers): Configure schedules, provider webhooks, and lifecycle triggers.
+- [Event configuration](https://docs.factorize.sh/integrations/events): Configure schedules, provider webhooks, and lifecycle events.
 
 ## Troubleshooting
 
 - [Connection problems](https://docs.factorize.sh/troubleshooting/connection): Recover authorization, scopes, and execution integrations.
-- [Jobs not firing](https://docs.factorize.sh/troubleshooting/events): Verify automation from provider event to accepted run.
+- [Triggers not firing](https://docs.factorize.sh/troubleshooting/events): Verify automation from provider event to accepted run.
 - [Failed or stuck runs](https://docs.factorize.sh/troubleshooting/runs): Investigate evidence, fix the cause, and verify recovery.
 
 ## Reference
 
 - [MCP tool reference](https://docs.factorize.sh/mcp/tools): Complete hosted MCP inventory, inputs, results, and common errors.
-- [Jobs, triggers, runs, and targets](https://docs.factorize.sh/concepts): Understand the workflow before configuring automation.
+- [Teams, Triggers, Events, skills, and runs](https://docs.factorize.sh/concepts): Understand the shared team workspace and hosted Pi execution.
 - [REST API reference](https://docs.factorize.sh/api/reference): How to use the generated API reference.
 - [Authentication and scopes](https://docs.factorize.sh/api/authentication): OAuth 2.1, device authorization, and access-token rules.
 - [OAuth discovery](https://docs.factorize.sh/api/discovery): Endpoints and metadata for OAuth-aware clients.

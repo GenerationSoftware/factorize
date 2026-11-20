@@ -25,15 +25,15 @@ try {
   run('openssl', ['req', '-new', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:P-256', '-nodes', '-keyout', join(tls,'server.key'), '-out', join(tls,'server.csr'), '-subj', '/CN=localhost']);
   await writeFile(join(tls,'server.ext'), `subjectAltName=DNS:localhost,DNS:proxy.local,DNS:fake-api.local,IP:${hostIp},IP:127.0.0.1\nextendedKeyUsage=serverAuth\n`);
   run('openssl', ['x509', '-req', '-in', join(tls,'server.csr'), '-CA', join(tls,'ca.crt'), '-CAkey', join(tls,'ca.key'), '-CAcreateserial', '-out', join(tls,'server.crt'), '-days', '1', '-extfile', join(tls,'server.ext')]);
-  // Only synthetic fixture TLS files are shared with the proxy/fake service, never the job.
+  // Only synthetic fixture TLS files are shared with the proxy/fake service, never the trigger.
   await chmod(tls, 0o755); await chmod(join(tls,'server.key'), 0o644);
-  console.log('Preparing the isolated job image (no registry publication).');
-  run('docker', ['build', '-f', 'packages/api/test/fixtures/Dockerfile.code-job', '-t', 'factorize-test-code-local', '.']);
-  const jobImage = run('docker', ['image', 'inspect', '--format', '{{.Id}}', 'factorize-test-code-local']);
+  console.log('Preparing the isolated trigger image (no registry publication).');
+  run('docker', ['build', '-f', 'packages/api/test/fixtures/Dockerfile.code-trigger', '-t', 'factorize-test-code-local', '.']);
+  const triggerImage = run('docker', ['image', 'inspect', '--format', '{{.Id}}', 'factorize-test-code-local']);
   const result = await runProcess('npm', ['exec', '--workspace=factorize', '--', 'vitest', 'run', '--config', 'scripts/docker-code-job.config.ts'], {
     timeoutMs: 150_000, signal: cancellation.signal,
     env: { ...process.env, NODE_EXTRA_CA_CERTS: join(tls, 'ca.crt'), FACTORIZE_E2E_TLS_DIR: tls,
-      FACTORIZE_E2E_HOST_IP: hostIp, FACTORIZE_E2E_JOB_IMAGE: jobImage,
+      FACTORIZE_E2E_HOST_IP: hostIp, FACTORIZE_E2E_JOB_IMAGE: triggerImage,
       FACTORIZE_E2E_NAMESPACE: namespace, FACTORIZE_E2E_DATABASE: databaseName },
     onOutput: (stream, chunk) => (stream === 'stderr' ? process.stderr : process.stdout).write(chunk),
   });
@@ -42,13 +42,13 @@ try {
 } finally {
   for (const signal of ['SIGINT', 'SIGTERM']) process.removeListener(signal, interrupted);
   // Independent fallback after failures/signals. Lifecycle assertions run in the test before this.
-  for (const scope of [namespace, `${namespace}-jobs`, `${namespace}-infra`]) {
+  for (const scope of [namespace, `${namespace}-triggers`, `${namespace}-infra`]) {
     try {
       const ids = run('docker', ['ps', '-aq', '--filter', `label=sh.factorize.test.namespace=${scope}`], 10_000).split('\n').filter(Boolean);
       for (const id of ids) run('docker', ['rm', '-f', id], 10_000);
     } catch { console.error('Docker E2E fallback cleanup needs manual inspection for namespace ' + scope); }
   }
-  for (const network of [`${namespace}-jobs`, `${namespace}-api`, `${namespace}-infra`]) { try { run('docker', ['network', 'rm', network], 10_000); } catch {} }
+  for (const network of [`${namespace}-triggers`, `${namespace}-api`, `${namespace}-infra`]) { try { run('docker', ['network', 'rm', network], 10_000); } catch {} }
   try { run('psql', [database.href, '-v', 'ON_ERROR_STOP=1', '-c', `DROP DATABASE IF EXISTS ${databaseName} WITH (FORCE)`], 10_000); }
   catch { console.error('Remove isolated E2E database ' + databaseName + ' after stopping its runner.'); }
   await rm(tls, { recursive: true, force: true });

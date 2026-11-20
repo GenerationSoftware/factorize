@@ -1,8 +1,8 @@
 import { spawn } from "node:child_process";
-import type { JobMachines, JobGuest } from "../../src/machine-job-execution-backend";
+import type { TriggerMachines, TriggerGuest } from "../../src/machine-job-execution-backend";
 
 /** Host-only test infrastructure. Never import this module into a Worker runner. */
-export function createDockerJobInfrastructure(options: { testMode: true; network: string; namespace: string; additionalNetworks?: string[]; mounts?: { source: string; target: string }[]; publishBrowserPort?: boolean; beforeDestroy?: (id: string) => Promise<void>; observeGuestInput?: (command: readonly string[], input?: string | Uint8Array) => void }) {
+export function createDockerTriggerInfrastructure(options: { testMode: true; network: string; namespace: string; additionalNetworks?: string[]; mounts?: { source: string; target: string }[]; publishBrowserPort?: boolean; beforeDestroy?: (id: string) => Promise<void>; observeGuestInput?: (command: readonly string[], input?: string | Uint8Array) => void }) {
   if (options.testMode !== true || !/^[a-z0-9][a-z0-9-]{0,62}$/.test(options.namespace)
       || !/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/.test(options.network)) {
     throw new TypeError("Explicit test mode and isolated Docker namespace/network are required");
@@ -60,7 +60,7 @@ export function createDockerJobInfrastructure(options: { testMode: true; network
     if (data.Config.Labels[label] !== options.namespace) throw new Error("Container belongs to another namespace");
     return { id, name: data.Name.replace(/^\//, ""), config: { metadata: Object.fromEntries(Object.entries(data.Config.Labels).filter(([key]) => key.startsWith("factorize_"))) as Record<string, string> }, state: data.State.Running ? "started" : data.State.Status === "created" ? "created" : "stopped" };
   }
-  const machines: JobMachines = {
+  const machines: TriggerMachines = {
     async findMachineByOperationId(_app, operationId) {
       const ids = (await checked(["ps", "-aq", "--no-trunc", "--filter", `label=${label}=${options.namespace}`, "--filter", `label=${operationLabel}=${operationId}`])).split("\n").filter(Boolean);
       if (ids.length > 1) throw new Error("Ambiguous Docker operation identity");
@@ -100,12 +100,12 @@ export function createDockerJobInfrastructure(options: { testMode: true; network
       if ((await inspect(id)).state !== "destroyed") { await options.beforeDestroy?.(id); await checked(["rm", id]); }
     },
   };
-  function guest(id: string): JobGuest {
+  function guest(id: string): TriggerGuest {
     const path = (value: string) => {
       if (!value.startsWith("/") || value.split("/").some(p => p === "." || p === "..") || /[\0\r\n]/.test(value)) throw new TypeError("Invalid guest path");
       return value;
     };
-    const run: JobGuest["run"] = async (command, input) => {
+    const run: TriggerGuest["run"] = async (command, input) => {
       await inspect(id);
       if (!command.length || command.some(arg => arg.includes("\0"))) throw new TypeError("Invalid guest command");
       options.observeGuestInput?.(command, input);

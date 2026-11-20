@@ -44,8 +44,8 @@ describe("run timing queries", () => {
   });
 
   it.each([
-    ["job", "asc", "COALESCE(j.name,r.source_job_name) ASC"],
-    ["job", "desc", "COALESCE(j.name,r.source_job_name) DESC"],
+    ["source", "asc", "COALESCE(r.source_trigger_name,j.name,'manual') ASC"],
+    ["source", "desc", "COALESCE(r.source_trigger_name,j.name,'manual') DESC"],
     ["run", "asc", "COALESCE(NULLIF(r.run_name, ''), NULLIF(r.issue_title, ''), 'Run') ASC"],
     ["run", "desc", "COALESCE(NULLIF(r.run_name, ''), NULLIF(r.issue_title, ''), 'Run') DESC"],
     ["status", "asc", "r.state ASC"],
@@ -83,12 +83,12 @@ describe("run timing queries", () => {
     expect(values).toEqual(["tenant", ["failed", "stopped"], 11]);
   });
 
-  it("applies independent project and job filters before cursor pagination", async () => {
+  it("applies trigger filters within the team before cursor pagination", async () => {
     const query = vi.fn(async () => ({ rows: [] }));
-    await new RunQueryRepository({ pool: { query } } as any, "tenant").list(new URLSearchParams([['projectId', 'project-a'], ['projectId', 'project-b'], ['jobId', 'job-a'], ['jobId', 'job-b'], ['limit', '10']]));
+    await new RunQueryRepository({ pool: { query } } as any, "tenant").list(new URLSearchParams([['projectId', 'project-a'], ['projectId', 'project-b'], ['triggerId', 'trigger-a'], ['triggerId', 'trigger-b'], ['limit', '10']]));
     const [sql, values] = query.mock.calls[0] as unknown as [string, unknown[]];
-    expect(sql).toContain("r.project_id=ANY($2::uuid[])");
-    expect(sql).toContain("r.job_id=ANY($3::uuid[])");
-    expect(values).toEqual(["tenant", ["project-a", "project-b"], ["job-a", "job-b"], 11]);
+    expect(sql).not.toContain("project_id");
+    expect(sql).toContain("r.trigger_id=ANY($2::uuid[])");
+    expect(values).toEqual(["tenant", ["trigger-a", "trigger-b"], 11]);
   });
 });

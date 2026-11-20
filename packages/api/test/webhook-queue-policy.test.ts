@@ -9,14 +9,14 @@ describe("webhook queue policy", () => {
     const query = vi.fn().mockResolvedValue({ rows: [] });
     const service = new WebhookService({ pool: { query } } as any, {} as any, "tenant");
     const config = { provider: "github", installationId: 1, repositoryId: 2, event: "issues", action: "opened" };
-    vi.spyOn(service as any, "candidates").mockResolvedValue(["full", "available"].map(id => ({ job: { id }, triggerId: id, triggerSlug: "hook", config })));
+    vi.spyOn(service as any, "candidates").mockResolvedValue(["full", "available"].map(id => ({ trigger: { id }, eventId: id, eventSlug: "hook", config })));
     vi.spyOn(service as any, "ensure").mockResolvedValue("delivery");
     const event = vi.spyOn(service as any, "event").mockResolvedValue(undefined);
     const payload = { installation: { id: 1 }, repository: { id: 2 }, action: "opened" };
     return { service, event, payload };
   }
 
-  it("acknowledges overflow and continues admitting other matching jobs", async () => {
+  it("acknowledges overflow and continues admitting other matching triggers", async () => {
     const { service, event, payload } = fixture();
     const invoke = vi.spyOn(InvocationService.prototype, "invoke")
       .mockRejectedValueOnce(new InvocationError("queue_full", "Full"))

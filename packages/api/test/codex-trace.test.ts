@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { consumeTraceStream, parseTrace, type TraceEvent } from "../src/trace";
-import { agentDriver } from "../src/agent-driver";
+import { agentDriver } from "./helpers/legacy-agent-fixture";
 
 const fixture = (name: string) => readFileSync(new URL(`./fixtures/codex/${name}`, import.meta.url), "utf8");
 describe("Codex traces", () => {

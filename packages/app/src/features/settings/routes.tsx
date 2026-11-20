@@ -7,7 +7,8 @@ export function settingsRoutes(root: AnyRootRoute) {
   return [
     createRoute({ getParentRoute: () => root, path: "/settings/integrations", beforeLoad: ({ location }) => { throw redirect({ to: "/integrations", search: location.search, hash: location.hash, replace: true }); } }),
     createRoute({ getParentRoute: () => root, path: "/integrations", beforeLoad: guard, component: lazyRouteComponent(() => import("./integrations"), "Integrations") }),
-    createRoute({ getParentRoute: () => root, path: "/settings", beforeLoad: guard, component: lazyRouteComponent(() => import("./vm-presets"), "VmPresets") }),
+    createRoute({ getParentRoute: () => root, path: "/settings", beforeLoad: guard, component: lazyRouteComponent(() => import("./team"), "TeamSettings") }),
+    createRoute({ getParentRoute: () => root, path: "/settings/vm-presets", beforeLoad: guard, component: lazyRouteComponent(() => import("./vm-presets"), "VmPresets") }),
     createRoute({ getParentRoute: () => root, path: "/settings/api-keys", beforeLoad: guard, component: lazyRouteComponent(() => import("./api-keys"), "ApiKeys") }),
     createRoute({ getParentRoute: () => root, path: "/settings/api-keys/new", beforeLoad: guard, component: lazyRouteComponent(() => import("./api-key-create"), "ApiKeyCreate") }),
     createRoute({ getParentRoute: () => root, path: "/settings/authorized-clients", beforeLoad: guard, component: lazyRouteComponent(() => import("./authorized-clients"), "AuthorizedClients") }),

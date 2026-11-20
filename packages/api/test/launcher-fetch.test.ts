@@ -10,9 +10,9 @@ import { RUN_IDENTITY_GUEST_HELPER } from "../src/run-identity-guest-helper";
 const runId = "11111111-1111-4111-8111-111111111111";
 async function fixture(server: Server) {
   const directory = await mkdtemp(join(tmpdir(), "factorize-fetch-"));
-  const root = join(directory, "job"), launcher = join(directory, "launcher.py");
+  const root = join(directory, "trigger"), launcher = join(directory, "launcher.py");
   await mkdir(root, {mode: 0o700});
-  await writeFile(launcher, FACTORIZE_JOB_LAUNCHER.replace("/home/exedev/.factorize-job", root));
+  await writeFile(launcher, FACTORIZE_JOB_LAUNCHER.replace("/home/exedev/.factorize-trigger", root));
   await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
   const proxy = `http://127.0.0.1:${(server.address() as {port: number}).port}`;
   return {
@@ -75,7 +75,7 @@ describe("VM launch payload retrieval", () => {
     try {
       const result = await f.run();
       expect(result.error).not.toBeNull();
-      expect(result.stderr).toContain("factorize-job:");
+      expect(result.stderr).toContain("factorize-trigger:");
       expect(result.stderr).not.toMatch(/private-backend-error|secret prompt/);
       expect(requests).toBe(mode === "unavailable" ? 3 : 1);
       expect(JSON.parse(await readFile(join(f.root, "process.json"), "utf8"))).toMatchObject({state: "exited", exitCode: 1});

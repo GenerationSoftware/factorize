@@ -3,7 +3,7 @@
  * These helpers only acquire a token. Callers must verify the signed claims
  * against the provisioned VM and active run before persisting or using it.
  */
-import type { JobGuest } from "./machine-job-execution-backend";
+import type { TriggerGuest } from "./machine-job-execution-backend";
 
 const jwt = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
 
@@ -34,7 +34,7 @@ export async function acquireExeDevWifToken(input: {
 /** Fly documents POST /v1/tokens/oidc with `aud`; inside a Machine the
  * documented Machines API is exposed on the /.fly/api Unix socket. */
 export async function acquireFlyMachineOidcToken(input: {
-  guest: Pick<JobGuest, "run">;
+  guest: Pick<TriggerGuest, "run">;
   audience: string;
 }): Promise<string> {
   if (!input.audience.trim() || input.audience.length > 512) throw new TypeError("Invalid Fly OIDC audience");

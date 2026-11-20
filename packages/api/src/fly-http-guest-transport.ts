@@ -1,5 +1,5 @@
 import { Buffer } from "node:buffer";
-import type { JobGuest } from "./machine-job-execution-backend";
+import type { TriggerGuest } from "./machine-job-execution-backend";
 
 type Options = {app: string; machine: string; token: string; apiOrigin?: string; fetcher?: typeof fetch; timeoutMs?: number; outputLimitBytes?: number; fileLimitBytes?: number};
 function path(value: string): string {
@@ -11,7 +11,7 @@ function failure(): Error { return new Error("Fly guest HTTP transport unavailab
 /** Worker-compatible guest transport using the documented Machines exec API,
  * including stdin. No host CLI, subprocess, filesystem or credential-bearing
  * argv is required in the Factorize backend. */
-export function createFlyHttpGuestTransport(options: Options): Required<JobGuest> {
+export function createFlyHttpGuestTransport(options: Options): Required<TriggerGuest> {
   if (!/^[a-z0-9-]+$/.test(options.app) || !/^[A-Za-z0-9-]+$/.test(options.machine) || !options.token) throw new TypeError("Invalid Fly guest identity");
   const origin = options.apiOrigin ?? "https://api.machines.dev";
   const timeoutMs = options.timeoutMs ?? 30_000, outputLimit = options.outputLimitBytes ?? 64 * 1024, fileLimit = options.fileLimitBytes ?? 16 * 1024 * 1024;

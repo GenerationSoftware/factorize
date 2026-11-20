@@ -4,7 +4,7 @@ import type { MatchRule } from "./types";
 import { matchingGitHubIssue } from "./github-issue-matcher";
 
 export type WebhookProvider = "linear" | "clickup" | "github" | "cloudflareTail";
-export type WebhookTriggerConfig = {
+export type WebhookEventConfig = {
   provider: WebhookProvider;
   projectId?: string; listId?: string; matchRules?: MatchRule[]; installationId?: number; repositoryId?: number;
   event?: string; action?: string; integrationId?: string; signingSecret?: string; secret?: string; conditions?: WebhookConditions;
@@ -15,7 +15,7 @@ export interface WebhookInvocation {
 }
 
 /** Pure provider adapter: matching and normalization only; it never launches execution. */
-export function adaptWebhook(config: WebhookTriggerConfig, provider: WebhookProvider, deliveryId: string, payload: Record<string, any>, eventName?: string): WebhookInvocation | null {
+export function adaptWebhook(config: WebhookEventConfig, provider: WebhookProvider, deliveryId: string, payload: Record<string, any>, eventName?: string): WebhookInvocation | null {
   if (config.provider !== provider) return null;
   if (provider === "linear") {
     const data = payload.data ?? {}, projectId = data.project?.id ?? data.issue?.project?.id;
@@ -39,7 +39,7 @@ export function adaptWebhook(config: WebhookTriggerConfig, provider: WebhookProv
   };
 }
 
-export function publicWebhookConfig(config: WebhookTriggerConfig): Record<string, unknown> {
+export function publicWebhookConfig(config: WebhookEventConfig): Record<string, unknown> {
   const { signingSecret: _signingSecret, secret: _secret, ...safe } = config;
   return { ...safe, ...(config.signingSecret || config.secret ? { secretConfigured: true } : {}) };
 }

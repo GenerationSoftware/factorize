@@ -11,7 +11,7 @@ import { artifactUpload, issueArtifactUploadGrant } from "../src/artifact-upload
 import { RunRepository } from "../src/postgres/run-repository";
 import { RunScheduler } from "../src/postgres/run-scheduler";
 import { ExeVmBackend } from "../src/exe-vm-backend";
-import { agentDriver } from "../src/agent-driver";
+import { agentDriver } from "./helpers/legacy-agent-fixture";
 import { IdentityRepository } from "../src/postgres/identity-repository";
 import { RunRetentionRepository } from "../src/postgres/run-retention-repository";
 
@@ -34,13 +34,13 @@ describe.skipIf(!url)("trace sources with PostgreSQL", () => {
   afterAll(async () => { await database?.close(); if (admin) { await admin.pool.query(`DROP DATABASE IF EXISTS ${databaseName} WITH (FORCE)`); await admin.close(); } });
 
   async function fixture(provider: "codex" | "claude" = "codex") {
-    const tenantId = crypto.randomUUID(), jobId = crypto.randomUUID(), triggerId = crypto.randomUUID(), invocationId = crypto.randomUUID(), runId = crypto.randomUUID();
+    const tenantId = crypto.randomUUID(), triggerId = crypto.randomUUID(), eventId = crypto.randomUUID(), invocationId = crypto.randomUUID(), runId = crypto.randomUUID();
     await database.pool.query("INSERT INTO app.tenants(id) VALUES ($1)", [tenantId]);
     await database.pool.query("INSERT INTO app.projects(tenant_id,id,name) VALUES ($1,md5(($1::uuid)::text || ':default')::uuid,'Default')", [tenantId]);
-    await database.pool.query("INSERT INTO app.jobs(tenant_id,id,project_id,name,slug,encrypted_prompt_template,execution_config,concurrency_limit) VALUES ($1,$2,md5(($1::uuid)::text || ':default')::uuid,'Trace test','trace-test','test','{}',1)", [tenantId, jobId]);
-    await database.pool.query("INSERT INTO app.triggers(tenant_id,id,job_id,kind,slug) VALUES ($1,$2,$3,'manual','manual')", [tenantId, triggerId, jobId]);
-    await database.pool.query("INSERT INTO app.invocations(tenant_id,id,job_id,source,claim_key,trigger_id,context) VALUES ($1,$2,$3,'manual','test',$4,'{}')", [tenantId, invocationId, jobId, triggerId]);
-    await database.pool.query("INSERT INTO app.runs(tenant_id,id,job_id,invocation_id,provider,issue_id,agent_name,state,trace_sources,execution_config) VALUES ($1,$2,$3,$4,'manual','test','test','running',$5,$6)", [tenantId, runId, jobId, invocationId, { primary: { kind: "execution_stream" } }, { agentKind: provider, connectionId: "local" }]);
+    await database.pool.query("INSERT INTO app.triggers(tenant_id,id,project_id,name,slug,encrypted_prompt,execution_config,concurrency_limit) VALUES ($1,$2,md5(($1::uuid)::text || ':default')::uuid,'Trace test','trace-test','test','{}',1)", [tenantId, triggerId]);
+    await database.pool.query("INSERT INTO app.events(tenant_id,id,trigger_id,kind,slug) VALUES ($1,$2,$3,'manual','manual')", [tenantId, eventId, triggerId]);
+    await database.pool.query("INSERT INTO app.invocations(tenant_id,id,trigger_id,source,claim_key,event_id,context) VALUES ($1,$2,$3,'manual','test',$4,'{}')", [tenantId, invocationId, triggerId, eventId]);
+    await database.pool.query("INSERT INTO app.runs(tenant_id,id,trigger_id,invocation_id,provider,issue_id,agent_name,state,trace_sources,execution_config) VALUES ($1,$2,$3,$4,'manual','test','test','running',$5,$6)", [tenantId, runId, triggerId, invocationId, { primary: { kind: "execution_stream" } }, { agentKind: provider, connectionId: "local" }]);
     const blobs = new Map<string, Uint8Array>();
     const env = { DATABASE: database, SESSION_SIGNING_SECRET: secret, RUN_ARTIFACTS: {
       put: async (key: string, stream: ReadableStream, options: any) => { const bytes = new Uint8Array(await new Response(stream).arrayBuffer()); expect(await hash(bytes)).toBe(options.sha256); blobs.set(key, bytes); return { httpEtag: "test" }; },
@@ -57,15 +57,15 @@ describe.skipIf(!url)("trace sources with PostgreSQL", () => {
 
   it("retains pre-provision cleanup ownership across an interrupted launch lease", async () => {
     const f = await fixture();
-    const { job_id: jobId, invocation_id: invocationId } = (await database.pool.query("SELECT job_id,invocation_id FROM app.runs WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId])).rows[0];
-    await database.pool.query("INSERT INTO app.job_runs(tenant_id,id,job_id,invocation_id,state,encrypted_prompt,launch_lease_expires_at) VALUES ($1,$2,$3,$4,'starting','test',now()+interval '5 minutes')", [f.tenantId, f.runId, jobId, invocationId]);
+    const { trigger_id: triggerId, invocation_id: invocationId } = (await database.pool.query("SELECT trigger_id,invocation_id FROM app.runs WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId])).rows[0];
+    await database.pool.query("INSERT INTO app.trigger_runs(tenant_id,id,trigger_id,invocation_id,state,encrypted_prompt,launch_lease_expires_at) VALUES ($1,$2,$3,$4,'starting','test',now()+interval '5 minutes')", [f.tenantId, f.runId, triggerId, invocationId]);
     const repository = new RunRepository(database);
     const run = { tenantId: f.tenantId, id: f.runId } as any;
     const handle = { backendKind: "exe-vm", id: `factorize-${f.runId}`, runProxyName: `fz-run-${f.runId}` };
     await repository.recordLaunchHandle(run, handle);
     expect(run.executionHandle).toEqual(handle);
     expect((await repository.dueForPoll()).some(item => item.id === f.runId)).toBe(false);
-    await database.pool.query("UPDATE app.job_runs SET launch_lease_expires_at=now()-interval '1 second' WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId]);
+    await database.pool.query("UPDATE app.trigger_runs SET launch_lease_expires_at=now()-interval '1 second' WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId]);
     const recovered = await repository.claimNext();
     expect(recovered?.id).toBe(f.runId);
     expect(recovered?.executionHandle).toEqual(handle);
@@ -83,13 +83,13 @@ describe.skipIf(!url)("trace sources with PostgreSQL", () => {
     { state: "succeeded", completed: false },
   ])("persists Codex sources through polling and finalizes $state (completed=$completed) before VM cleanup", async ({ state, completed, projectionFailure }) => {
     const f = await fixture();
-    const { job_id: jobId, invocation_id: invocationId } = (await database.pool.query("SELECT job_id,invocation_id FROM app.runs WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId])).rows[0];
-    await database.pool.query("UPDATE app.jobs SET execution_config=$3 WHERE tenant_id=$1 AND id=$2", [f.tenantId, jobId, { agentKind: "codex" }]);
-    await database.pool.query("INSERT INTO app.job_runs(tenant_id,id,job_id,invocation_id,state,encrypted_prompt) VALUES ($1,$2,$3,$4,'starting','test')", [f.tenantId, f.runId, jobId, invocationId]);
+    const { trigger_id: triggerId, invocation_id: invocationId } = (await database.pool.query("SELECT trigger_id,invocation_id FROM app.runs WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId])).rows[0];
+    await database.pool.query("UPDATE app.triggers SET execution_config=$3 WHERE tenant_id=$1 AND id=$2", [f.tenantId, triggerId, { agentKind: "codex" }]);
+    await database.pool.query("INSERT INTO app.trigger_runs(tenant_id,id,trigger_id,invocation_id,state,encrypted_prompt) VALUES ($1,$2,$3,$4,'starting','test')", [f.tenantId, f.runId, triggerId, invocationId]);
     const repository = new RunRepository(database), sources = agentDriver("codex").launch(f.runId, {}).traceSources!;
     await repository.markLaunched({ tenantId: f.tenantId, id: f.runId } as any, { backendKind: "exe-vm", id: "factorize-test" }, "https://vm", [], sources);
     const due = async () => {
-      await database.pool.query("UPDATE app.job_runs SET next_poll_at=now() WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId]);
+      await database.pool.query("UPDATE app.trigger_runs SET next_poll_at=now() WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId]);
       return (await repository.dueForPoll()).find(run => run.id === f.runId)!;
     };
     const run = await due();
@@ -128,7 +128,7 @@ describe.skipIf(!url)("trace sources with PostgreSQL", () => {
       expect(live).toHaveBeenCalledOnce();
       inspect.mockResolvedValue({ state } as any);
       const terminate = vi.spyOn(backend, "terminate").mockResolvedValue({ state: "stopped" });
-      if (state === "stopped") await database.pool.query("UPDATE app.job_runs SET state='stopping' WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId]);
+      if (state === "stopped") await database.pool.query("UPDATE app.trigger_runs SET state='stopping' WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId]);
       if (projectionFailure) await database.pool.query("ALTER TABLE app.run_trace_events ADD CONSTRAINT reject_done CHECK (preview_text <> 'Done') NOT VALID");
       await scheduler.poll(await due());
       if (projectionFailure) {
@@ -167,9 +167,9 @@ describe.skipIf(!url)("trace sources with PostgreSQL", () => {
 
   it("keeps durable cleanup ownership when retention deletes a run during artifact upload", async () => {
     const f = await fixture();
-    const { job_id: jobId, invocation_id: invocationId } = (await database.pool.query("SELECT job_id,invocation_id FROM app.runs WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId])).rows[0];
+    const { trigger_id: triggerId, invocation_id: invocationId } = (await database.pool.query("SELECT trigger_id,invocation_id FROM app.runs WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId])).rows[0];
     await database.pool.query("UPDATE app.runs SET state='succeeded',vm_cleanup_complete=true,artifact_state='stored',created_at=now()-interval '15 days' WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId]);
-    await database.pool.query("INSERT INTO app.job_runs(tenant_id,id,job_id,invocation_id,state,encrypted_prompt) VALUES ($1,$2,$3,$4,'succeeded','test')", [f.tenantId, f.runId, jobId, invocationId]);
+    await database.pool.query("INSERT INTO app.trigger_runs(tenant_id,id,trigger_id,invocation_id,state,encrypted_prompt) VALUES ($1,$2,$3,$4,'succeeded','test')", [f.tenantId, f.runId, triggerId, invocationId]);
 
     let resumeUpload!: () => void;
     let signalPut!: () => void;
@@ -203,9 +203,9 @@ describe.skipIf(!url)("trace sources with PostgreSQL", () => {
 
   it("serializes incremental trace ingestion with retention aggregate deletion", async () => {
     const f = await fixture();
-    const { job_id: jobId, invocation_id: invocationId } = (await database.pool.query("SELECT job_id,invocation_id FROM app.runs WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId])).rows[0];
+    const { trigger_id: triggerId, invocation_id: invocationId } = (await database.pool.query("SELECT trigger_id,invocation_id FROM app.runs WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId])).rows[0];
     await database.pool.query("UPDATE app.runs SET state='succeeded',vm_cleanup_complete=true,artifact_state='stored',created_at=now()-interval '15 days' WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId]);
-    await database.pool.query("INSERT INTO app.job_runs(tenant_id,id,job_id,invocation_id,state,encrypted_prompt) VALUES ($1,$2,$3,$4,'succeeded','test')", [f.tenantId, f.runId, jobId, invocationId]);
+    await database.pool.query("INSERT INTO app.trigger_runs(tenant_id,id,trigger_id,invocation_id,state,encrypted_prompt) VALUES ($1,$2,$3,$4,'succeeded','test')", [f.tenantId, f.runId, triggerId, invocationId]);
 
     const bytes = new TextEncoder().encode(record("retention-race"));
     const append = f.live.append(f.runId, "codex", {
@@ -232,9 +232,9 @@ describe.skipIf(!url)("trace sources with PostgreSQL", () => {
 
   it("makes a replay racing retention observe the expired run without recreating replay history", async () => {
     const f = await fixture("claude");
-    const { job_id: jobId, invocation_id: invocationId } = (await database.pool.query("SELECT job_id,invocation_id FROM app.runs WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId])).rows[0];
+    const { trigger_id: triggerId, invocation_id: invocationId } = (await database.pool.query("SELECT trigger_id,invocation_id FROM app.runs WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId])).rows[0];
     await database.pool.query("UPDATE app.runs SET state='succeeded',vm_cleanup_complete=true,artifact_state='stored',created_at=now()-interval '15 days' WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId]);
-    await database.pool.query("INSERT INTO app.job_runs(tenant_id,id,job_id,invocation_id,state,encrypted_prompt) VALUES ($1,$2,$3,$4,'succeeded','test')", [f.tenantId, f.runId, jobId, invocationId]);
+    await database.pool.query("INSERT INTO app.trigger_runs(tenant_id,id,trigger_id,invocation_id,state,encrypted_prompt) VALUES ($1,$2,$3,$4,'succeeded','test')", [f.tenantId, f.runId, triggerId, invocationId]);
 
     const owner = await database.pool.connect();
     await owner.query("BEGIN");

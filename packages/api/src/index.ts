@@ -171,10 +171,10 @@ app.get("/auth/github/setup", async (c) => {
   catch (error) { if (error instanceof Error && error.message === "installation_conflict") return c.text("This GitHub installation is already connected to another tenant", 409); throw error; }
   return c.redirect("/integrations");
 });
-app.post("/webhooks/cloudflare/:tenantId/:jobId", async (c) => {
+app.post("/webhooks/cloudflare/:tenantId/:triggerId", async (c) => {
   const raw = await c.req.text();
   if (new TextEncoder().encode(raw).byteLength > 262_144) return c.text("Payload too large", 413);
-  try { await new WebhookService(databaseFor(c.env), c.env, c.req.param("tenantId")).tail(c.req.param("jobId"), raw, c.req.raw.headers); return c.body(null, 202); }
+  try { await new WebhookService(databaseFor(c.env), c.env, c.req.param("tenantId")).tail(c.req.param("triggerId"), raw, c.req.raw.headers); return c.body(null, 202); }
   catch (error) { return c.text(error instanceof Error && error.message === "not_found" ? "Not found" : "Invalid signature", error instanceof Error && error.message === "not_found" ? 404 : 401); }
 });
 

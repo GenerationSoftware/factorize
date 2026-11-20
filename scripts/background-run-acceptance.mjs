@@ -18,30 +18,27 @@ export async function backgroundRunAcceptance({
   foreignToken,
   readOnly,
 }) {
-  const projectId = randomUUID(),
-    connectionId = randomUUID();
-  await db.query("INSERT INTO app.projects(tenant_id,id,name) VALUES($1,$2,'Background runs')", [
-    tenant,
-    projectId,
-  ]);
+  const connectionId = randomUUID(), modelId = randomUUID();
+  await db.query("INSERT INTO app.integration_records(tenant_id,id,kind,name,revision,encrypted_payload) VALUES($1,$2,'model','Background model',1,$3)", [tenant,modelId,encrypt('factorize-managed-model-cache-v1:'+JSON.stringify({providerUrl:"https://api.openai.com/v1"}))]);
+  await db.query("UPDATE app.agent_integrations SET policy='baseline' WHERE tenant_id=$1 AND credential_id=$2",[tenant,modelId]);
   await db.query("INSERT INTO app.connections(tenant_id,kind,encrypted_value) VALUES($1,$2,$3)", [
     tenant,
     "exe:" + connectionId,
-    encrypt(JSON.stringify({ agentKind: "codex", connectionId })),
+    encrypt(JSON.stringify({ connectionId })),
   ]);
   const defaults = await json(
-    "/api/v1/projects/" + projectId + "/run-defaults",
+    "/api/v1/team/run-defaults",
     "PUT",
-    { executionConfigId: connectionId, capacity: 2 },
+    { requiresVm: false, modelAccountId: modelId, model: "fixture", capacity: 2 },
     owner,
   );
   assert.equal(defaults.status, 200, JSON.stringify(defaults.body));
   const skill = await json("/api/v1/skills", "POST", { key: "dev", body: "Development instructions" }, owner);
   assert.ok(skill.body.id, JSON.stringify(skill));
   const token = await authorize(["runs:start", "runs:read", "runs:cancel"]);
-  const args = { projectId, skill: "dev", prompt: "Review {{literal}}", idempotencyKey: "once" };
+  const args = { skill: "dev", prompt: "Review {{literal}}", idempotencyKey: "once" };
   assert.match((await rpc(readOnly, "start_run", args)).text, /insufficient_scope/);
-  assert.match((await rpc(foreignToken, "start_run", args)).text, /not_found/);
+  assert.match((await rpc(foreignToken, "start_run", args)).text, /model_configuration_required/);
   const starts = await Promise.all([rpc(token, "start_run", args), rpc(token, "start_run", args)]);
   assert.ok(starts[0].result?.runId, starts[0].text);
   const receipt = starts[0].result;
@@ -49,11 +46,11 @@ export async function backgroundRunAcceptance({
   assert.deepEqual(starts.map((r) => r.result.duplicate).sort(), [false, true]);
   assert.match((await rpc(token, "start_run", { ...args, prompt: "changed" })).text, /idempotency_conflict/);
   const detail = (await rpc(token, "get_run", { runId: receipt.runId })).result;
-  assert.equal(detail.job_id, null);
+  assert.equal(detail.trigger_id, null);
   assert.equal(detail.prompt, "Development instructions\n\nReview {{literal}}");
   assert.equal(detail.launch_skill_revision, 1);
   assert.deepEqual(
-    (await rpc(token, "list_runs", { launchSkillId: skill.body.id })).result.items.map((r) => r.id),
+    (await rpc(token, "list_runs", { skillId: skill.body.id })).result.items.map((r) => r.id),
     [receipt.runId],
   );
 
@@ -102,23 +99,23 @@ export async function backgroundRunAcceptance({
   const ready = Promise.withResolvers();
   const delivery = watch(receipt.outcomeUri, ready.resolve);
   await Promise.race([ready.promise, delivery.then(() => assert.fail("run should be pending"))]);
-  const raw = (await rpc(token, "start_run", { projectId, prompt: "Simulate a launch failure" })).result;
+  const raw = (await rpc(token, "start_run", { prompt: "Simulate a launch failure" })).result;
   assert.ok(raw.runId);
-  // Two reserved slots and two waiting slots share the project limit.
+  // Two reserved slots and two waiting slots share the Team limit.
   const queued = [];
   for (const prompt of ["First waiting run", "Second waiting run"]) {
-    const waiting = (await rpc(token, "start_run", { projectId, prompt })).result;
+    const waiting = (await rpc(token, "start_run", { prompt })).result;
     assert.equal((await rpc(token, "get_run", { runId: waiting.runId })).result.state, "queued");
     queued.push(waiting.runId);
   }
-  assert.match((await rpc(token, "start_run", { projectId, prompt: "Over capacity" })).text, /queue_full/);
+  assert.match((await rpc(token, "start_run", { prompt: "Over capacity" })).text, /queue_full/);
   assert.equal((await rpc(token, "start_run", args)).result.runId, receipt.runId);
   for (const runId of queued) await rpc(token, "stop_run", { runId });
   const tick = async () => {
     // Advance only the poll deadlines. All actual transitions go through RunScheduler.
     await db.query(
-      "UPDATE app.job_runs SET next_poll_at=now() WHERE tenant_id=$1 AND id=$2 AND state='running'",
-      [tenant, receipt.runId],
+      "UPDATE app.trigger_runs SET next_poll_at=now() WHERE tenant_id=$1 AND state='running'",
+      [tenant],
     );
     const response = await maintenance.fetch("https://maintenance/run-tick");
     assert.equal(response.status, 200);
@@ -135,29 +132,26 @@ export async function backgroundRunAcceptance({
   await watch(raw.outcomeUri);
   assert.equal((await messages()).get(raw.runId)?.state, "failed");
   assert.equal((await messages()).get(raw.runId)?.failure.source, "system");
-  const stopped = (await rpc(token, "start_run", { projectId, prompt: "Stop before launch" })).result;
+  const stopped = (await rpc(token, "start_run", { prompt: "Stop before launch" })).result;
   await rpc(token, "stop_run", { runId: stopped.runId });
   await watch(stopped.outcomeUri);
   assert.equal((await messages()).get(stopped.runId)?.state, "stopped");
   await watch(receipt.outcomeUri);
   assert.equal((await messages()).size, 3);
   const template = await json(
-    "/api/v1/jobs",
+    "/api/v1/triggers",
     "POST",
     {
-      name: "Review",
-      slug: "review",
-      projectId,
-      executionConfigId: connectionId,
-      launchSkillId: skill.body.id,
-      skillIds: [skill.body.id],
-      promptTemplate: "Check {{trigger-1.prompt}}",
+      name: "review",
+
+      skillId: skill.body.id,
+      prompt: "Check",
     },
     owner,
   );
   assert.ok(template.body.id, JSON.stringify(template.body));
   const invocation = await json(
-    "/api/v1/jobs/" + template.body.id + "/invocations",
+    "/api/v1/triggers/" + template.body.id + "/invocations",
     "POST",
     { prompt: "documentation" },
     owner,
@@ -165,7 +159,7 @@ export async function backgroundRunAcceptance({
   assert.ok(invocation.body.runId, JSON.stringify(invocation.body));
   const savedRun = (await rpc(token, "get_run", { runId: invocation.body.runId })).result;
   assert.equal(savedRun.launch_skill_id, skill.body.id);
-  assert.equal(savedRun.prompt, "Development instructions\n\nCheck documentation");
+  assert.equal(savedRun.prompt, "Development instructions\n\nCheck\n\ndocumentation");
   const renamed = await json(
     "/api/v1/skills/" + skill.body.id,
     "PUT",
@@ -173,17 +167,17 @@ export async function backgroundRunAcceptance({
     owner,
   );
   assert.equal(renamed.status, 200);
-  assert.equal((await json("/api/v1/jobs/" + template.body.id, "DELETE", undefined, owner)).status, 200);
+  assert.equal((await json("/api/v1/triggers/" + template.body.id, "DELETE", undefined, owner)).status, 200);
   const retained = (await rpc(token, "get_run", { runId: savedRun.id })).result;
-  assert.equal(retained.invocation.template_job_id, template.body.id);
+  assert.equal(retained.invocation.template_trigger_id, template.body.id);
   assert.equal(retained.launch_skill_key, "dev");
   assert.equal(retained.prompt, savedRun.prompt);
   const ambiguous = await rpc(token, "start_run", { ...args, script: "echo ambiguous" });
   assert.ok(!ambiguous.result?.runId, ambiguous.text);
-  const directScript = await rpc(token, "start_run", { projectId, script: "echo direct", integrationIds: [], runScopes: [] });
+  const directScript = await rpc(token, "start_run", { script: "echo direct", requiresVm: true, executionConfigId: connectionId, integrationIds: [], runScopes: [] });
   assert.ok(directScript.result?.runId, directScript.text);
-  const snapshot = (await db.query("SELECT job_id, execution_config FROM app.runs WHERE tenant_id=$1 AND id=$2", [tenant, directScript.result.runId])).rows[0];
-  assert.equal(snapshot.job_id, null);
+  const snapshot = (await db.query("SELECT trigger_id, execution_config FROM app.runs WHERE tenant_id=$1 AND id=$2", [tenant, directScript.result.runId])).rows[0];
+  assert.equal(snapshot.trigger_id, null);
   assert.equal(snapshot.execution_config.script, "echo direct");
   assert.equal(snapshot.execution_config.executionType, "code");
   await rpc(token, "stop_run", { runId: directScript.result.runId });

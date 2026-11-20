@@ -4,9 +4,9 @@ import { accessToken, createdAccessToken } from "../src/settings-contracts";
 import { API_ROUTES } from "../src/api-contract";
 
 describe("GEN-2418 permission boundaries", () => {
-  it("exposes independently issuable skill scopes and maps legacy grants without issuing them", () => {
-    expect(ACCESS_SCOPES).toEqual(["projects:read", "projects:write", "jobs:read", "jobs:write", "runs:read", "runs:invoke", "runs:start", "runs:cancel", "runs:write", "integrations:read", "integrations:write", "skills:read", "skills:write"]);
-    expect(normalizeScopes(["flows:read", "runs:write"])).toEqual(["projects:read", "jobs:read", "integrations:read", "runs:read", "runs:invoke", "runs:cancel", "runs:write"]);
+  it("exposes canonical scopes and rejects retired grants", () => {
+    expect(ACCESS_SCOPES).toEqual(["team:read", "team:write", "triggers:read", "triggers:write", "runs:read", "runs:invoke", "runs:start", "runs:cancel", "runs:write", "integrations:read", "integrations:write", "skills:read", "skills:write"]);
+    expect(normalizeScopes(["flows:read", "jobs:read", "runs:write"])).toEqual(["runs:write"]);
     expect(ACCESS_SCOPES).not.toContain("flows:read" as never);
   });
 
@@ -16,13 +16,14 @@ describe("GEN-2418 permission boundaries", () => {
     expect(accessToken.parse(metadata).scopes).toEqual(ACCESS_SCOPES);
   });
 
-  it("keeps project creation separate from job and integration writes", () => {
+  it("keeps Team settings separate from trigger and integration writes", () => {
     const scope = (method: string, path: string) => API_ROUTES.find(route => route.method === method && route.path === path)?.scope;
-    expect(scope("POST", "/api/v1/projects")).toBe("projects:write");
-    expect(scope("POST", "/api/v1/jobs")).toBe("jobs:write");
+    expect(scope("PUT", "/api/v1/team/run-defaults")).toBe("team:write");
+    expect(API_ROUTES.some(route => route.path.startsWith("/api/v1/projects"))).toBe(false);
+    expect(scope("POST", "/api/v1/triggers")).toBe("triggers:write");
     expect(scope("PUT", "/api/v1/integrations/exe")).toBe("integrations:write");
-    expect(scope("POST", "/api/v1/jobs/{jobId}/invocations")).toBe("runs:invoke");
+    expect(scope("POST", "/api/v1/triggers/{triggerId}/invocations")).toBe("runs:invoke");
     expect(scope("POST", "/api/v1/runs/{runId}/kill")).toBe("runs:cancel");
-    expect(scope("GET", "/api/v1/search")).toBe("jobs:read+runs:read");
+    expect(scope("GET", "/api/v1/search")).toBe("triggers:read+runs:read");
   });
 });
