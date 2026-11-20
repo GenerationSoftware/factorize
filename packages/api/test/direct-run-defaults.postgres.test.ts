@@ -24,7 +24,7 @@ describe.skipIf(!url)("direct run defaults and integration access", { timeout: 3
       const effectiveIntegrationId = integrationRow.rows[0].id as string;
       await f.db.pool.query("INSERT INTO app.user_run_defaults(tenant_id,user_id,run_defaults) VALUES($1,$2,$3)", [f.tenantId, f.userId, defaults("ghcr.io/factorize/direct-run:test")]);
 
-      const service = new ApiService(f.env, { ...f.auth, authMethod: "oauth", oauthGrantId: "test-grant", oauthClientId: "test-client", oauthExpiresAt: Math.floor(Date.now() / 1000) + 3600, scopes: ["runs:start", "projects:read", "integrations:read"] });
+      const service = new ApiService(f.env, { ...f.auth, authMethod: "oauth", oauthGrantId: "test-grant", oauthClientId: "test-client", oauthExpiresAt: Math.floor(Date.now() / 1000) + 3600, scopes: ["runs:start", "projects:read", "integrations:read", "proxy:use"] });
       const inherited = await service.startRun({ projectId: f.projectId, prompt: "Keep prompt requests compatible", idempotencyKey: "inherit" });
       const inheritedConfig = (await f.db.pool.query("SELECT execution_config FROM app.runs WHERE tenant_id=$1 AND id=$2", [f.tenantId, inherited.runId])).rows[0].execution_config;
       expect(inheritedConfig.image).toBe("ghcr.io/factorize/direct-run:test");
@@ -48,9 +48,9 @@ describe.skipIf(!url)("direct run defaults and integration access", { timeout: 3
     try {
       await f.db.pool.query("INSERT INTO app.user_run_defaults(tenant_id,user_id,run_defaults) VALUES($1,$2,$3)", [f.tenantId, f.userId, { ...defaults("ghcr.io/factorize/user-default:test"), model: "user-default-model" }]);
       const projectDefaults = { ...defaults("ghcr.io/factorize/project-default:test"), capacity: 4 } as Record<string, unknown>;
-      delete projectDefaults.model;
+      projectDefaults.model = "";
       await f.db.pool.query("UPDATE app.projects SET run_defaults=$3 WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.projectId, projectDefaults]);
-      const service = new ApiService(f.env, { ...f.auth, authMethod: "oauth", oauthGrantId: "test-grant", oauthClientId: "test-client", oauthExpiresAt: Math.floor(Date.now() / 1000) + 3600, scopes: ["runs:start", "projects:read", "integrations:read"] });
+      const service = new ApiService(f.env, { ...f.auth, authMethod: "oauth", oauthGrantId: "test-grant", oauthClientId: "test-client", oauthExpiresAt: Math.floor(Date.now() / 1000) + 3600, scopes: ["runs:start", "projects:read", "integrations:read", "proxy:use"] });
       const run = await service.startRun({ projectId: f.projectId, prompt: "project wins", integrationIds: [], idempotencyKey: "project-first" });
       const config = (await f.db.pool.query("SELECT execution_config FROM app.runs WHERE tenant_id=$1 AND id=$2", [f.tenantId, run.runId])).rows[0].execution_config;
       expect(config.image).toBe("ghcr.io/factorize/project-default:test");
@@ -81,10 +81,17 @@ describe.skipIf(!url)("direct run defaults and integration access", { timeout: 3
   it("validates the resolved agent model against the selected execution provider", async () => {
     const f = await loadingFixture(url!);
     try {
-      await new ConnectionRepository(f.db, f.tenantId, f.env.CREDENTIAL_ENCRYPTION_KEY).put("exe:local", { apiToken: "private-exe-token", agentKind: "codex", models: ["supported-model"] });
+      await new ConnectionRepository(f.db, f.tenantId, f.env.CREDENTIAL_ENCRYPTION_KEY).put("exe:local", { apiToken: "private-exe-token", agentKind: "codex", models: ["supported-model"], modelsByAgent: {claude: ["claude-model"]} });
       await f.db.pool.query("INSERT INTO app.user_run_defaults(tenant_id,user_id,run_defaults) VALUES($1,$2,$3)", [f.tenantId, f.userId, defaults("")]);
-      const service = new ApiService(f.env, { ...f.auth, authMethod: "oauth", oauthGrantId: "test-grant", oauthClientId: "test-client", oauthExpiresAt: Math.floor(Date.now() / 1000) + 3600, scopes: ["runs:start", "projects:read", "integrations:read"] });
+      const service = new ApiService(f.env, { ...f.auth, authMethod: "oauth", oauthGrantId: "test-grant", oauthClientId: "test-client", oauthExpiresAt: Math.floor(Date.now() / 1000) + 3600, scopes: ["runs:start", "projects:read", "integrations:read", "proxy:use"] });
       await expect(service.startRun({ projectId: f.projectId, prompt: "invalid model", model: "other-model", integrationIds: [], idempotencyKey: "invalid-model" })).rejects.toMatchObject({ status: 400, code: "invalid_request" });
+      await expect(service.startRun({ projectId: f.projectId, prompt: "mismatch", modelProvider: "claude", model: "supported-model" })).rejects.toMatchObject({ status: 400 });
+      const override = await service.startRun({ projectId: f.projectId, prompt: "provider override", modelProvider: "claude", model: "claude-model" });
+      const overrideConfig = (await f.db.pool.query("SELECT execution_config FROM app.runs WHERE tenant_id=$1 AND id=$2", [f.tenantId, override.runId])).rows[0].execution_config;
+      expect(overrideConfig).toMatchObject({ agentKind: "claude", model: "claude-model" });
+      const script = await service.startRun({ projectId: f.projectId, script: "echo direct", model: "other-model", vmImage: "alpine:3.22", integrationIds: [], idempotencyKey: "script" });
+      const scriptConfig = (await f.db.pool.query("SELECT execution_config FROM app.runs WHERE tenant_id=$1 AND id=$2", [f.tenantId, script.runId])).rows[0].execution_config;
+      expect(scriptConfig).toMatchObject({ executionType: "code", model: "", script: "echo direct", image: "alpine:3.22" });
       const run = await service.startRun({ projectId: f.projectId, prompt: "valid model", model: "supported-model", integrationIds: [], idempotencyKey: "valid-model" });
       const config = (await f.db.pool.query("SELECT execution_config FROM app.runs WHERE tenant_id=$1 AND id=$2", [f.tenantId, run.runId])).rows[0].execution_config;
       expect(config.agentKind).toBe("codex");

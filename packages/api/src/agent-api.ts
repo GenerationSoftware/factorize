@@ -96,7 +96,7 @@ export class AgentApiService {
     return {id: row.id, kind, config, policy: row};
   }
   private selected(row: AgentIntegration, config: Record<string, any>) {
-    if (Array.isArray(config.agentIntegrationIds) && config.agentIntegrationIds.includes(row.id)) return true;
+    if (Array.isArray(config.agentIntegrationIds)) return config.agentIntegrationIds.includes(row.id);
     switch(row.kind) {
       case "bearer": return Array.isArray(config.portableIntegrationIds) && config.portableIntegrationIds.includes(row.credential_id);
       case "github": return Array.isArray(config.githubInstallationIds) && config.githubInstallationIds.includes(Number(row.credential_id));

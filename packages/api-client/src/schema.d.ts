@@ -6803,6 +6803,11 @@ export interface operations {
                         updatedAt: string;
                         runDefaults?: {
                             executionConfigId: string;
+                            /**
+                             * @description Agent harness used for the selected model.
+                             * @enum {string}
+                             */
+                            modelProvider?: "codex" | "claude" | "pi";
                             model?: string;
                             effort?: string;
                             vmImage?: string;
@@ -6863,6 +6868,11 @@ export interface operations {
                         updatedAt: string;
                         runDefaults?: {
                             executionConfigId: string;
+                            /**
+                             * @description Agent harness used for the selected model.
+                             * @enum {string}
+                             */
+                            modelProvider?: "codex" | "claude" | "pi";
                             model?: string;
                             effort?: string;
                             vmImage?: string;
@@ -6919,6 +6929,11 @@ export interface operations {
                         updatedAt: string;
                         runDefaults?: {
                             executionConfigId: string;
+                            /**
+                             * @description Agent harness used for the selected model.
+                             * @enum {string}
+                             */
+                            modelProvider?: "codex" | "claude" | "pi";
                             model?: string;
                             effort?: string;
                             vmImage?: string;
@@ -6981,6 +6996,11 @@ export interface operations {
                         updatedAt: string;
                         runDefaults?: {
                             executionConfigId: string;
+                            /**
+                             * @description Agent harness used for the selected model.
+                             * @enum {string}
+                             */
+                            modelProvider?: "codex" | "claude" | "pi";
                             model?: string;
                             effort?: string;
                             vmImage?: string;
@@ -9707,8 +9727,13 @@ export interface operations {
                     name?: string;
                     executionConfigId?: string;
                     vmImage?: string;
+                    /**
+                     * @description Agent harness used for the selected model.
+                     * @enum {string}
+                     */
+                    modelProvider?: "codex" | "claude" | "pi";
                     model?: string;
-                    /** @description Factorize API scopes for new job runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. jobs:write permits configuring jobs and their future run scopes. */
+                    /** @description Factorize application permissions to grant. Omission inherits effective client permissions and an empty list grants none. */
                     runScopes?: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
                     integrationIds?: string[];
                     inputs?: {
@@ -9759,6 +9784,11 @@ export interface operations {
             content: {
                 "application/json": {
                     executionConfigId: string;
+                    /**
+                     * @description Agent harness used for the selected model.
+                     * @enum {string}
+                     */
+                    modelProvider?: "codex" | "claude" | "pi";
                     model?: string;
                     effort?: string;
                     vmImage?: string;
@@ -9785,6 +9815,11 @@ export interface operations {
                 content: {
                     "application/json": {
                         executionConfigId: string;
+                        /**
+                         * @description Agent harness used for the selected model.
+                         * @enum {string}
+                         */
+                        modelProvider?: "codex" | "claude" | "pi";
                         model?: string;
                         effort?: string;
                         vmImage?: string;
@@ -9830,6 +9865,11 @@ export interface operations {
                 content: {
                     "application/json": {
                         executionConfigId: string;
+                        /**
+                         * @description Agent harness used for the selected model.
+                         * @enum {string}
+                         */
+                        modelProvider?: "codex" | "claude" | "pi";
                         model?: string;
                         effort?: string;
                         vmImage?: unknown;
@@ -9866,6 +9906,11 @@ export interface operations {
             content: {
                 "application/json": {
                     executionConfigId: string;
+                    /**
+                     * @description Agent harness used for the selected model.
+                     * @enum {string}
+                     */
+                    modelProvider?: "codex" | "claude" | "pi";
                     model?: string;
                     effort?: string;
                     vmImage?: string;
@@ -9890,6 +9935,11 @@ export interface operations {
                 content: {
                     "application/json": {
                         executionConfigId: string;
+                        /**
+                         * @description Agent harness used for the selected model.
+                         * @enum {string}
+                         */
+                        modelProvider?: "codex" | "claude" | "pi";
                         model?: string;
                         effort?: string;
                         vmImage?: unknown;

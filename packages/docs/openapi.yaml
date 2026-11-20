@@ -8649,6 +8649,13 @@ paths:
                         executionConfigId:
                           type: string
                           minLength: 1
+                        modelProvider:
+                          description: Agent harness used for the selected model.
+                          type: string
+                          enum:
+                            - codex
+                            - claude
+                            - pi
                         model:
                           type: string
                           maxLength: 120
@@ -8809,6 +8816,13 @@ paths:
                       executionConfigId:
                         type: string
                         minLength: 1
+                      modelProvider:
+                        description: Agent harness used for the selected model.
+                        type: string
+                        enum:
+                          - codex
+                          - claude
+                          - pi
                       model:
                         type: string
                         maxLength: 120
@@ -8971,6 +8985,13 @@ paths:
                       executionConfigId:
                         type: string
                         minLength: 1
+                      modelProvider:
+                        description: Agent harness used for the selected model.
+                        type: string
+                        enum:
+                          - codex
+                          - claude
+                          - pi
                       model:
                         type: string
                         maxLength: 120
@@ -9120,6 +9141,13 @@ paths:
                       executionConfigId:
                         type: string
                         minLength: 1
+                      modelProvider:
+                        description: Agent harness used for the selected model.
+                        type: string
+                        enum:
+                          - codex
+                          - claude
+                          - pi
                       model:
                         type: string
                         maxLength: 120
@@ -15897,11 +15925,18 @@ paths:
                   type: string
                   maxLength: 512
                   pattern: ^(?:(?:(?:[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*\/)?[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*(?:\/[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*)*(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?(?:@sha256:[a-f0-9]{64})?))?$
+                modelProvider:
+                  description: Agent harness used for the selected model.
+                  type: string
+                  enum:
+                    - codex
+                    - claude
+                    - pi
                 model:
                   type: string
                   maxLength: 120
                 runScopes:
-                  description: Factorize API scopes for new job runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. jobs:write permits configuring jobs and their future run scopes.
+                  description: Factorize application permissions to grant. Omission inherits effective client permissions and an empty list grants none.
                   maxItems: 13
                   type: array
                   items:
@@ -16108,6 +16143,13 @@ paths:
                   executionConfigId:
                     type: string
                     minLength: 1
+                  modelProvider:
+                    description: Agent harness used for the selected model.
+                    type: string
+                    enum:
+                      - codex
+                      - claude
+                      - pi
                   model:
                     type: string
                     maxLength: 120
@@ -16228,6 +16270,13 @@ paths:
                 executionConfigId:
                   type: string
                   minLength: 1
+                modelProvider:
+                  description: Agent harness used for the selected model.
+                  type: string
+                  enum:
+                    - codex
+                    - claude
+                    - pi
                 model:
                   type: string
                   maxLength: 120
@@ -16317,6 +16366,13 @@ paths:
                       executionConfigId:
                         type: string
                         minLength: 1
+                      modelProvider:
+                        description: Agent harness used for the selected model.
+                        type: string
+                        enum:
+                          - codex
+                          - claude
+                          - pi
                       model:
                         type: string
                         maxLength: 120
@@ -16427,6 +16483,13 @@ paths:
                   executionConfigId:
                     type: string
                     minLength: 1
+                  modelProvider:
+                    description: Agent harness used for the selected model.
+                    type: string
+                    enum:
+                      - codex
+                      - claude
+                      - pi
                   model:
                     type: string
                     maxLength: 120
@@ -16532,6 +16595,13 @@ paths:
                 executionConfigId:
                   type: string
                   minLength: 1
+                modelProvider:
+                  description: Agent harness used for the selected model.
+                  type: string
+                  enum:
+                    - codex
+                    - claude
+                    - pi
                 model:
                   type: string
                   maxLength: 120
