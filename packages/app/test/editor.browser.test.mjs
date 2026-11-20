@@ -369,7 +369,7 @@ for (const executionType of ["agent", "code"]) test(`Fly.io ${executionType} tri
   await page.route(/^https?:\/\/(?!127\.0\.0\.1:)/, route => { externalCalls.push(route.request().url()); return route.abort(); });
   await page.route("**/api/v1/projects", route => route.fulfill({ json: [{ id: "00000000-0000-4000-8000-000000000010", name: "Project" }] }));
   await page.route("**/api/v1/skills**", route => route.fulfill({ json: { items: [], nextCursor: null } }));
-  await page.route("**/api/v1/model-accounts", route => route.fulfill({ json: { accounts: [{ id: accountId, name: "Work ChatGPT", revision: 1, credentialConfigured: true }] } }));
+  await page.route("**/api/v1/model-accounts", route => route.fulfill({ json: { revision: 1, accounts: [{ id: accountId, name: "Work model", revision: 1, credentialConfigured: true }] } }));
   await page.route("**/api/v1/fly/connection", route => route.fulfill({ json: { connection: { organizationSlug: "test-org", organizationName: "Test org" } } }));
   await page.route("**/api/v1/fly/execution-configurations", route => {
     if (route.request().method() === "POST") {
