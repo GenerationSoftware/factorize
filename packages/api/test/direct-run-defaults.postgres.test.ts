@@ -37,6 +37,11 @@ describe.skipIf(!url)("direct run defaults and integration access", { timeout: 3
       expect(emptyConfig.agentIntegrationIds).toEqual([]);
       expect(emptyConfig.portableIntegrationIds).toEqual([]);
 
+      const narrowed = await service.startRun({ projectId: f.projectId, script: "echo narrowed", integrationIds: [effectiveIntegrationId], runScopes: ["projects:read"] });
+      const narrowedConfig = (await f.db.pool.query("SELECT execution_config FROM app.runs WHERE tenant_id=$1 AND id=$2", [f.tenantId, narrowed.runId])).rows[0].execution_config;
+      expect(narrowedConfig).toMatchObject({agentIntegrationIds: [effectiveIntegrationId], runScopes: ["projects:read"]});
+      const withoutProxy = new ApiService(f.env, { ...f.auth, authMethod: "oauth", oauthGrantId: "narrow", oauthClientId: "client", oauthExpiresAt: Math.floor(Date.now() / 1000) + 3600, scopes: ["runs:start"] });
+      await expect(withoutProxy.startRun({ projectId: f.projectId, prompt: "narrowed token", integrationIds: [effectiveIntegrationId] })).rejects.toMatchObject({ status: 403 });
       const denied = crypto.randomUUID();
       await f.db.pool.query("INSERT INTO app.agent_integrations(tenant_id,id,kind,credential_id,name,available,policy) VALUES($1,$2,'bearer',$3,'Requestable only',true,'requestable')", [f.tenantId, denied, crypto.randomUUID()]);
       await expect(service.startRun({ projectId: f.projectId, prompt: "not authorized", integrationIds: [denied], idempotencyKey: "denied" })).rejects.toMatchObject({ status: 403, code: "forbidden" } satisfies Partial<ServiceError>);

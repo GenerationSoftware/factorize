@@ -1106,7 +1106,7 @@ export class ApiService {
       if (!integration) throw new ServiceError(403, "forbidden", "Requested integrations exceed this client's effective integration access.");
       return integration;
     });
-    const inheritConfigured = !isAgentClient && input.integrationIds === undefined;
+    const inheritConfigured = auth.authMethod === "session" && input.integrationIds === undefined;
     const selections = inheritConfigured ? defaults : {
       portableIntegrationIds: selected.filter(item => item.kind === "bearer").map(item => item.credentialId),
       githubInstallationIds: selected.filter(item => item.kind === "github").map(item => Number(item.credentialId)),

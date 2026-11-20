@@ -122,6 +122,23 @@ JS
     expect(docker("ps","-aq","--filter",`id=${id}`)).toBe("");
     const artifacts=(await db.pool.query("SELECT object_key FROM app.run_artifacts WHERE tenant_id=$1 AND run_id=$2",[tenantId,runId])).rows;expect(artifacts.length).toBeGreaterThan(0);
     for(const artifact of artifacts){const object=await env.RUN_ARTIFACTS!.get(artifact.object_key);expect(await object!.text()).not.toContain(secret);}
+
+    const direct = await json("/runs", "POST", {
+      projectId: project.id, executionConfigId: "docker", integrationIds: [], runScopes: [],
+      script: `#!/bin/bash
+set -eu
+printf '%s' '{"status":"succeeded","outputs":{"mode":"direct"}}' > "$FACTORIZE_RESULT_PATH"
+`,
+    });
+    let directRun;
+    const directDeadline = Date.now() + 60_000;
+    do {
+      await runner.tick();
+      directRun = (await db.pool.query("SELECT job_id,state,job_result FROM app.runs WHERE tenant_id=$1 AND id=$2", [tenantId,direct.runId])).rows[0];
+      if (["succeeded", "failed", "stopped"].includes(directRun.state)) break;
+      await wait(200);
+    } while (Date.now() < directDeadline);
+    expect(directRun).toMatchObject({job_id: null, state: "succeeded", job_result: {outputs: {mode: "direct"}}});
   }finally{
     await runner?.close();await api?.close();vi.unstubAllGlobals();
     for(const id of docker("ps","-aq","--filter",`label=sh.factorize.test.namespace=${app}`).split("\n").filter(Boolean))docker("rm","-f",id);
