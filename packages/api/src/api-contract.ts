@@ -15,7 +15,7 @@ import { z } from "zod";
 import type { ApiService } from "./flow-service";
 import {
   jobInputSchema,
-  startRunInput, startRunReceipt, projectRunDefaults, storedRunDefaults, manualInvocationSchema,
+  startRunInput, startRunReceipt, projectRunDefaults, storedRunDefaults, userRunDefaults, manualInvocationSchema,
   renameRunSchema,
   reportRunErrorSchema,
   invocationPermissionsInput,
@@ -1001,13 +1001,16 @@ export const API_ROUTES: RouteContract[] = [
     (service, { params }) => service.deleteJob(params.jobId),
   ),
   route("POST","/api/v1/runs","runs:start",{
-    summary:"Start a project VM run with a literal prompt and optional launch skill",
+    summary:"Start a project VM run with a prompt or script and per-run execution overrides",
+    description:"Supply exactly one of prompt or script. Omitted execution settings use project defaults, then user defaults. Omitted integrationIds inherit this MCP client's effective integration access; explicit IDs select a subset, including an empty set. runScopes is limited to the caller's effective permissions.",
     responses:{"202":{description:"Accepted run",content:{"application/json":{schema:jsonSchema(startRunReceipt,"output")}}}},
   },(service,{body})=>service.startRun(body),{body:startRunInput,maxBodyBytes:256_000}),
   route("PUT","/api/v1/projects/{projectId}/run-defaults","projects:write",{
     summary:"Set the VM configuration, permissions and capacity for direct launches",
     responses:{"200":{description:"Project run defaults",content:{"application/json":{schema:jsonSchema(storedRunDefaults,"output")}}}},
   },(service,{params,body})=>service.setRunDefaults(params.projectId,body),{body:projectRunDefaults,parameters:z.object({projectId:z.guid()}),ownerSession:true}),
+  route("GET","/api/v1/user/run-defaults","projects:read",{summary:"Get user defaults for direct VM runs",responses:{"200":{description:"User run defaults",content:{"application/json":{schema:jsonSchema(userRunDefaults.nullable(),"output")}}}}},service=>service.getUserRunDefaults()),
+  route("PUT","/api/v1/user/run-defaults","projects:write",{summary:"Set user defaults for direct VM runs",responses:{"200":{description:"User run defaults",content:{"application/json":{schema:jsonSchema(userRunDefaults,"output")}}}}},(service,{body})=>service.setUserRunDefaults(body),{body:userRunDefaults,ownerSession:true}),
   route(
     "GET",
     "/api/v1/runs",

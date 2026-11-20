@@ -5,7 +5,7 @@ import { SkillLibrary } from "./skill-library";
 import { configureLibrary } from "./skill-library-contract";
 import { submitRun } from "./postgres/run-submission";
 import type { DatabaseClient } from "./postgres/database";
-import { startRunInput,projectRunDefaults } from "./flow-schemas";
+import { startRunInput,projectRunDefaults,userRunDefaults as userRunDefaultsSchema,scopeSchema } from "./flow-schemas";
 import { grantVm, revokeVmGrant } from "./vm-grants";
 import { AgentApiService, listAgentPolicies } from "./agent-api";
 import { apiPolicyInput, integrationRef, requestApiInput, readApiResponseInput } from "./agent-api-contracts";
@@ -253,7 +253,7 @@ export class ApiService {
     };
   }
 
-  private async validateExecutionOptions(id: string, model: string, effort: string, tags: string[]) {
+  private async validateExecutionOptions(id: string, model: string, effort: string, tags: string[], modelProvider?: keyof typeof effortOptions) {
     if (id === "docker") throw new ServiceError(400, "invalid_request", "Docker test execution supports code jobs only.");
     if (id.startsWith("amp:")) return;
     const connection = await this.connections().get<ExeConnection>(`exe:${id}`);
@@ -261,9 +261,11 @@ export class ApiService {
       if (await this.flyExecutionConfigs().get(id)) return;
       throw new ServiceError(400, "invalid_request", "execution integration not found");
     }
-    const availableModels = connection.modelsByAgent?.[connection.agentKind ?? "codex"] ?? connection.models ?? [];
-    const availableEfforts = effortOptions[connection.agentKind ?? "codex"] ?? [];
-    if (model && availableModels.length && !availableModels.includes(model)) throw new ServiceError(400, "invalid_request", "Model is not available on this agent.");
+    const provider = modelProvider ?? connection.agentKind ?? "codex";
+    const sameProvider = provider === (connection.agentKind ?? "codex");
+    const availableModels = connection.modelsByAgent?.[provider] ?? (sameProvider ? connection.models : undefined) ?? [];
+    const availableEfforts = effortOptions[provider];
+    if (model && (availableModels.length || !sameProvider) && !availableModels.includes(model)) throw new ServiceError(400, "invalid_request", "Model is not available on this agent.");
     if (effort && availableEfforts.length && !availableEfforts.includes(effort)) throw new ServiceError(400, "invalid_request", "Effort is not available on this agent.");
     const availableTags = new Set(selectableExeTags(connection));
     if (tags.some(tag => !availableTags.has(tag))) throw new ServiceError(400, "invalid_request", "VM tags must be selected from the available exe.dev labels.");
@@ -979,24 +981,42 @@ export class ApiService {
     return input;
   }
 
-  private async resolveRunDefaults(input: z.infer<typeof projectRunDefaults>) {
-    await this.validateExecutionOptions(
+  async getUserRunDefaults() {
+    await this.authorize("projects:read");
+    const result = await databaseFor(this.env).pool.query("SELECT run_defaults FROM app.user_run_defaults WHERE tenant_id=$1 AND user_id=$2", [this.auth.tenantId, this.auth.userId]);
+    return result.rows[0]?.run_defaults ?? null;
+  }
+
+  async setUserRunDefaults(input: z.infer<typeof userRunDefaultsSchema>) {
+    await this.authorizeOwnerSession("projects:write");
+    await this.resolveRunDefaults({...input, capacity: 4});
+    const result = await databaseFor(this.env).pool.query(`INSERT INTO app.user_run_defaults(tenant_id,user_id,run_defaults)
+      VALUES($1,$2,$3) ON CONFLICT(tenant_id,user_id) DO UPDATE SET run_defaults=excluded.run_defaults,updated_at=now() RETURNING run_defaults`, [this.auth.tenantId, this.auth.userId, input]);
+    return result.rows[0].run_defaults;
+  }
+
+  private async resolveRunDefaults(input: z.infer<typeof projectRunDefaults>, executionType: "agent" | "code" = "agent") {
+    if (input.executionConfigId !== "docker" || executionType === "agent") await this.validateExecutionOptions(
       input.executionConfigId,
       input.model ?? "",
       input.effort ?? "",
       input.tags ?? [],
+      input.modelProvider,
     );
     const config = await this.executionConfig(input.executionConfigId);
     if (config.agentKind === "Amp")
       throw new ServiceError(400, "invalid_request", "Select a VM agent configuration.");
-    const portable = await this.portableSelections(config, "agent", {
+    if (input.modelProvider && config.executionProvider !== "exe" && input.modelProvider !== config.agentKind)
+      throw new ServiceError(400, "invalid_request", "Model provider is unavailable on the selected VM configuration.");
+    if (input.modelProvider) config.agentKind = input.modelProvider;
+    const portable = await this.portableSelections(config, executionType, {
       ...input,
       modelAccess: input.modelAccountId ? "portable" : undefined,
     });
     return {
       ...config,
       ...portable,
-      executionType: "agent",
+      executionType,
       model: input.model ?? "",
       effort: input.effort,
       tags: input.tags ?? [],
@@ -1064,15 +1084,60 @@ export class ApiService {
     if (prior) return prior;
     const project = await this.projects().get(projectId);
     if (!project) throw new ServiceError(404, "not_found", "Project not found");
-    if (!project.runDefaults)
-      throw new ServiceError(409, "run_defaults_required", "Configure this project's VM run defaults first.");
-    const config = await this.resolveRunDefaults(project.runDefaults);
+    const userDefaultsResult = await db.pool.query("SELECT run_defaults FROM app.user_run_defaults WHERE tenant_id=$1 AND user_id=$2", [auth.tenantId, auth.userId]);
+    const userDefaults = userDefaultsResult.rows[0]?.run_defaults;
+    const defaults = { ...(userDefaults ?? {}), ...(project.runDefaults ?? {}) };
+    if (!defaults.executionConfigId && !input.executionConfigId)
+      throw new ServiceError(409, "run_defaults_required", "Configure project or user VM run defaults first.");
+    const isAgentClient = auth.authMethod === "oauth" || auth.authMethod === "vm_grant" || auth.authMethod === "vendor_identity";
+    const access = isAgentClient ? await this.agentApi().reflection() : undefined;
+    const effectiveScopes = access?.scopes ?? normalizeScopes(auth.scopes);
+    const callerScopes = auth.runId ? [] : scopeSchema.options.filter(scope => effectiveScopes.includes(scope));
+    const runScopes = input.runScopes ?? callerScopes;
+    if (runScopes.some(scope => !callerScopes.includes(scope)))
+      throw new ServiceError(403, "forbidden", "Requested run permissions exceed this client's effective Factorize access.");
+
+    const granted = access?.integrations.filter(item => item.access === "granted" &&
+      (auth.authMethod !== "oauth" || effectiveScopes.includes("proxy:use"))) ?? [];
+    const byId = new Map(granted.map(item => [item.id, item]));
+    const integrationIds = input.integrationIds ?? granted.map(item => item.id);
+    const selected = integrationIds.map(id => {
+      const integration = byId.get(id);
+      if (!integration) throw new ServiceError(403, "forbidden", "Requested integrations exceed this client's effective integration access.");
+      return integration;
+    });
+    const inheritConfigured = auth.authMethod === "session" && input.integrationIds === undefined;
+    const selections = inheritConfigured ? defaults : {
+      portableIntegrationIds: selected.filter(item => item.kind === "bearer").map(item => item.credentialId),
+      githubInstallationIds: selected.filter(item => item.kind === "github").map(item => Number(item.credentialId)),
+      linearConnectionId: selected.some(item => item.kind === "linear") ? "linear" : undefined,
+      xConnectionIds: selected.filter(item => item.kind === "x").map(item => item.credentialId),
+      modelAccountId: selected.find(item => item.kind === "model" && item.credentialId === defaults.modelAccountId)?.credentialId,
+    };
+    const resolved = await this.resolveRunDefaults({
+      ...defaults,
+      ...selections,
+      capacity: defaults.capacity ?? 4,
+      executionConfigId: input.executionConfigId ?? defaults.executionConfigId,
+      vmImage: input.vmImage ?? (project.runDefaults?.vmImage || userDefaults?.vmImage),
+      model: input.script ? "" : input.model ?? (project.runDefaults?.model || userDefaults?.model),
+      modelProvider: input.script ? undefined : input.modelProvider ?? defaults.modelProvider,
+      effort: input.script ? undefined : defaults.effort,
+      modelAccountId: input.script ? undefined : selections.modelAccountId,
+    }, input.script ? "code" : "agent");
+    const config = {
+      ...resolved,
+      runScopes,
+      ...(inheritConfigured ? {} : {agentIntegrationIds: integrationIds}),
+      ...(input.script ? {script: input.script} : {}),
+    };
     const skill = input.skill ? await this.skills().get(input.skill) : null;
+    if (input.script && skill) throw new ServiceError(400, "invalid_request", "Script runs cannot include an agent skill.");
     if (input.skill && !skill) throw new ServiceError(404, "not_found", "Launch skill not found");
-    const text =
+    const text = input.prompt ?
       input.inputs && Object.keys(input.inputs).length
         ? input.prompt + "\n\nInputs (JSON)\n" + JSON.stringify(input.inputs)
-        : input.prompt;
+        : input.prompt : "";
     const prompt = composePrompt(skill ? [{ body: skill.body! }] : [], text);
     const encryptedPrompt = await encrypt(prompt, this.env.CREDENTIAL_ENCRYPTION_KEY);
     const encryptedSkills = skill
@@ -1084,10 +1149,7 @@ export class ApiService {
         )
       : undefined;
     const result = await db.transaction(async (client) => {
-      const locked = await client.query(
-        "SELECT run_defaults=$3::jsonb matches FROM app.projects WHERE tenant_id=$1 AND id=$2 FOR UPDATE",
-        [auth.tenantId, projectId, project.runDefaults],
-      );
+      const locked = await client.query("SELECT run_defaults IS NOT DISTINCT FROM $3::jsonb matches FROM app.projects WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [auth.tenantId, projectId, project.runDefaults ?? null]);
       const duplicate = await existing(client);
       if (duplicate) return duplicate;
       if (!locked.rows[0]?.matches)
@@ -1096,6 +1158,9 @@ export class ApiService {
           "configuration_changed",
           "Project configuration changed. Retry this request.",
         );
+      const currentUserDefaults = await client.query("SELECT run_defaults FROM app.user_run_defaults WHERE tenant_id=$1 AND user_id=$2 FOR SHARE", [auth.tenantId, auth.userId]);
+      if (JSON.stringify(currentUserDefaults.rows[0]?.run_defaults ?? null) !== JSON.stringify(userDefaults ?? null))
+        throw new ServiceError(409, "configuration_changed", "User run defaults changed. Retry this request.");
       if (auth.runId) {
         const active = await client.query(
           "SELECT id FROM app.runs WHERE tenant_id=$1 AND id=$2 AND project_id=$3 AND state IN ('starting','running','blocked') FOR SHARE",

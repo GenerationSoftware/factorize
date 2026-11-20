@@ -115,18 +115,29 @@ export const jobConditionsTestSchema = z.object({
 export type JobInput = z.infer<typeof jobInputSchema>;
 export type ManualInvocationInput = z.infer<typeof manualInvocationSchema>;
 
+const modelProvider = z.enum(["codex", "claude", "pi"]).optional().describe("Agent harness used for the selected model.");
 export const startRunInput = z.object({
   projectId: z.guid().optional(),
-  prompt: z.string().min(1).max(50_000).refine(value => !!value.trim()),
+  prompt: z.string().min(1).max(50_000).refine(value => !!value.trim()).optional(),
+  script: z.string().min(1).max(200_000).refine(value => !!value.trim()).optional(),
   skill: z.string().min(1).max(64).optional(),
   name: z.string().trim().min(1).max(120).optional(),
+  executionConfigId: z.string().min(1).optional(),
+  vmImage: jobInputSchema.shape.vmImage,
+  modelProvider,
+  model: jobInputSchema.shape.model,
+  runScopes: jobInputSchema.shape.runScopes.describe("Factorize application permissions to grant. Omission inherits effective client permissions and an empty list grants none."),
+  integrationIds: z.array(z.uuid()).max(100).refine(ids => new Set(ids).size === ids.length, "Integration IDs must be unique").optional(),
   inputs: z.record(z.string(), z.unknown()).refine(value => new TextEncoder().encode(JSON.stringify(value)).length <= 200_000, "Inputs exceed 200,000 bytes").optional(),
   idempotencyKey: z.string().trim().min(1).max(200).optional(),
-}).strict();
+}).strict().refine(value => Number(Boolean(value.prompt)) + Number(Boolean(value.script)) === 1, {
+  message: "Supply exactly one of prompt or script.",
+  path: ["prompt"],
+});
 export const startRunReceipt = z.object({runId:z.guid(), url:z.url(), outcomeUri:z.string(), duplicate:z.boolean()});
 export const projectRunDefaults = z.object({
   executionConfigId: jobInputSchema.shape.executionConfigId,
-  model: jobInputSchema.shape.model, effort: jobInputSchema.shape.effort, vmImage: jobInputSchema.shape.vmImage,
+  modelProvider, model: jobInputSchema.shape.model, effort: jobInputSchema.shape.effort, vmImage: jobInputSchema.shape.vmImage,
   tags: jobInputSchema.shape.tags, modelAccountId: jobInputSchema.shape.modelAccountId,
   portableIntegrationIds: jobInputSchema.shape.portableIntegrationIds, githubInstallationIds: jobInputSchema.shape.githubInstallationIds,
   linearConnectionId: jobInputSchema.shape.linearConnectionId, xConnectionIds: jobInputSchema.shape.xConnectionIds,
@@ -134,3 +145,4 @@ export const projectRunDefaults = z.object({
 }).strict();
 
 export const storedRunDefaults = projectRunDefaults.extend({vmImage:z.string().optional()});
+export const userRunDefaults = projectRunDefaults.omit({capacity:true});

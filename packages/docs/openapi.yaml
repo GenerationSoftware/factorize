@@ -8649,6 +8649,13 @@ paths:
                         executionConfigId:
                           type: string
                           minLength: 1
+                        modelProvider:
+                          description: Agent harness used for the selected model.
+                          type: string
+                          enum:
+                            - codex
+                            - claude
+                            - pi
                         model:
                           type: string
                           maxLength: 120
@@ -8809,6 +8816,13 @@ paths:
                       executionConfigId:
                         type: string
                         minLength: 1
+                      modelProvider:
+                        description: Agent harness used for the selected model.
+                        type: string
+                        enum:
+                          - codex
+                          - claude
+                          - pi
                       model:
                         type: string
                         maxLength: 120
@@ -8971,6 +8985,13 @@ paths:
                       executionConfigId:
                         type: string
                         minLength: 1
+                      modelProvider:
+                        description: Agent harness used for the selected model.
+                        type: string
+                        enum:
+                          - codex
+                          - claude
+                          - pi
                       model:
                         type: string
                         maxLength: 120
@@ -9120,6 +9141,13 @@ paths:
                       executionConfigId:
                         type: string
                         minLength: 1
+                      modelProvider:
+                        description: Agent harness used for the selected model.
+                        type: string
+                        enum:
+                          - codex
+                          - claude
+                          - pi
                       model:
                         type: string
                         maxLength: 120
@@ -15803,7 +15831,13 @@ paths:
             minLength: 1
   /api/v1/runs:
     post:
-      summary: Start a project VM run with a literal prompt and optional launch skill
+      summary: Start a project VM run with a prompt or script and per-run execution overrides
+      description: |-
+        Supply exactly one of prompt or script. Omitted execution settings use project defaults, then user defaults. Omitted integrationIds inherit this MCP client's effective integration access; explicit IDs select a subset, including an empty set. runScopes is limited to the caller's effective permissions.
+
+        Requires the runs:start scope.
+
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       responses:
         "202":
           description: Accepted run
@@ -15847,10 +15881,6 @@ paths:
           $ref: "#/components/responses/Error500"
         "503":
           $ref: "#/components/responses/Error503"
-      description: |-
-        Requires the runs:start scope.
-
-        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: post_api_v1_runs
       tags:
         - runs
@@ -15876,6 +15906,10 @@ paths:
                   type: string
                   minLength: 1
                   maxLength: 50000
+                script:
+                  type: string
+                  minLength: 1
+                  maxLength: 200000
                 skill:
                   type: string
                   minLength: 1
@@ -15884,6 +15918,50 @@ paths:
                   type: string
                   minLength: 1
                   maxLength: 120
+                executionConfigId:
+                  type: string
+                  minLength: 1
+                vmImage:
+                  type: string
+                  maxLength: 512
+                  pattern: ^(?:(?:(?:[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*\/)?[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*(?:\/[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*)*(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?(?:@sha256:[a-f0-9]{64})?))?$
+                modelProvider:
+                  description: Agent harness used for the selected model.
+                  type: string
+                  enum:
+                    - codex
+                    - claude
+                    - pi
+                model:
+                  type: string
+                  maxLength: 120
+                runScopes:
+                  description: Factorize application permissions to grant. Omission inherits effective client permissions and an empty list grants none.
+                  maxItems: 13
+                  type: array
+                  items:
+                    type: string
+                    enum:
+                      - projects:read
+                      - projects:write
+                      - jobs:read
+                      - jobs:write
+                      - runs:read
+                      - runs:invoke
+                      - runs:start
+                      - runs:cancel
+                      - runs:write
+                      - integrations:read
+                      - integrations:write
+                      - skills:read
+                      - skills:write
+                integrationIds:
+                  maxItems: 100
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
                 inputs:
                   type: object
                   propertyNames:
@@ -15893,8 +15971,6 @@ paths:
                   type: string
                   minLength: 1
                   maxLength: 200
-              required:
-                - prompt
               additionalProperties: false
     get:
       summary: List runs
@@ -16067,6 +16143,13 @@ paths:
                   executionConfigId:
                     type: string
                     minLength: 1
+                  modelProvider:
+                    description: Agent harness used for the selected model.
+                    type: string
+                    enum:
+                      - codex
+                      - claude
+                      - pi
                   model:
                     type: string
                     maxLength: 120
@@ -16187,6 +16270,13 @@ paths:
                 executionConfigId:
                   type: string
                   minLength: 1
+                modelProvider:
+                  description: Agent harness used for the selected model.
+                  type: string
+                  enum:
+                    - codex
+                    - claude
+                    - pi
                 model:
                   type: string
                   maxLength: 120
@@ -16258,6 +16348,326 @@ paths:
                   type: integer
                   minimum: 1
                   maximum: 50
+              required:
+                - executionConfigId
+              additionalProperties: false
+  /api/v1/user/run-defaults:
+    get:
+      summary: Get user defaults for direct VM runs
+      responses:
+        "200":
+          description: User run defaults
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      executionConfigId:
+                        type: string
+                        minLength: 1
+                      modelProvider:
+                        description: Agent harness used for the selected model.
+                        type: string
+                        enum:
+                          - codex
+                          - claude
+                          - pi
+                      model:
+                        type: string
+                        maxLength: 120
+                      effort:
+                        type: string
+                        maxLength: 40
+                      vmImage: {}
+                      tags:
+                        maxItems: 20
+                        type: array
+                        items:
+                          type: string
+                          pattern: ^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$
+                      modelAccountId:
+                        type: string
+                        format: uuid
+                        pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                      portableIntegrationIds:
+                        maxItems: 100
+                        type: array
+                        items:
+                          type: string
+                          format: uuid
+                          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                      githubInstallationIds:
+                        maxItems: 100
+                        type: array
+                        items:
+                          type: integer
+                          exclusiveMinimum: 0
+                          maximum: 9007199254740991
+                      linearConnectionId:
+                        anyOf:
+                          - type: string
+                            const: linear
+                          - type: "null"
+                      xConnectionIds:
+                        maxItems: 100
+                        type: array
+                        items:
+                          type: string
+                          format: uuid
+                          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                      runScopes:
+                        description: Factorize API scopes for new job runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. jobs:write permits configuring jobs and their future run scopes.
+                        maxItems: 13
+                        type: array
+                        items:
+                          type: string
+                          enum:
+                            - projects:read
+                            - projects:write
+                            - jobs:read
+                            - jobs:write
+                            - runs:read
+                            - runs:invoke
+                            - runs:start
+                            - runs:cancel
+                            - runs:write
+                            - integrations:read
+                            - integrations:write
+                            - skills:read
+                            - skills:write
+                    required:
+                      - executionConfigId
+                    additionalProperties: false
+                  - type: "null"
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the projects:read scope.
+
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+      operationId: get_api_v1_user_run_defaults
+      tags:
+        - user
+      security:
+        - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
+        - cookieAuth: []
+      x-required-scope: projects:read
+      x-owner-session-required: false
+    put:
+      summary: Set user defaults for direct VM runs
+      responses:
+        "200":
+          description: User run defaults
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  executionConfigId:
+                    type: string
+                    minLength: 1
+                  modelProvider:
+                    description: Agent harness used for the selected model.
+                    type: string
+                    enum:
+                      - codex
+                      - claude
+                      - pi
+                  model:
+                    type: string
+                    maxLength: 120
+                  effort:
+                    type: string
+                    maxLength: 40
+                  vmImage: {}
+                  tags:
+                    maxItems: 20
+                    type: array
+                    items:
+                      type: string
+                      pattern: ^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$
+                  modelAccountId:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                  portableIntegrationIds:
+                    maxItems: 100
+                    type: array
+                    items:
+                      type: string
+                      format: uuid
+                      pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                  githubInstallationIds:
+                    maxItems: 100
+                    type: array
+                    items:
+                      type: integer
+                      exclusiveMinimum: 0
+                      maximum: 9007199254740991
+                  linearConnectionId:
+                    anyOf:
+                      - type: string
+                        const: linear
+                      - type: "null"
+                  xConnectionIds:
+                    maxItems: 100
+                    type: array
+                    items:
+                      type: string
+                      format: uuid
+                      pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                  runScopes:
+                    description: Factorize API scopes for new job runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. jobs:write permits configuring jobs and their future run scopes.
+                    maxItems: 13
+                    type: array
+                    items:
+                      type: string
+                      enum:
+                        - projects:read
+                        - projects:write
+                        - jobs:read
+                        - jobs:write
+                        - runs:read
+                        - runs:invoke
+                        - runs:start
+                        - runs:cancel
+                        - runs:write
+                        - integrations:read
+                        - integrations:write
+                        - skills:read
+                        - skills:write
+                required:
+                  - executionConfigId
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the projects:write scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      operationId: put_api_v1_user_run_defaults
+      tags:
+        - user
+      security:
+        - cookieAuth: []
+      x-required-scope: projects:write
+      x-owner-session-required: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                executionConfigId:
+                  type: string
+                  minLength: 1
+                modelProvider:
+                  description: Agent harness used for the selected model.
+                  type: string
+                  enum:
+                    - codex
+                    - claude
+                    - pi
+                model:
+                  type: string
+                  maxLength: 120
+                effort:
+                  type: string
+                  maxLength: 40
+                vmImage:
+                  type: string
+                  maxLength: 512
+                  pattern: ^(?:(?:(?:[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*\/)?[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*(?:\/[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*)*(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?(?:@sha256:[a-f0-9]{64})?))?$
+                tags:
+                  maxItems: 20
+                  type: array
+                  items:
+                    type: string
+                    pattern: ^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$
+                modelAccountId:
+                  type: string
+                  format: uuid
+                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                portableIntegrationIds:
+                  maxItems: 100
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                githubInstallationIds:
+                  maxItems: 100
+                  type: array
+                  items:
+                    type: integer
+                    exclusiveMinimum: 0
+                    maximum: 9007199254740991
+                linearConnectionId:
+                  anyOf:
+                    - type: string
+                      const: linear
+                    - type: "null"
+                xConnectionIds:
+                  maxItems: 100
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                runScopes:
+                  description: Factorize API scopes for new job runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. jobs:write permits configuring jobs and their future run scopes.
+                  maxItems: 13
+                  type: array
+                  items:
+                    type: string
+                    enum:
+                      - projects:read
+                      - projects:write
+                      - jobs:read
+                      - jobs:write
+                      - runs:read
+                      - runs:invoke
+                      - runs:start
+                      - runs:cancel
+                      - runs:write
+                      - integrations:read
+                      - integrations:write
+                      - skills:read
+                      - skills:write
               required:
                 - executionConfigId
               additionalProperties: false

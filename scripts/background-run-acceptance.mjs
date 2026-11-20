@@ -178,4 +178,13 @@ export async function backgroundRunAcceptance({
   assert.equal(retained.invocation.template_job_id, template.body.id);
   assert.equal(retained.launch_skill_key, "dev");
   assert.equal(retained.prompt, savedRun.prompt);
+  const ambiguous = await rpc(token, "start_run", { ...args, script: "echo ambiguous" });
+  assert.ok(!ambiguous.result?.runId, ambiguous.text);
+  const directScript = await rpc(token, "start_run", { projectId, script: "echo direct", integrationIds: [], runScopes: [] });
+  assert.ok(directScript.result?.runId, directScript.text);
+  const snapshot = (await db.query("SELECT job_id, execution_config FROM app.runs WHERE tenant_id=$1 AND id=$2", [tenant, directScript.result.runId])).rows[0];
+  assert.equal(snapshot.job_id, null);
+  assert.equal(snapshot.execution_config.script, "echo direct");
+  assert.equal(snapshot.execution_config.executionType, "code");
+  await rpc(token, "stop_run", { runId: directScript.result.runId });
 }

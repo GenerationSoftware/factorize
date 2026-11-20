@@ -2310,8 +2310,10 @@ export interface paths {
         get: operations["get_api_v1_runs"];
         put?: never;
         /**
-         * Start a project VM run with a literal prompt and optional launch skill
-         * @description Requires the runs:start scope.
+         * Start a project VM run with a prompt or script and per-run execution overrides
+         * @description Supply exactly one of prompt or script. Omitted execution settings use project defaults, then user defaults. Omitted integrationIds inherit this MCP client's effective integration access; explicit IDs select a subset, including an empty set. runScopes is limited to the caller's effective permissions.
+         *
+         *     Requires the runs:start scope.
          *
          *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
@@ -2337,6 +2339,34 @@ export interface paths {
          *     An interactive owner session is required; bearer tokens cannot call this operation.
          */
         put: operations["put_api_v1_projects_projectId_run_defaults"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/user/run-defaults": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get user defaults for direct VM runs
+         * @description Requires the projects:read scope.
+         *
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+         */
+        get: operations["get_api_v1_user_run_defaults"];
+        /**
+         * Set user defaults for direct VM runs
+         * @description Requires the projects:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        put: operations["put_api_v1_user_run_defaults"];
         post?: never;
         delete?: never;
         options?: never;
@@ -6773,6 +6803,11 @@ export interface operations {
                         updatedAt: string;
                         runDefaults?: {
                             executionConfigId: string;
+                            /**
+                             * @description Agent harness used for the selected model.
+                             * @enum {string}
+                             */
+                            modelProvider?: "codex" | "claude" | "pi";
                             model?: string;
                             effort?: string;
                             vmImage?: string;
@@ -6833,6 +6868,11 @@ export interface operations {
                         updatedAt: string;
                         runDefaults?: {
                             executionConfigId: string;
+                            /**
+                             * @description Agent harness used for the selected model.
+                             * @enum {string}
+                             */
+                            modelProvider?: "codex" | "claude" | "pi";
                             model?: string;
                             effort?: string;
                             vmImage?: string;
@@ -6889,6 +6929,11 @@ export interface operations {
                         updatedAt: string;
                         runDefaults?: {
                             executionConfigId: string;
+                            /**
+                             * @description Agent harness used for the selected model.
+                             * @enum {string}
+                             */
+                            modelProvider?: "codex" | "claude" | "pi";
                             model?: string;
                             effort?: string;
                             vmImage?: string;
@@ -6951,6 +6996,11 @@ export interface operations {
                         updatedAt: string;
                         runDefaults?: {
                             executionConfigId: string;
+                            /**
+                             * @description Agent harness used for the selected model.
+                             * @enum {string}
+                             */
+                            modelProvider?: "codex" | "claude" | "pi";
                             model?: string;
                             effort?: string;
                             vmImage?: string;
@@ -9671,9 +9721,21 @@ export interface operations {
                 "application/json": {
                     /** Format: uuid */
                     projectId?: string;
-                    prompt: string;
+                    prompt?: string;
+                    script?: string;
                     skill?: string;
                     name?: string;
+                    executionConfigId?: string;
+                    vmImage?: string;
+                    /**
+                     * @description Agent harness used for the selected model.
+                     * @enum {string}
+                     */
+                    modelProvider?: "codex" | "claude" | "pi";
+                    model?: string;
+                    /** @description Factorize application permissions to grant. Omission inherits effective client permissions and an empty list grants none. */
+                    runScopes?: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
+                    integrationIds?: string[];
                     inputs?: {
                         [key: string]: unknown;
                     };
@@ -9722,6 +9784,11 @@ export interface operations {
             content: {
                 "application/json": {
                     executionConfigId: string;
+                    /**
+                     * @description Agent harness used for the selected model.
+                     * @enum {string}
+                     */
+                    modelProvider?: "codex" | "claude" | "pi";
                     model?: string;
                     effort?: string;
                     vmImage?: string;
@@ -9748,6 +9815,11 @@ export interface operations {
                 content: {
                     "application/json": {
                         executionConfigId: string;
+                        /**
+                         * @description Agent harness used for the selected model.
+                         * @enum {string}
+                         */
+                        modelProvider?: "codex" | "claude" | "pi";
                         model?: string;
                         effort?: string;
                         vmImage?: string;
@@ -9762,6 +9834,124 @@ export interface operations {
                         runScopes?: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
                         /** @default 4 */
                         capacity: number;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    get_api_v1_user_run_defaults: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description User run defaults */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        executionConfigId: string;
+                        /**
+                         * @description Agent harness used for the selected model.
+                         * @enum {string}
+                         */
+                        modelProvider?: "codex" | "claude" | "pi";
+                        model?: string;
+                        effort?: string;
+                        vmImage?: unknown;
+                        tags?: string[];
+                        /** Format: uuid */
+                        modelAccountId?: string;
+                        portableIntegrationIds?: string[];
+                        githubInstallationIds?: number[];
+                        linearConnectionId?: "linear" | null;
+                        xConnectionIds?: string[];
+                        /** @description Factorize API scopes for new job runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. jobs:write permits configuring jobs and their future run scopes. */
+                        runScopes?: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
+                    } | null;
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    put_api_v1_user_run_defaults: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    executionConfigId: string;
+                    /**
+                     * @description Agent harness used for the selected model.
+                     * @enum {string}
+                     */
+                    modelProvider?: "codex" | "claude" | "pi";
+                    model?: string;
+                    effort?: string;
+                    vmImage?: string;
+                    tags?: string[];
+                    /** Format: uuid */
+                    modelAccountId?: string;
+                    portableIntegrationIds?: string[];
+                    githubInstallationIds?: number[];
+                    linearConnectionId?: "linear" | null;
+                    xConnectionIds?: string[];
+                    /** @description Factorize API scopes for new job runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. jobs:write permits configuring jobs and their future run scopes. */
+                    runScopes?: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
+                };
+            };
+        };
+        responses: {
+            /** @description User run defaults */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        executionConfigId: string;
+                        /**
+                         * @description Agent harness used for the selected model.
+                         * @enum {string}
+                         */
+                        modelProvider?: "codex" | "claude" | "pi";
+                        model?: string;
+                        effort?: string;
+                        vmImage?: unknown;
+                        tags?: string[];
+                        /** Format: uuid */
+                        modelAccountId?: string;
+                        portableIntegrationIds?: string[];
+                        githubInstallationIds?: number[];
+                        linearConnectionId?: "linear" | null;
+                        xConnectionIds?: string[];
+                        /** @description Factorize API scopes for new job runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. jobs:write permits configuring jobs and their future run scopes. */
+                        runScopes?: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
                     };
                 };
             };
