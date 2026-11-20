@@ -1084,7 +1084,9 @@ export class ApiService {
     if (!defaults.executionConfigId && !input.executionConfigId)
       throw new ServiceError(409, "run_defaults_required", "Configure project or user VM run defaults first.");
     const baseDefaults = defaults.executionConfigId ? defaults : { ...defaults, executionConfigId: input.executionConfigId, model: "", effort: "", tags: [], runScopes: [], capacity: 4 };
-    const accessible = (await this.agentApi().reflection()).integrations.filter(item => item.access === "granted");
+    const callerAccess = await this.agentApi().reflection();
+    const callerScopes = callerAccess.scopes.filter(scope => scopeSchema.safeParse(scope).success) as z.infer<typeof scopeSchema>[];
+    const accessible = callerAccess.integrations.filter(item => item.access === "granted");
     const accessibleById = new Map(accessible.map(item => [item.id, item]));
     const integrationIds = input.integrationIds ?? accessible.map(item => item.id);
     if (integrationIds.some(id => !accessibleById.has(id)))
@@ -1113,9 +1115,8 @@ export class ApiService {
       config.executionType = "code";
       (config as Record<string, any>).script = input.script;
     }
-    const callerScopes = this.auth.scopes.filter(scope => scopeSchema.safeParse(scope).success) as z.infer<typeof scopeSchema>[];
     const requestedScopes = input.runScopes ?? callerScopes;
-    if (requestedScopes.some(scope => !this.auth.scopes.includes(scope)))
+    if (requestedScopes.some(scope => !callerScopes.includes(scope)))
       throw new ServiceError(403, "forbidden", "Requested run permissions exceed this client's effective Factorize access.");
     config.runScopes = requestedScopes;
     const skill = input.skill ? await this.skills().get(input.skill) : null;
