@@ -16,6 +16,26 @@ const withinViewport = async locator => {
   const box = await locator.boundingBox(), viewport = await locator.page().evaluate(() => ({ width: innerWidth, height: innerHeight }));
   expect(box.x).toBeGreaterThanOrEqual(0); expect(box.y).toBeGreaterThanOrEqual(0); expect(box.x + box.width).toBeLessThanOrEqual(viewport.width); expect(box.y + box.height).toBeLessThanOrEqual(viewport.height);
 };
+
+test("editing model integrations preserves keys unless keyless access is explicitly selected", async ({ page }) => {
+  await mockApi(page);
+  const id="4dcfb380-67f6-4db4-bd45-3a0bfedc950d", writes=[];
+  await page.route("**/api/v1/model-accounts", route=>route.fulfill({json:{revision:3,accounts:[{id,name:"OpenAI",description:null,revision:3,credentialConfigured:true,providerUrl:"https://api.openai.com/v1",contextWindow:128000,maxTokens:8192}]}}));
+  await page.route(`**/api/v1/model-accounts/${id}`, async route=>{writes.push(route.request().postDataJSON());await route.fulfill({json:{revision:4,duplicate:false}});});
+  await page.goto(origin+"/integrations");
+  const edit=async()=>{await page.getByRole("button",{name:"Actions for OpenAI",exact:true}).click();await page.getByRole("menuitem",{name:"Edit model integration"}).click();};
+  await edit();
+  let dialog=page.getByRole("dialog");
+  await expect(dialog.getByLabel("API key (optional)",{exact:true})).toHaveValue("");
+  await expect(dialog.getByText("Leave blank to keep the saved API key. Enter a new key to replace it.")).toBeVisible();
+  await dialog.getByRole("button",{name:"Save model integration"}).click();
+  await expect(dialog).toBeHidden();expect(writes[0]).not.toHaveProperty("apiKey");
+  await edit();dialog=page.getByRole("dialog");
+  await dialog.getByLabel("Use keyless access (remove saved API key)").check();
+  await expect(dialog.getByLabel("API key (optional)",{exact:true})).toBeDisabled();
+  await dialog.getByRole("button",{name:"Save model integration"}).click();
+  await expect(dialog).toBeHidden();expect(writes[1].apiKey).toBeNull();
+});
 test("Phoenix installs through the compact provider list and joins connected integrations", async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 }); await mockApi(page);
   let config = { configured: false, endpoint: "", projectName: "factorize", projectId: null, credentialConfigured: false, enabled: false, revision: 0, lastTestAt: null, lastError: null };

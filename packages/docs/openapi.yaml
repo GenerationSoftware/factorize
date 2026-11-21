@@ -2702,9 +2702,9 @@ paths:
               additionalProperties: false
   /api/v1/model-accounts/{accountId}:
     put:
-      summary: Replace a model account credential
+      summary: Update a model account credential
       description: |-
-        Owner session required. Saves an OpenAI-compatible provider URL and optional API key. Replaces the managed credential without changing the selected account ID; active runs use the replacement on their next request.
+        Owner session required. An omitted API key preserves the saved key when the provider URL is unchanged. Supply a replacement key or explicit null for keyless access when changing the provider URL. Active runs use the updated credential on their next request.
 
         Requires the integrations:write scope.
 
@@ -2790,10 +2790,12 @@ paths:
                   format: uri
                 apiKey:
                   writeOnly: true
-                  type: string
-                  minLength: 1
-                  maxLength: 32768
-                  pattern: ^[^\r\n]+$
+                  anyOf:
+                    - type: string
+                      minLength: 1
+                      maxLength: 32768
+                      pattern: ^[^\r\n]+$
+                    - type: "null"
                 contextWindow:
                   default: 128000
                   type: integer

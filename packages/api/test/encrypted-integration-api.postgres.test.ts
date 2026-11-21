@@ -98,6 +98,31 @@ describe.skipIf(!databaseUrl)("owner-only managed credential API (PostgreSQL)", 
     } finally { await f.cleanup(); }
   });
 
+  it("preserves omitted model keys, replaces or explicitly clears them, and prevents forwarding to a changed provider", async () => {
+    const f = await loadingFixture(databaseUrl!);
+    try {
+      const id=crypto.randomUUID(), path=f.env.APP_ORIGIN+"/api/v1/model-accounts";
+      const request=(url:string,method:string,body:unknown)=>worker.fetch(new Request(url,{method,headers:{Cookie:f.cookie,Origin:f.env.APP_ORIGIN,"Content-Type":"application/json"},body:JSON.stringify(body)}),f.env,{waitUntil(){}} as any);
+      const metadata={name:"OpenAI",description:null,providerUrl:"https://model.fixture/v1"};
+      expect((await request(path,"POST",{...metadata,id,expectedRevision:0,idempotencyKey:crypto.randomUUID(),apiKey:"original-fixture-key"})).status).toBe(201);
+      const repository=new CredentialRepository(f.db,f.tenantId,f.env.CREDENTIAL_ENCRYPTION_KEY);
+      const saved=async()=>JSON.parse((await repository.managedCredential(id,"model"))!.payload);
+      const update={...metadata,name:"Renamed",expectedRevision:1,idempotencyKey:crypto.randomUUID()};
+      expect((await request(path+`/${id}`,"PUT",update)).status).toBe(200);
+      expect((await saved()).apiKey).toBe("original-fixture-key");
+      expect(await (await request(path+`/${id}`,"PUT",update)).json()).toEqual({revision:2,duplicate:true});
+      const redirected=await request(path+`/${id}`,"PUT",{...metadata,providerUrl:"https://other.fixture/v1",expectedRevision:2,idempotencyKey:crypto.randomUUID()});
+      expect(redirected.status).toBe(400);
+      expect((await saved()).providerUrl).toBe(metadata.providerUrl);
+      expect((await request(path+`/${id}`,"PUT",{...metadata,apiKey:"replacement-fixture-key",expectedRevision:2,idempotencyKey:crypto.randomUUID()})).status).toBe(200);
+      expect((await saved()).apiKey).toBe("replacement-fixture-key");
+      const publicMetadata=await (await worker.fetch(new Request(path,{headers:{Cookie:f.cookie}}),f.env,{waitUntil(){}} as any)).text();
+      expect(publicMetadata).not.toContain("fixture-key");
+      expect((await request(path+`/${id}`,"PUT",{...metadata,apiKey:null,expectedRevision:3,idempotencyKey:crypto.randomUUID()})).status).toBe(200);
+      expect(await saved()).not.toHaveProperty("apiKey");
+    } finally {await f.cleanup();}
+  });
+
   it("requires a browser session and isolates records across tenants", async () => {
     const f = await loadingFixture(databaseUrl!);
     try {

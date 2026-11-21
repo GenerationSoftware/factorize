@@ -169,8 +169,8 @@ export interface paths {
         };
         get?: never;
         /**
-         * Replace a model account credential
-         * @description Owner session required. Saves an OpenAI-compatible provider URL and optional API key. Replaces the managed credential without changing the selected account ID; active runs use the replacement on their next request.
+         * Update a model account credential
+         * @description Owner session required. An omitted API key preserves the saved key when the provider URL is unchanged. Supply a replacement key or explicit null for keyless access when changing the provider URL. Active runs use the updated credential on their next request.
          *
          *     Requires the integrations:write scope.
          *
@@ -4308,7 +4308,7 @@ export interface operations {
                     description: string | null;
                     /** Format: uri */
                     providerUrl: string;
-                    apiKey?: string;
+                    apiKey?: string | null;
                     /** @default 128000 */
                     contextWindow?: number;
                     /** @default 8192 */

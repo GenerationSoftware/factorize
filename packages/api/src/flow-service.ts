@@ -1644,11 +1644,15 @@ export class ApiService {
       throw error;
     }
   }
-  async updateModelAccount(id: string, input: {expectedRevision: number; idempotencyKey: string; name: string; description: string | null} & ModelProviderConfiguration) {
+  async updateModelAccount(id: string, input: {expectedRevision: number; idempotencyKey: string; name: string; description: string | null; apiKey?: string | null} & Omit<ModelProviderConfiguration,"apiKey">) {
     await this.authorizeOwnerSession("integrations:write");
     const repository=this.credentials();
     if (!(await repository.metadata("model")).some(record=>record.id===id)) throw new ServiceError(404,"not_found","Model account not found.");
-    try {return await repository.write({...input,id,kind:"model",origin:null,operation:"upsert",managedModelPayload:JSON.stringify(modelProviderConfiguration.parse({providerUrl:input.providerUrl,apiKey:input.apiKey,contextWindow:input.contextWindow,maxTokens:input.maxTokens}))});}
+    const existing=configuredPiProvider((await repository.managedCredential(id,"model"))?.payload ?? "");
+    if(input.apiKey===undefined && existing?.apiKey && new URL(existing.providerUrl).href.replace(/\/$/,"")!==new URL(input.providerUrl).href.replace(/\/$/,""))
+      throw new ServiceError(400,"invalid_request","Enter a replacement API key or select keyless access when changing the provider URL.");
+    const apiKey=input.apiKey===undefined?existing?.apiKey:input.apiKey ?? undefined;
+    try {return await repository.write({...input,id,kind:"model",origin:null,operation:"upsert",managedModelPayload:JSON.stringify(modelProviderConfiguration.parse({providerUrl:input.providerUrl,apiKey,contextWindow:input.contextWindow,maxTokens:input.maxTokens}))});}
     catch (error) {if(error instanceof StaleIntegrationRevisionError) throw new ServiceError(409,"stale_revision","The model account collection changed. Reload and retry."); if(error instanceof IntegrationIdempotencyConflictError) throw new ServiceError(409,"conflict",error.message); if(error instanceof IntegrationValidationError) throw new ServiceError(400,"invalid_request",error.message); throw error;}
   }
   async deleteModelAccount(id: string, input: { expectedRevision: number; idempotencyKey: string }) {
