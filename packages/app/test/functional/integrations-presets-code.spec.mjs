@@ -64,3 +64,19 @@ test("Code offers readable HTTPS URLs, scoped credentials and the correct GitHub
   await page.keyboard.press("Escape"); await expect(dialog).toBeHidden(); await page.getByRole("button", { name: "Code", exact: true }).click(); await expect(dialog.getByLabel("Git token", { exact: true })).toHaveCount(0); await dialog.getByRole("link", { name: "Skill settings" }).click(); await expect(page).toHaveURL(origin + "/settings/skills");
   source = "github"; await page.goto(origin + "/skills"); await page.getByRole("button", { name: "Code", exact: true }).click(); await expect(dialog.getByLabel("Repository URL")).toHaveValue("https://github.com/acme/skills.git"); await expect(dialog.getByRole("button", { name: "Get Git token" })).toHaveCount(0);
 });
+
+test("skills settings use personal Git tokens only for Factorize repositories and hide the internal remote", async ({ page, context }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]); await mockApi(page);
+  let source = { kind: "managed" }, tokenRequests = 0, legacyRequests = 0;
+  await page.route("**/api/v1/skill-library", route => route.fulfill({ json: { source, remote: "https://private.artifacts.cloudflare.net/internal-repo.git", commit: "a".repeat(40), upstreamCommit: null, error: null } }));
+  await page.route("**/api/v1/skill-library/token", route => { legacyRequests++; return route.fulfill({ status: 500 }); });
+  await page.route("**/api/v1/skill-library/git-token", route => { tokenRequests++; return route.fulfill({ json: { username: "git", token: "fgit_settings-fixture", expiresAt: "2099-01-01T12:00:00Z" } }); });
+  await page.goto(origin + "/settings/skills");
+  await expect(page.getByText("Factorize remote", { exact: true })).toHaveCount(0); await expect(page.getByText(/Store each skill in/)).toHaveCount(0); await expect(page.locator('input[value*="artifacts.cloudflare.net"]')).toHaveCount(0);
+  await page.getByRole("button", { name: "Get Git Token", exact: true }).click(); await expect(page.getByLabel("Git token", { exact: true })).toHaveValue("fgit_settings-fixture"); await expect(page.getByLabel("Git token", { exact: true })).toHaveAttribute("type", "password");
+  await page.getByRole("button", { name: "Copy Git token" }).click(); expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("fgit_settings-fixture");
+  await page.getByRole("button", { name: "Change repository" }).click(); await expect(page.getByLabel("Git token", { exact: true })).toHaveCount(0); await page.getByRole("button", { name: "Cancel", exact: true }).click(); await expect(page.getByRole("button", { name: "Get Git Token", exact: true })).toBeVisible();
+  source = { kind: "github", installationId: 17, repositoryId: 42, branch: "main", folder: "skills" }; await page.reload();
+  await expect(page.getByText("Auth with Github", { exact: true })).toBeVisible(); await expect(page.getByRole("button", { name: "Get Git Token", exact: true })).toHaveCount(0); await expect(page.getByLabel("Git token", { exact: true })).toHaveCount(0);
+  expect(tokenRequests).toBe(1); expect(legacyRequests).toBe(0);
+});

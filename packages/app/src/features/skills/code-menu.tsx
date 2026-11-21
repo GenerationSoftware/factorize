@@ -1,6 +1,7 @@
+import { GitToken } from "./git-token";
 import { useEffect, useId, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { api } from "factorize-api-client";
 import { Button, Input, Label } from "../../shared/ui";
 import { popoverClasses, usePopover } from "../../shared/popover";
@@ -11,13 +12,10 @@ export function SkillsCodeMenu() {
   const info = useQuery({ queryKey: ["skill-library", "clone"], enabled: popover.open, queryFn: async () => {
     const { data, error } = await api.GET("/api/v1/skill-library/clone"); if (error || !data) throw new Error(messageOf(error)); return data;
   } });
-  const credential = useMutation({ retry: false, gcTime: 0, mutationFn: async () => {
-    const { data, error } = await api.POST("/api/v1/skill-library/git-token"); if (error || !data) throw new Error(messageOf(error)); return data;
-  } });
   const copy = async (label: string, value: string) => { setCopyError(""); try { await navigator.clipboard.writeText(value); setCopied(label); } catch { setCopyError("Copy unavailable. Select the text and copy it."); } };
-  const close = () => { credential.reset(); setCopied(""); setCopyError(""); popover.setOpen(false); };
+  const close = () => { setCopied(""); setCopyError(""); popover.setOpen(false); };
   // Credentials are removed from the rendered UI whenever the dropdown closes.
-  useEffect(() => { if (!popover.open) { credential.reset(); setCopied(""); setCopyError(""); } }, [popover.open]);
+  useEffect(() => { if (!popover.open) { setCopied(""); setCopyError(""); } }, [popover.open]);
   return <>
     <button ref={element => { popover.anchor.current = element; }} type="button" aria-haspopup="dialog" aria-controls={id} aria-expanded={popover.open} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-green-800/20 bg-[#1f883d] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#1a7f37] dark:border-green-400/20 dark:bg-[#238636] dark:hover:bg-[#2ea043]" onClick={() => popover.open ? close() : popover.setOpen(true)}><span aria-hidden="true" className="font-mono text-base">&lt;&gt;</span> Code <span aria-hidden="true" className="text-xs">▾</span></button>
     {popover.open && <div ref={popover.panel} id={id} popover="manual" role="dialog" aria-label="Clone skills repository" className={`${popoverClasses} p-0`}>
@@ -29,8 +27,7 @@ export function SkillsCodeMenu() {
           <p className="break-words text-xs text-slate-600 dark:text-slate-400">Branch <code>{info.data.branch}</code> · Skills folder <code>{info.data.folder || "/"}</code></p>
           {info.data.source === "github" ? <p className="text-xs text-slate-600 dark:text-slate-400">Use your GitHub credentials to clone or push. Factorize syncs from this repository.</p> : <>
             <p className="text-xs text-slate-600 dark:text-slate-400">Clone, pull and push with a Factorize Git token. Pushes update your team’s skills.</p>
-            {!credential.data ? <Button className="w-full" disabled={credential.isPending} onClick={() => credential.mutate()}>{credential.isPending ? "Creating token…" : "Get Git token"}</Button> : <div className="space-y-2 rounded-lg bg-stone-50 p-3 dark:bg-slate-950"><p className="text-xs">Username: <code>git</code>. Use this token as the password.</p><div className="flex items-end gap-2"><Label className="min-w-0 flex-1">Git token<Input type="password" readOnly autoComplete="off" value={credential.data.token} onFocus={event => event.target.select()} /></Label><Button aria-label="Copy Git token" onClick={() => void copy("Git token", credential.data!.token)}>{copied === "Git token" ? "✓" : "Copy"}</Button></div><p className="text-xs text-slate-600 dark:text-slate-400">Expires {new Date(credential.data.expiresAt).toLocaleTimeString()}. Store it in your Git credential manager.</p></div>}
-            {credential.error && <p role="alert">{credential.error.message}</p>}
+            <GitToken buttonLabel="Get Git token" buttonClassName="w-full"/>
           </>}
         </> : info.data && <p className="text-sm">Configure a skills repository to enable cloning.</p>}
         {copied && <p role="status" className="text-xs">{copied} copied.</p>}{copyError && <p role="alert">{copyError}</p>}

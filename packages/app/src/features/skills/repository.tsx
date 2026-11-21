@@ -1,3 +1,4 @@
+import { GitToken } from "./git-token";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "factorize-api-client";
@@ -51,7 +52,6 @@ export function SkillsRepository() {
     },
     onSuccess: async () => {
       setEditing(false);
-      token.reset();
       await refresh();
     },
   });
@@ -62,26 +62,10 @@ export function SkillsRepository() {
     },
     onSuccess: refresh,
   });
-  const token = useMutation({
-    mutationFn: async () => {
-      const result = await api.POST("/api/v1/skill-library/token");
-      if (!result.data) throw failure(result.error);
-      return result.data;
-    },
-  });
   const active = status.data;
   return (
     <Card className="mb-6 grid gap-3">
       <h2>Git repository</h2>
-      {active?.remote && (
-        <Label>
-          Factorize remote
-          <Input readOnly value={active.remote ?? ""} />
-          <span>
-            Store each skill in <code>skills/&lt;key&gt;/SKILL.md</code> alongside its supporting files.
-          </span>
-        </Label>
-      )}
       {active?.source?.kind === "github" && (
         <p>
           GitHub repository {active.source.repositoryId} · {active.source.branch} ·{" "}
@@ -121,26 +105,11 @@ export function SkillsRepository() {
               Sync now
             </Button>
           )}
-          {active?.remote && (
-            <Button disabled={token.isPending} onClick={() => token.mutate()}>
-              Get Git credential
-            </Button>
-          )}
+
         </div>
       )}
-      {token.data && (
-        <Label>
-          {active?.source?.kind === "github" ? "Read-only Git bearer token" : "Git bearer token"} · expires{" "}
-          {new Date(token.data.expiresAt).toLocaleTimeString()}
-          <Input
-            readOnly
-            spellCheck={false}
-            autoComplete="off"
-            value={token.data.token}
-            onFocus={(e) => e.target.select()}
-          />
-        </Label>
-      )}
+      {!editing && active?.source?.kind === "managed" && <GitToken/>}
+      {!editing && active?.source?.kind === "github" && <p className="text-xs text-slate-600 dark:text-slate-400">Auth with Github</p>}
       {editing && (
         <form
           className="grid gap-3"
@@ -228,7 +197,7 @@ export function SkillsRepository() {
           </div>
         </form>
       )}
-      {[status.error, configure.error, sync.error, token.error, installations.error, repositories.error]
+      {[status.error, configure.error, sync.error, installations.error, repositories.error]
         .filter(Boolean)
         .map((error, i) => (
           <p key={i} role="alert">
