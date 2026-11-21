@@ -238,34 +238,29 @@ test("dashboard VM presets use dedicated editors and confirmed deletion", async 
   }finally{await context.close();}
 });
 
-test("owner edits one MCP connection’s scopes and integration access", async () => {
+test("owner edits an MCP connection with the team permission preset", async () => {
   const {context, page} = await setup();
-  const id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", requiredScope = `integration:${id}:3`;
-  const client = {grantId:"first", clientId:"shared", clientName:"Release assistant", availableScopes:["triggers:read", "triggers:write"], scopes:["triggers:read", "triggers:write"], integrationOverrides:{}, revision:0, authorizationDate:"2026-11-19", expiresAt:null, lastUsedAt:null};
-  await page.route("**/api/v1/access/authorized-clients", route => route.fulfill({json:[client]}));
-  await page.route("**/api/v1/integration-api-policies", route => route.fulfill({json:{integrations:[{id, requiredScope, available:true, policy:"requestable", name:"Linear"}]}}));
+  const client = {grantId:"first", clientId:"shared", clientName:"Release assistant", appName:"Shared MCP app", availableScopes:["triggers:read", "triggers:write"], scopes:["triggers:read", "triggers:write"], integrationOverrides:{}, revision:0, authorizationDate:"2026-11-19", expiresAt:null, lastUsedAt:null};
+  await page.route("**/api/v1/access/authorized-clients", route => route.fulfill({json:[client, {...client, grantId:"second", clientName:"Another connection"}]}));
+  await page.route("**/api/v1/presets", route => route.fulfill({json:{presets:[{kind:"permission",isDefault:true}]}}));
+  await page.route("**/api/v1/access/authorizations/second/vms", route => route.fulfill({json:[]}));
   let saved;
   await page.route("**/api/v1/access/authorizations/first/permissions", route => {
     saved = route.request().postDataJSON();
-    client.scopes = ["triggers:read"];
-    client.integrationOverrides = saved.integrationOverrides;
-    client.revision++;
     return route.fulfill({json:{ok:true}});
   });
   try {
     await page.goto(origin + "/settings/authorized-clients");
-    const edit = page.getByRole("button", {name:"Edit permissions"});
-    await edit.click();
+    await page.waitForURL("**/clients");
+    await page.getByRole("row", {name:/Release assistant/}).getByRole("button", {name:"Edit permissions"}).click();
     const dialog = page.getByRole("dialog", {name:"Permissions for Release assistant"});
-    await dialog.getByLabel("triggers:write").uncheck();
-    await dialog.getByLabel("Linear").selectOption("allow");
+    await dialog.getByLabel("Permission preset").selectOption("team-default");
     await dialog.getByRole("button", {name:"Save permissions"}).click();
     await dialog.waitFor({state:"hidden"});
-    assert.deepEqual(saved, {disabledScopes:["triggers:write"], integrationOverrides:{[id]:requiredScope}, expectedRevision:0});
-    await page.reload();
-    await edit.click();
-    assert.equal(await dialog.getByLabel("triggers:write").isChecked(), false);
-    assert.equal(await dialog.getByLabel("Linear").inputValue(), "allow");
+    assert.deepEqual(saved, {preset:"team-default", expectedRevision:0});
+    assert.equal(await page.getByText("Shared MCP app",{exact:true}).count(),2);
+    await page.getByRole("link",{name:"Another connection"}).click();
+    await page.getByText("No VM attachments recorded.").waitFor();
   } finally { await context.close(); }
 });
 

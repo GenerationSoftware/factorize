@@ -53,4 +53,35 @@ describe.skipIf(!url)("VM attachment inventory", () => {
     expect(await inventory.clients(userId, creators[1].subject)).toMatchObject([{ sourceId: creators[1].subject, status: "expired" }]);
     expect(await inventory.clients(crypto.randomUUID(), creators[0].subject)).toEqual([]);
   });
+
+  it("applies the current team default without widening access and revokes independently", async () => {
+    const { env, auth, db, tenantId } = fixture;
+    const { ApiService } = await import("../src/flow-service");
+    const { PresetRepository } = await import("../src/postgres/preset-repository");
+    const service = new ApiService(env, auth);
+    await service.listPresets();
+    const presets = new PresetRepository(db, tenantId);
+    const preset = await presets.save({ kind: "permission", slug: "client-fixture", name: "Client fixture", settings: { runScopes: ["runs:read", "skills:write"] } });
+    await presets.makeDefault(preset.id);
+    const grants = ["fixture-connection-one", "fixture-connection-two"].map(id => ({
+      id, clientId: "same-client", metadata: { tenantId },
+      scope: ["runs:read", "runs:write", "proxy:use", "vm:grant"], createdAt: Math.floor(Date.now() / 1000),
+    }));
+    env.OAUTH_PROVIDER = {
+      lookupClient: async () => ({ clientName: "MCP fixture" }),
+      listUserGrants: async () => ({ items: grants }),
+      revokeGrant: async (id: string) => { grants.splice(grants.findIndex(grant => grant.id === id), 1); },
+    } as unknown as typeof env.OAUTH_PROVIDER;
+
+    expect((await service.listAuthorizedClients()).map(connection => connection.appName)).toEqual(["MCP fixture", "MCP fixture"]);
+    await service.updateClientPermissions(grants[0].id, { preset: "team-default", expectedRevision: 0 });
+    const [first, second] = await service.listAuthorizedClients();
+    expect(first.scopes).toEqual(["runs:read"]);
+    expect(second.scopes).toContain("vm:grant");
+    expect((await service.listClientVms(first.grantId))[0].status).toBe("inactive");
+    await service.revokeOAuthAuthorization(second.grantId);
+    expect((await service.listAuthorizedClients()).map(connection => connection.grantId)).toEqual([first.grantId]);
+    expect((await service.listClientVms(second.grantId))[0].status).toBe("revoked");
+    await expect(service.revokeAuthorizedClient(first.clientId)).resolves.toEqual({ revoked: 1 });
+  });
 });

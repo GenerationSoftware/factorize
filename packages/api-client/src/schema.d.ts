@@ -7205,6 +7205,7 @@ export interface operations {
                         grantId: string;
                         clientId: string;
                         clientName: string;
+                        appName?: string;
                         scopes: string[];
                         authorizationDate: string;
                         expiresAt: string | null;
@@ -7351,6 +7352,10 @@ export interface operations {
                     integrationOverrides: {
                         [key: string]: string | false;
                     };
+                    expectedRevision?: number;
+                } | {
+                    /** @constant */
+                    preset: "team-default";
                     expectedRevision?: number;
                 };
             };

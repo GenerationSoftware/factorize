@@ -10,7 +10,9 @@ export function vmRoutes(root: AnyRootRoute) {
   return [
     createRoute({ getParentRoute: () => root, path: "/vms", beforeLoad,
       component: lazyRouteComponent(() => import("./attachments"), "VmsPage") }),
+    createRoute({ getParentRoute: () => root, path: "/clients", beforeLoad,
+      component: lazyRouteComponent(() => import("../settings/authorized-clients"), "ClientsPage") }),
     createRoute({ getParentRoute: () => root, path: "/clients/$grantId", beforeLoad,
-      component: lazyRouteComponent(() => import("./attachments"), "ClientVmsPage") }),
+      component: lazyRouteComponent(() => import("../settings/authorized-clients"), "ClientPage") }),
   ];
 }

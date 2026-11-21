@@ -19,7 +19,7 @@ import { queryOf } from "./query-params";
 import { launchPayloadResponse } from "./launch-payload";
 import { searchResponse } from "./search-contracts";
 import { consentPreviewInput, consentPreviewResponse, consentDecisionInput, consentDecisionResponse } from "./consent-api";
-import { exeConnection, integrationStatus, clientPermissionsInput, authorizedClient, accessToken, createdAccessToken, savedExe, testedExe, savedAmp, savedTail, okResult } from "./settings-contracts";
+import { exeConnection, integrationStatus, clientPermissionsUpdate, authorizedClient, accessToken, createdAccessToken, savedExe, testedExe, savedAmp, savedTail, okResult } from "./settings-contracts";
 import { eventAvailabilityResponse, namedOption, providerOptions, githubInstallation, githubRepository, tailIntegration } from "./editor-contracts";
 import { runSummaryResponse, runPageResponse, runStatusResponse, fullRunResponse, revisionTracePage, revisionTraceQuery, runtimeContextResponse, runtimeIntegrationsResponse } from "./run-read-contracts";
 import { triggerPageQuery, triggerSummaryPage, triggerSelectorPage, triggerResponse, triggerUpdateInput } from "./job-contracts";
@@ -676,7 +676,7 @@ export const API_ROUTES: RouteContract[] = [
   route("PUT", "/api/v1/access/authorizations/{grantId}/permissions", "triggers:write", {
     summary: "Edit an OAuth connection’s scopes and integration access",
     responses: {"200": {description: "Permissions saved", content: {"application/json": {schema: jsonSchema(okResult, "output")}}}},
-  }, (service, {params, body}) => service.updateClientPermissions(params.grantId, body), {ownerSession: true, body: clientPermissionsInput}),
+  }, (service, {params, body}) => service.updateClientPermissions(params.grantId, body), {ownerSession: true, body: clientPermissionsUpdate}),
   route("DELETE", "/api/v1/access/authorizations/{grantId}", "triggers:write", {summary:"Revoke one isolated OAuth connection", description:"Other connections, including copies of the same client, retain their approvals.",responses:{"200":{description:"Authorization revoked",content:{"application/json":{schema:jsonSchema(z.object({revoked:z.number().int()}),"output")}}}}}, (service,{params})=>service.revokeOAuthAuthorization(params.grantId), {ownerSession:true}),
   route(
     "DELETE",

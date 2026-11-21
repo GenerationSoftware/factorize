@@ -1,4 +1,4 @@
-import { Link, useParams } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { api, type paths } from "factorize-api-client";
 import { messageOf } from "../auth/session";
@@ -51,9 +51,4 @@ export function VmAttachments({ source }: { source?: Source }) {
 
 export function VmsPage() {
   return <Page><h1 className="mb-4">VMs</h1><VmAttachments /></Page>;
-}
-
-export function ClientVmsPage() {
-  const { grantId } = useParams({ from: "/clients/$grantId" });
-  return <Page><h1 className="mb-4">Client VMs</h1><VmAttachments source={{kind: "client", id: grantId}} /></Page>;
 }

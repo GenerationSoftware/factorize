@@ -8805,6 +8805,8 @@ paths:
                       type: string
                     clientName:
                       type: string
+                    appName:
+                      type: string
                     scopes:
                       type: array
                       items:
@@ -9165,49 +9167,62 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                disabledScopes:
-                  maxItems: 15
-                  type: array
-                  items:
-                    type: string
-                    enum:
-                      - team:read
-                      - team:write
-                      - triggers:read
-                      - triggers:write
-                      - runs:read
-                      - runs:invoke
-                      - runs:start
-                      - runs:cancel
-                      - runs:write
-                      - integrations:read
-                      - integrations:write
-                      - skills:read
-                      - skills:write
-                      - proxy:use
-                      - vm:grant
-                integrationOverrides:
-                  type: object
-                  propertyNames:
-                    type: string
-                    format: uuid
-                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
-                  additionalProperties:
-                    anyOf:
-                      - type: string
-                      - type: boolean
-                        const: false
-                  description: Integration ID to approved epoch-bound scope, or false to block.
-                expectedRevision:
-                  type: integer
-                  minimum: 0
-                  maximum: 9007199254740991
-              required:
-                - disabledScopes
-                - integrationOverrides
-              additionalProperties: false
+              anyOf:
+                - type: object
+                  properties:
+                    disabledScopes:
+                      maxItems: 15
+                      type: array
+                      items:
+                        type: string
+                        enum:
+                          - team:read
+                          - team:write
+                          - triggers:read
+                          - triggers:write
+                          - runs:read
+                          - runs:invoke
+                          - runs:start
+                          - runs:cancel
+                          - runs:write
+                          - integrations:read
+                          - integrations:write
+                          - skills:read
+                          - skills:write
+                          - proxy:use
+                          - vm:grant
+                    integrationOverrides:
+                      type: object
+                      propertyNames:
+                        type: string
+                        format: uuid
+                        pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                      additionalProperties:
+                        anyOf:
+                          - type: string
+                          - type: boolean
+                            const: false
+                      description: Integration ID to approved epoch-bound scope, or false to block.
+                    expectedRevision:
+                      type: integer
+                      minimum: 0
+                      maximum: 9007199254740991
+                  required:
+                    - disabledScopes
+                    - integrationOverrides
+                  additionalProperties: false
+                - type: object
+                  properties:
+                    preset:
+                      type: string
+                      const: team-default
+                    expectedRevision:
+                      type: integer
+                      minimum: 0
+                      maximum: 9007199254740991
+                  required:
+                    - preset
+                  additionalProperties: false
   /api/v1/access/authorizations/{grantId}:
     delete:
       summary: Revoke one isolated OAuth connection

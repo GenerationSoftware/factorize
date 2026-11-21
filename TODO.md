@@ -23,10 +23,12 @@ Verified with `vitest run test/vm-attachments.postgres.test.ts` (2 passed), `npm
 
 ## 2. Move Authorized Clients to Clients
 
-- [ ] Add **Clients** to the dashboard navigation and redirect the old Authorized Clients settings URL. Show one row per MCP connection and put the OAuth app name in its own column. Keep API tokens and registered sign-in app connections outside this list.
-- [ ] A connection detail shows its active and historical VM grants, including access state. Verify two connections with the same OAuth client ID keep separate VM histories and can be revoked independently.
-- [ ] **Edit permissions** offers the team default via a preset selector. Reuse the repository's team permission default where available and the existing consent and scope definitions. Applying the default cannot grant additional scopes without consent. Keep grants as-is until an edit. Where no applicable default exists, show its unavailable state and preserve the grant.
-- [ ] Verify that narrowing permissions takes effect for outstanding requests and any dependent VM access that requires removed permissions. Verify the existing per-connection and compatibility client-wide revoke operations still work.
+- [x] Add **Clients** to the dashboard navigation and redirect the old Authorized Clients settings URL. Show one row per MCP connection and put the OAuth app name in its own column. Keep API tokens and registered sign-in app connections outside this list.
+- [x] A connection detail shows its active and historical VM grants, including access state. Verify two connections with the same OAuth client ID keep separate VM histories and can be revoked independently.
+- [x] **Edit permissions** offers the team default via a preset selector. Reuse the repository's team permission default where available and the existing consent and scope definitions. Applying the default cannot grant additional scopes without consent. Keep grants as-is until an edit. Where no applicable default exists, show its unavailable state and preserve the grant.
+- [x] Verify that narrowing permissions takes effect for outstanding requests and any dependent VM access that requires removed permissions. Verify the existing per-connection and compatibility client-wide revoke operations still work.
+
+Verified with the PostgreSQL attachment and client tests (3 passed), `npm run build:app`, the focused Chromium client permissions test (1 passed), and `git diff --check`.
 
 ## 3. Register and manage apps
 

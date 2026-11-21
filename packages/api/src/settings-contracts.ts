@@ -11,7 +11,11 @@ export const clientPermissionsInput = z.object({
   integrationOverrides: z.record(z.uuid(), z.union([z.string(), z.literal(false)])).describe("Integration ID to approved epoch-bound scope, or false to block."),
   expectedRevision: z.number().int().nonnegative().optional(),
 }).strict();
-export const authorizedClient = z.object({ availableScopes: z.array(z.enum(AGENT_SCOPES)), integrationOverrides: clientPermissionsInput.shape.integrationOverrides, revision: z.number().int(), grantId: z.string(), clientId: z.string(), clientName: z.string(), scopes: z.array(z.string()), authorizationDate: timestamp, expiresAt: timestamp.nullable(), lastUsedAt: timestamp.nullable() });
+export const clientPermissionsUpdate = z.union([
+  clientPermissionsInput,
+  z.object({ preset: z.literal("team-default"), expectedRevision: z.number().int().nonnegative().optional() }).strict(),
+]);
+export const authorizedClient = z.object({ availableScopes: z.array(z.enum(AGENT_SCOPES)), integrationOverrides: clientPermissionsInput.shape.integrationOverrides, revision: z.number().int(), grantId: z.string(), clientId: z.string(), clientName: z.string(), appName: z.string().optional(), scopes: z.array(z.string()), authorizationDate: timestamp, expiresAt: timestamp.nullable(), lastUsedAt: timestamp.nullable() });
 export const accessToken = z.object({ id: z.string(), name: z.string(), scopes: z.array(z.enum(ACCESS_SCOPES)), created_at: timestamp, expires_at: timestamp, last_used_at: timestamp.nullable().optional(), revoked_at: timestamp.nullable().optional() });
 export const createdAccessToken = accessToken.extend({ token: z.string() });
 export const okResult = z.object({ ok: z.boolean() });
