@@ -18,8 +18,8 @@ async function loadAttachments(source?: Source) {
 }
 
 function AttachmentSource({ attachment }: { attachment: VmAttachment }) {
-  if (attachment.source === "run") return <Link className="underline" to="/runs/$runId/vms" params={{runId: attachment.sourceId}} search={{after: 0}}>Run {attachment.sourceId.slice(0, 8)}</Link>;
-  return <Link className="underline" to="/clients/$grantId" params={{grantId: attachment.sourceId}}>{attachment.sourceName ?? "MCP connection"}</Link>;
+  if (attachment.source === "run") return <Link className="underline" to="/runs/$runId/vms" params={{runId: attachment.sourceId}} search={{after: 0}}>{attachment.sourceName ?? `Run ${attachment.sourceId.slice(0, 8)}`}</Link>;
+  return <Link className="underline" to="/clients/$grantId" params={{grantId: attachment.sourceId}}>{attachment.sourceName ?? `MCP connection ${attachment.sourceId.slice(0, 8)}`}</Link>;
 }
 
 export function VmAttachments({ source }: { source?: Source }) {

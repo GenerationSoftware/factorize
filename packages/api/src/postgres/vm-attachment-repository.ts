@@ -5,6 +5,7 @@ import type { Database } from "./database";
 type AttachmentStatus = "active" | "expired" | "revoked" | "inactive" | "pending";
 type RunBinding = {
   sourceId: string;
+  sourceName: string | null;
   vmId: string;
   provider: "exe.dev" | "fly.io";
   expiresAt: Date;
@@ -41,7 +42,7 @@ export class VmAttachmentRepository {
 
   async runs(runId?: string) {
     const { rows } = await this.db.pool.query<RunBinding>(`
-      SELECT b.run_id AS "sourceId", b.vm_id AS "vmId", b.provider, b.expires_at AS "expiresAt",
+      SELECT b.run_id AS "sourceId", NULLIF(r.run_name, '') AS "sourceName", b.vm_id AS "vmId", b.provider, b.expires_at AS "expiresAt",
         b.revoked_at AS "revokedAt",
         coalesce(t.state IN ('starting','running','blocked') AND r.state IN ('starting','running','blocked')
           AND EXISTS (SELECT 1 FROM app.run_authorizations a
@@ -61,7 +62,7 @@ export class VmAttachmentRepository {
       id: `${row.sourceId}:${row.provider}`,
       source: "run" as const,
       sourceId: row.sourceId,
-      sourceName: null,
+      sourceName: row.sourceName,
       vmId: row.vmId,
       app: null,
       provider: row.provider,

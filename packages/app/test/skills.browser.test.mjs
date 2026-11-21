@@ -162,7 +162,7 @@ test("skill pages share navigation, scope runs and redirect legacy trigger links
  await page.goto(origin+"/skills");
  const teamNav=page.getByRole("navigation",{name:"Dashboard navigation",exact:true});
  await teamNav.getByRole("link",{name:"Skills",exact:true}).waitFor();
- assert.deepEqual(await teamNav.getByRole("link").allTextContents(),["Skills","Runs","Integrations","Settings"]);
+ assert.deepEqual(await teamNav.getByRole("link").allTextContents(),["Skills","Runs","VMs","Clients","Apps","Integrations","Settings"]);
  await page.getByRole("table",{name:"Skills",exact:true}).getByRole("button",{name:`Run ${skill.key}`,exact:true}).waitFor();
  await page.getByRole("link",{name:skill.key,exact:true}).click();
  const nav=page.getByRole("navigation",{name:"Skill navigation",exact:true});

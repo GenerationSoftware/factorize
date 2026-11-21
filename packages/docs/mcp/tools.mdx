@@ -37,7 +37,7 @@ The inventory below lists the scope required by each tool. Scopes are explicit. 
 | `save_skill_trigger` | skills:write, triggers:write | `skillId` and `trigger` containing events, enabled and optional expectedUpdatedAt. |
 | `start_run` | runs:start | Optional literal `prompt` and one optional `skill` (at least one effective input), `inputs`, `requiresVm`, `executionConfigId`, `modelAccountId`, `name` and `idempotencyKey`. Optional `vmPreset`, `permissionPreset` and `modelPreset` select preset slugs. Script-based run creation is retired. Returns `runId`, the browser `url`, `outcomeUri`, and `duplicate`. |
 | `invoke_trigger` | runs:invoke | Required string `triggerId`; optional `name`, `prompt`, `data`, `idempotencyKey` |
-| `rename_mcp_client` | Authenticated OAuth connection | `{ "name": "Release assistant" }`. Sets this connection’s display name in Settings → Authorized clients. Names are trimmed and accept 1–120 characters. |
+| `rename_mcp_client` | Authenticated OAuth connection | `{ "name": "Release assistant" }`. Sets this connection’s display name in Clients. Names are trimmed and accept 1–120 characters. |
 | `get_api_reflection` | Authenticated OAuth/run identity | `{}`. Discover the authorization identity, effective scopes, and granted/requestable integration APIs, including instructions, required OAuth scope, and connection availability. |
 | `fetch_media` | Selected integration and active run, or runs:start plus proxy access | Capture unchanged image bytes from an integration-relative GET path; returns an artifactId for read_media. |
 | `read_media` | Own active run input/scratch, or own upload with runs:read | Read original image content from an artifactId using standard MCP image blocks. |
@@ -56,6 +56,10 @@ The inventory below lists the scope required by each tool. Scopes are explicit. 
 | `grant_vm` | vm:grant and proxy:use | Delegate explicit integration IDs for one hour to an exe.dev VM or Fly.io Machine. Requires providerIntegrationId, vm, integrationIds and idempotencyKey; Fly.io also requires app. |
 | `renew_vm_grant` | vm:grant and proxy:use | Required grantId; same parent OAuth authorization renews a live grant for one hour after rechecking provider and selected integration access. |
 | `revoke_vm_grant` | vm:grant | Requires grantId. Invalidates guest access and schedules provider-specific cleanup; leaves the VM running. |
+| `list_apps` | apps:manage | `{}`. Lists the team's app registrations. |
+| `get_app` | apps:manage | Required `appId`; returns non-secret registration metadata. |
+| `create_app` | apps:manage | Required `name` and `redirectUris`; optional `public`, which defaults to false. |
+| `update_app` | apps:manage | Required `appId`, `name`, `redirectUris`, and `enabled`; set `public` to control visibility. |
 | `get_runtime_context` | Authenticated identity | `{}`; verified authentication kind, effective scopes, and source run/trigger IDs, without credentials |
 | `get_trigger_invocation_permissions` | triggers:read | Required string `triggerId` |
 | `set_trigger_invocation_permissions` | triggers:write | Required `triggerId` and `destinationTriggerIds` UUID array; owner session, scoped API key, or authorized OAuth client |

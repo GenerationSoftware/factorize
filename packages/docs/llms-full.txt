@@ -532,6 +532,45 @@ with fresh vendor signatures bound to that exact VM/run. Selected upstream
 credentials stay in the backend. Canceling or terminating a run removes its API
 and outbound access, independently of external VM deletion retries.
 
+## Sign in with Factorize
+
+Register confidential server-side applications from **Apps → Registered apps**.
+Add exact callback URLs and create a client secret in the browser. Copy the
+secret when prompted and store it in the app's server environment. HTTPS
+callbacks are required for deployed apps. Loopback HTTP callbacks are supported
+for local development. The registration starts as **Team only**. Enable
+**Available to everyone** to accept Factorize users from other teams.
+
+Configure an OpenID Connect client with the following values:
+
+| Setting | Value |
+| --- | --- |
+| Hosted issuer | `https://app.factorize.sh/oauth/apps` |
+| Discovery document | `https://app.factorize.sh/oauth/apps/.well-known/openid-configuration` |
+| Flow | Authorization code with PKCE S256 |
+| Client authentication | Client secret using HTTP Basic or form credentials |
+| Sign-in scope | `openid` |
+
+OIDC discovery supplies the authorization, token, UserInfo, and JWKS URLs.
+Validate the signed ID token with the issuer, app client ID as audience,
+expiration, and the nonce used in the authorization request. Use the token's
+`sub` claim as the Factorize user identifier. Request `email` to receive a
+verified email. To call the Factorize API, request the specific application
+scopes the app needs, such as `runs:read`, and send the resulting access token
+to the corresponding `/api/v1` endpoint. Factorize asks the user to approve the
+requested access. It applies to the team the user signed in with. Request
+`offline_access` when the server needs a refresh token.
+
+Users can revoke a sign-in authorization from **Apps → Connected apps**.
+Disabling an app blocks its connections. Rotating its secret invalidates old
+credentials. Update the server with the new secret and ask users to authorize
+again. Existing sessions managed by the external app follow its own session
+policy.
+
+An MCP connection with `apps:manage` can use `list_apps`, `get_app`,
+`create_app`, and `update_app` for app registrations. Use the browser to issue
+or rotate client secrets.
+
 ## MCP API proxy access
 
 External MCP clients continue to authenticate with OAuth; execution VMs continue
@@ -586,7 +625,7 @@ every read. Revocation blocks subsequent calls and reads but cannot undo an
 upstream action already accepted. Existing VM proxy URLs retain true streaming.
 
 The same operations are documented under `/api/v1/agent/reflection`,
-`/api/v1/agent/requests`, and `/api/v1/agent/responses/read`. Authorize `proxy:use` to use the HTTP proxy with the agent credential. Existing MCP authorizations without this scope require renewed consent. Other REST operations retain their own authentication requirements. MCP clients use `request_api` and `read_api_response` with the same validated arguments and authorization as these HTTP endpoints. Owner policy endpoints require an interactive browser session. In **Settings → Authorized clients**, choose **Edit permissions** to disable or restore originally authorized Factorize scopes. For each integration, choose **Default** to follow workspace policy and OAuth consent, **Allow** to approve the current integration, or **Block** to deny this connection access. Disabling or disconnecting a workspace integration invalidates per-connection approvals. Edits apply to subsequent requests from this connection and its delegated VMs. Owners can also revoke a connection. MCP clients can set their own connection label with `rename_mcp_client`.
+`/api/v1/agent/requests`, and `/api/v1/agent/responses/read`. Authorize `proxy:use` to use the HTTP proxy with the agent credential. Existing MCP authorizations without this scope require renewed consent. Other REST operations retain their own authentication requirements. MCP clients use `request_api` and `read_api_response` with the same validated arguments and authorization as these HTTP endpoints. Owner policy endpoints require an interactive browser session. In **Clients**, find each MCP authorization and its VM access history. Choose **Edit permissions** to apply the team's default permission preset within the scopes already approved for the connection. Changes apply to later requests from the connection and its delegated VMs. Integration approvals continue to follow their existing consent and policy. Owners can revoke individual connections. MCP clients can set their connection label with `rename_mcp_client`.
 
 The scheduler maintenance heartbeat removes expired response objects and their
 PostgreSQL receipts. A receipt exists before any R2 block is written, including
@@ -763,7 +802,7 @@ The inventory below lists the scope required by each tool. Scopes are explicit. 
 | `save_skill_trigger` | skills:write, triggers:write | `skillId` and `trigger` containing events, enabled and optional expectedUpdatedAt. |
 | `start_run` | runs:start | Optional literal `prompt` and one optional `skill` (at least one effective input), `inputs`, `requiresVm`, `executionConfigId`, `modelAccountId`, `name` and `idempotencyKey`. Optional `vmPreset`, `permissionPreset` and `modelPreset` select preset slugs. Script-based run creation is retired. Returns `runId`, the browser `url`, `outcomeUri`, and `duplicate`. |
 | `invoke_trigger` | runs:invoke | Required string `triggerId`; optional `name`, `prompt`, `data`, `idempotencyKey` |
-| `rename_mcp_client` | Authenticated OAuth connection | `{ "name": "Release assistant" }`. Sets this connection’s display name in Settings → Authorized clients. Names are trimmed and accept 1–120 characters. |
+| `rename_mcp_client` | Authenticated OAuth connection | `{ "name": "Release assistant" }`. Sets this connection’s display name in Clients. Names are trimmed and accept 1–120 characters. |
 | `get_api_reflection` | Authenticated OAuth/run identity | `{}`. Discover the authorization identity, effective scopes, and granted/requestable integration APIs, including instructions, required OAuth scope, and connection availability. |
 | `fetch_media` | Selected integration and active run, or runs:start plus proxy access | Capture unchanged image bytes from an integration-relative GET path; returns an artifactId for read_media. |
 | `read_media` | Own active run input/scratch, or own upload with runs:read | Read original image content from an artifactId using standard MCP image blocks. |
@@ -782,6 +821,10 @@ The inventory below lists the scope required by each tool. Scopes are explicit. 
 | `grant_vm` | vm:grant and proxy:use | Delegate explicit integration IDs for one hour to an exe.dev VM or Fly.io Machine. Requires providerIntegrationId, vm, integrationIds and idempotencyKey; Fly.io also requires app. |
 | `renew_vm_grant` | vm:grant and proxy:use | Required grantId; same parent OAuth authorization renews a live grant for one hour after rechecking provider and selected integration access. |
 | `revoke_vm_grant` | vm:grant | Requires grantId. Invalidates guest access and schedules provider-specific cleanup; leaves the VM running. |
+| `list_apps` | apps:manage | `{}`. Lists the team's app registrations. |
+| `get_app` | apps:manage | Required `appId`; returns non-secret registration metadata. |
+| `create_app` | apps:manage | Required `name` and `redirectUris`; optional `public`, which defaults to false. |
+| `update_app` | apps:manage | Required `appId`, `name`, `redirectUris`, and `enabled`; set `public` to control visibility. |
 | `get_runtime_context` | Authenticated identity | `{}`; verified authentication kind, effective scopes, and source run/trigger IDs, without credentials |
 | `get_trigger_invocation_permissions` | triggers:read | Required string `triggerId` |
 | `set_trigger_invocation_permissions` | triggers:write | Required `triggerId` and `destinationTriggerIds` UUID array; owner session, scoped API key, or authorized OAuth client |
