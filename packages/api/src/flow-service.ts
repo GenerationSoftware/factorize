@@ -1,3 +1,4 @@
+import { skillCloneInfo, issueGitCredential } from "./git-https";
 import {builtinSkillDocuments,builtinSkillEntry,builtinSkill,builtinSkillResource} from "./builtin-skills";
 import { migratePresetSkills } from "./preset-migration";
 import { resolveSkillPresets, assertPresetSnapshot } from "./preset-resolution";
@@ -349,6 +350,8 @@ export class ApiService {
       lastRunState: stats?.last_run_state ?? null,
     });
   }
+  async skillCloneInfo() { await this.authorize("skills:read"); return skillCloneInfo(this.env,this.auth.tenantId); }
+  async issueGitCredential() { await this.authorizeOwnerSession("skills:write"); return issueGitCredential(this.env,this.auth); }
   private library() { return new SkillLibrary(this.env,this.auth.tenantId); }
   async skillLibraryStatus() { await this.authorize("skills:read"); return this.library().status(); }
   async configureSkillLibrary(input: unknown) {

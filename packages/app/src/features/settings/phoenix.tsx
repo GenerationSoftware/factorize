@@ -1,12 +1,44 @@
-import {useEffect,useState} from "react";
-import {useQuery} from "@tanstack/react-query";
-import {api} from "factorize-api-client";
-import {Button,Input,Label} from "../../shared/ui";
-import {messageOf} from "../auth/session";
-export function PhoenixIntegration(){
- const [endpoint,setEndpoint]=useState(""),[project,setProject]=useState("factorize"),[key,setKey]=useState(""),[enabled,setEnabled]=useState(true),[busy,setBusy]=useState(false),[message,setMessage]=useState(""),[error,setError]=useState("");
- const query=useQuery({queryKey:["settings","phoenix"],queryFn:async()=>{const {data,error}=await api.GET("/api/v1/integrations/phoenix");if(error||!data)throw new Error(messageOf(error));return data;}});
- useEffect(()=>{if(query.data){setEndpoint(query.data.endpoint);setProject(query.data.projectName);setEnabled(query.data.configured?query.data.enabled:true);}},[query.data]);
- const action=async(kind:"save"|"test"|"disconnect")=>{setBusy(true);setError("");setMessage("");try{const response=kind==="save"?await api.PUT("/api/v1/integrations/phoenix",{body:{endpoint,projectName:project,enabled,expectedRevision:query.data?.revision??0,...(key?{apiKey:key}:{})}}):kind==="test"?await api.POST("/api/v1/integrations/phoenix/test"):await api.DELETE("/api/v1/integrations/phoenix",{body:{expectedRevision:query.data!.revision}});if(response.error)throw new Error(messageOf(response.error));if(kind==="test"){const result=response.data as {connected:boolean;projectFound:boolean;error:string|null};if(!result.connected)throw new Error(result.error??"Connection failed.");setMessage(result.projectFound?"Phoenix connection verified.":"Phoenix connected. The destination project will be created when telemetry arrives.");}else{setKey("");setMessage(kind==="disconnect"?"Phoenix disconnected.":"Phoenix settings saved.");}await query.refetch();}catch(reason){setError(reason instanceof Error?reason.message:"Phoenix request failed.");}finally{setBusy(false);}};
- return <section aria-label="Phoenix Cloud telemetry" className="mt-8 rounded-xl border border-stone-200 p-4 dark:border-slate-700"><h2 className="text-xl font-semibold">Phoenix Cloud telemetry</h2><p className="my-2 text-sm">Automatically export new runs, including captured conversation and tool content. Local telemetry stays available when export is disabled or Phoenix is unavailable.</p>{query.isPending?<p role="status">Loading Phoenix settings…</p>:query.error?<p role="alert">{query.error.message}</p>:<><form className="grid gap-3" onSubmit={event=>{event.preventDefault();void action("save");}}><Label>Phoenix base URL<Input type="url" required maxLength={2048} placeholder="https://app.phoenix.arize.com/s/your-space" value={endpoint} onChange={e=>setEndpoint(e.target.value)}/></Label><Label>Phoenix project<Input required maxLength={128} value={project} onChange={e=>setProject(e.target.value)}/></Label><Label>Phoenix API key<Input type="password" autoComplete="off" required={!query.data?.credentialConfigured} value={key} maxLength={8192} onChange={e=>setKey(e.target.value)}/>{query.data?.credentialConfigured&&<span className="text-xs">Key configured. Leave blank to keep it.</span>}</Label><label><input type="checkbox" checked={enabled} onChange={e=>setEnabled(e.target.checked)}/> Export telemetry for new runs</label><div className="flex flex-wrap gap-3"><Button disabled={busy}>Save Phoenix settings</Button><Button type="button" disabled={busy||!query.data?.configured} onClick={()=>void action("test")}>Test Phoenix connection</Button><Button type="button" disabled={busy||!query.data?.configured} onClick={()=>void action("disconnect")}>Disconnect Phoenix</Button></div></form>{query.data?.lastError&&<p className="mt-2 text-sm">Last export/connection error: {query.data.lastError}</p>}</>}{message&&<p role="status">{message}</p>}{error&&<p role="alert">{error}</p>}</section>;
+import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { api } from "factorize-api-client";
+import { Button, Input, Label } from "../../shared/ui";
+import { Dialog } from "../../shared/dialog";
+import { messageOf } from "../auth/session";
+import { IntegrationRow, ProviderTile } from "./integration-ui";
+
+export const phoenixQuery = { queryKey: ["settings", "phoenix"], queryFn: async () => {
+  const { data, error } = await api.GET("/api/v1/integrations/phoenix");
+  if (error || !data) throw new Error(messageOf(error)); return data;
+} };
+export function usePhoenixIntegration() {
+  const query = useQuery(phoenixQuery), cache = useQueryClient();
+  const [open, setOpen] = useState(false), [endpoint, setEndpoint] = useState(""), [project, setProject] = useState("factorize"), [key, setKey] = useState(""), [enabled, setEnabled] = useState(true);
+  const action = useMutation({ retry: false, mutationFn: async (kind: "save" | "test" | "disconnect") => {
+    const response = kind === "save" ? await api.PUT("/api/v1/integrations/phoenix", { body: { endpoint, projectName: project, enabled, expectedRevision: query.data?.revision ?? 0, ...(key ? { apiKey: key } : {}) } }) : kind === "test" ? await api.POST("/api/v1/integrations/phoenix/test") : await api.DELETE("/api/v1/integrations/phoenix", { body: { expectedRevision: query.data!.revision } });
+    if (response.error) throw new Error(messageOf(response.error));
+    if (kind === "test") { const result = response.data as { connected: boolean; error: string | null }; if (!result.connected) throw new Error(result.error ?? "Connection failed."); }
+    return kind;
+  }, onSuccess: async kind => { if (kind !== "test") { setKey(""); setOpen(false); } await cache.invalidateQueries({ queryKey: phoenixQuery.queryKey }); } });
+  const edit = () => { action.reset(); setEndpoint(query.data?.endpoint ?? ""); setProject(query.data?.projectName ?? "factorize"); setEnabled(query.data?.configured ? query.data.enabled : true); setKey(""); setOpen(true); };
+  const close = () => { setKey(""); setOpen(false); action.reset(); };
+  return {
+    count: query.data?.configured ? 1 : 0, pending: query.isPending,
+    rows: query.data?.configured ? <IntegrationRow kind="phoenix" credentialId="phoenix" name="Phoenix Cloud telemetry" detail={query.data.projectName} connected={!query.data.lastError} status={query.data.lastError ? "Needs attention" : query.data.enabled ? "Connected" : "Export paused"} actions={[
+      { label: "Edit integration", onClick: edit },
+      { label: "Test connection", disabled: action.isPending, onClick: () => action.mutate("test") },
+      { label: "Disconnect", destructive: true, disabled: action.isPending, onClick: () => { if (window.confirm("Disconnect Phoenix? Pending exports will be canceled. Local telemetry will remain available.")) action.mutate("disconnect"); } },
+    ]}>{query.data.lastError && <p className="mt-2 text-sm">{query.data.lastError}</p>}</IntegrationRow> : null,
+    tile: <ProviderTile kind="phoenix" name="Phoenix Cloud telemetry" description="Export run traces to Phoenix Cloud." count={query.data?.configured ? 1 : 0} onAdd={edit} />,
+    feedback: <>{query.error && <p role="alert">{query.error.message}</p>}{!open && action.error && <p role="alert">{action.error.message}</p>}{!open && action.isSuccess && <p role="status">{action.data === "test" ? "Phoenix connection verified." : action.data === "save" ? "Phoenix settings saved." : "Phoenix disconnected."}</p>}</>,
+    dialog: open && <Dialog title={query.data?.configured ? "Edit Phoenix integration" : "Add Phoenix integration"} close={close}>
+      <p className="mb-4 text-sm">Export new runs, including captured conversation and tool content. Local telemetry stays available when export is disabled or Phoenix is unavailable.</p>
+      <form className="grid gap-3" onSubmit={event => { event.preventDefault(); action.mutate("save"); }}>
+        <Label>Phoenix base URL<Input type="url" required maxLength={2048} placeholder="https://app.phoenix.arize.com/s/your-space" value={endpoint} onChange={e => setEndpoint(e.target.value)} /></Label>
+        <Label>Phoenix project<Input required maxLength={128} value={project} onChange={e => setProject(e.target.value)} /></Label>
+        <Label>Phoenix API key<Input type="password" autoComplete="new-password" required={!query.data?.credentialConfigured} value={key} maxLength={8192} onChange={e => setKey(e.target.value)} />{query.data?.credentialConfigured && <span className="text-xs">Leave blank to keep the configured key.</span>}</Label>
+        <Label><Input type="checkbox" checked={enabled} onChange={e => setEnabled(e.target.checked)} />Export telemetry for new runs</Label>
+        <div className="flex flex-wrap gap-2"><Button variant="primary" disabled={action.isPending || query.isPending || !!query.error}>Save Phoenix settings</Button><Button type="button" onClick={close}>Cancel</Button></div>
+      </form>{action.error && <p role="alert">{action.error.message}</p>}
+    </Dialog>,
+  };
 }

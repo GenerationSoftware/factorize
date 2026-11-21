@@ -1,8 +1,10 @@
-import { useRef, useState } from "react";
+import { PresetSelect as Select } from "../../shared/preset-select";
+import { ActionMenu } from "../../shared/action-menu";
+import { useState } from "react";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "factorize-api-client";
-import { Button, Card, Input, Label, Select } from "../../shared/ui";
+import { Button, Card, Input, Label } from "../../shared/ui";
 import { Dialog } from "../../shared/dialog";
 import { TeamSettingsLayout } from "./team";
 import { presetsQuery, presetSection, presetType, type Preset, type PresetInput, type PresetKind } from "./preset-queries";
@@ -29,15 +31,19 @@ export function PresetList({kind}:{kind:PresetKind}){
  },onSuccess:async()=>{setDeleting(undefined);await Promise.all([cache.invalidateQueries({queryKey:presetsQuery.queryKey}),cache.invalidateQueries({queryKey:["skills"]})]);}});
  return <TeamSettingsLayout title={`${title(kind)} presets`}><div className="mb-5 flex items-center justify-between gap-4"><p className="text-sm">Skills inherit the team default unless they select a preset.</p><Link to="/settings/$presetKind/new" params={{presetKind:presetSection(kind)}} className="inline-flex min-h-10 shrink-0 items-center justify-center rounded-lg border border-factorize-500 bg-factorize-500 px-3 py-2 text-sm font-semibold text-slate-950 hover:bg-factorize-100">Add preset</Link></div>
   {query.isPending&&<p role="status">Loading presets…</p>}{query.error&&<p role="alert">{query.error.message}</p>}
-  {query.data&&<ul aria-label={`${title(kind)} presets`} className="divide-y rounded-xl border border-stone-200 dark:border-slate-700">{query.data.filter(p=>p.kind===kind).map(preset=><li key={preset.id} className="flex items-center justify-between gap-4 p-4"><div className="min-w-0 break-words"><strong>{preset.name}</strong>{preset.isDefault&&<span className="ml-2 rounded bg-factorize-50 px-2 py-1 text-xs text-factorize-700 dark:bg-factorize-500/10 dark:text-factorize-500">Default</span>}<p className="text-xs text-slate-500">{preset.slug} · revision {preset.revision}</p><p className="text-sm">{summary(preset)}</p></div><PresetMenu preset={preset} pending={action.isPending} makeDefault={()=>action.mutate({preset,remove:false})} remove={()=>{action.reset();setDeleting(preset);}}/></li>)}</ul>}
+  {query.data&&<ul aria-label={`${title(kind)} presets`} className="overflow-hidden rounded-xl border border-stone-200 bg-white dark:border-slate-800 dark:bg-slate-900">{query.data.filter(p=>p.kind===kind).map(preset=><li key={preset.id} className="flex items-start justify-between gap-3 border-t border-stone-200 p-4 first:border-t-0 dark:border-slate-800"><div className="min-w-0 break-words"><strong>{preset.name}</strong>{preset.isDefault&&<span className="ml-2 rounded bg-factorize-50 px-2 py-1 text-xs text-factorize-700 dark:bg-factorize-500/10 dark:text-factorize-500">Default</span>}<p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{preset.slug} · revision {preset.revision}</p><p className="mt-1 text-sm text-slate-600 dark:text-slate-400">{summary(preset)}</p></div><PresetMenu preset={preset} pending={action.isPending} makeDefault={()=>action.mutate({preset,remove:false})} remove={()=>{action.reset();setDeleting(preset);}}/></li>)}</ul>}
   {query.data&&!query.data.some(p=>p.kind===kind)&&<p>No presets yet.</p>}{action.error&&!deleting&&<p role="alert">{action.error.message}</p>}
   {deleting&&<Dialog title={`Delete ${deleting.name}?`} close={()=>setDeleting(undefined)}><p>Delete this preset? Its historical revisions remain available for existing runs.</p>{action.error&&<p className="mt-3" role="alert">{action.error.message}</p>}<div className="mt-5 flex gap-2"><Button onClick={()=>setDeleting(undefined)}>Cancel</Button><Button variant="destructive" disabled={action.isPending} onClick={()=>action.mutate({preset:deleting,remove:true})}>Delete preset</Button></div></Dialog>}
   {kind==="vm"&&<TeamCapacity/>}
  </TeamSettingsLayout>;
 }
 function PresetMenu({preset,pending,makeDefault,remove}:{preset:Preset;pending:boolean;makeDefault:()=>void;remove:()=>void}){
- const ref=useRef<HTMLDetailsElement>(null);
- return <details ref={ref} className="relative shrink-0" onKeyDown={e=>{if(e.key==="Escape"){ref.current!.open=false;ref.current?.querySelector("summary")?.focus();}if(e.key==="ArrowDown"||e.key==="ArrowUp"){e.preventDefault();const items=Array.from(ref.current!.querySelectorAll<HTMLElement>('[role="menuitem"]:not(:disabled)'));const i=items.indexOf(document.activeElement as HTMLElement);items[(i+(e.key==="ArrowDown"?1:items.length-1))%items.length]?.focus();}}}><summary aria-label={`Actions for ${preset.name}`} className="cursor-pointer list-none rounded-lg border px-3 py-2">…</summary><div role="menu" aria-label={`${preset.name} actions`} className="absolute right-0 z-10 grid w-48 gap-1 rounded-lg border bg-white p-2 shadow-lg dark:bg-slate-900"><Link role="menuitem" className="rounded px-3 py-2 hover:bg-stone-100 dark:hover:bg-slate-800" to="/settings/$presetKind/$presetId/edit" params={{presetKind:presetSection(preset.kind),presetId:preset.id}}>Edit</Link><Button role="menuitem" disabled={pending||preset.isDefault} onClick={()=>{ref.current!.open=false;makeDefault();}}>Make team default</Button><Button role="menuitem" disabled={pending||preset.isDefault} title={preset.isDefault?"The team default cannot be deleted":undefined} onClick={()=>{ref.current!.open=false;remove();}}>Delete</Button></div></details>;
+ const navigate=useNavigate();
+ return <ActionMenu name={preset.name} actions={[
+  {label:"Edit",onClick:()=>void navigate({to:"/settings/$presetKind/$presetId/edit",params:{presetKind:presetSection(preset.kind),presetId:preset.id}})},
+  {label:"Make team default",disabled:pending||preset.isDefault,onClick:makeDefault},
+  {label:"Delete",destructive:true,disabled:pending||preset.isDefault,onClick:remove},
+ ]}/>;
 }
 function TeamCapacity(){
  const query=useQuery(teamQuery),[value,setValue]=useState<number>(),cache=useQueryClient();

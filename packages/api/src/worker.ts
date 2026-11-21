@@ -1,3 +1,4 @@
+import { gitHttpsFetch } from "./git-https";
 import {authenticateHostedRunRequest} from "./hosted-run-auth";
 import { SkillLibrary } from "./skill-library";
 import { authenticateVmGrant, VM_GRANT_HEADER } from "./vm-grants";
@@ -90,6 +91,7 @@ function provider(env: Env) { return new OAuthProvider<Env>(providerOptions(env)
 
 export { AlarmCoordinator } from "./alarm-coordinator";
 const backend = { async fetch(request: Request, env: Env, ctx: ExecutionContext) {
+  if (new URL(request.url).hostname === "git.factorize.sh") return gitHttpsFetch(request, env, ctx);
   if (new URL(request.url).pathname.startsWith("/internal/run-proxy/")) return runOutboundProxyFetch(request, env);
   if (new URL(request.url).pathname === "/oauth/x/callback") return request.method === "GET" ? xOAuthCallback(request, env) : new Response("Method not allowed", { status: 405, headers: { Allow: "GET" } });
   const staticResponse = !["/authorize", "/device"].includes(new URL(request.url).pathname) ? await staticApp(request, env) : null;

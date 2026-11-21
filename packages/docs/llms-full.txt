@@ -235,6 +235,25 @@ Each skill has **Overview**, **Runs**, and **Triggers** tabs. Triggers configure
 
 The directory browser displays nested text files and identifies binary files. Supporting files remain intact when instructions are edited. Published content is cached by tenant, repository and immutable commit. Manage repository selection and sync under **Team Settings → Skills**.
 
+## Clone and edit with Git
+
+Open **Skills → Code → HTTPS** to copy the authoritative repository URL. The **Skill settings** link opens repository selection and sync settings.
+
+For Factorize-managed skills, the URL is `https://git.factorize.sh/<team-name>/skills.git`. Repository names stay stable when a team is renamed; teams with the same name receive a numeric suffix. Select **Get Git token**, then use username `git` and the token as your Git password. Tokens last one hour and are limited to that repository and your current team membership. Password changes or membership revocation invalidate existing tokens. Keep tokens in your Git credential manager, outside the clone URL.
+
+```bash
+git clone https://git.factorize.sh/my-team/skills.git
+cd skills
+# Edit skills/<skill-name>/SKILL.md and supporting files.
+git add .
+git commit -m "Update skill instructions"
+git push origin main
+```
+
+Pushes to `main` publish through the same validation and synchronization used by Factorize's Git push workflow. Skill files and preset references must be valid before they appear in the library. A rejected synchronization retains the previously published library and reports the repository error in Skill settings.
+
+For GitHub-sourced skills, the menu shows `https://github.com/<owner>/<repository>.git` and the tracked branch and folder. Authenticate directly to GitHub using your own GitHub CLI, credential manager, or personal access token. Factorize never exposes its GitHub App token. Push changes to GitHub; Factorize's internal mirror is read-only and syncs from the configured GitHub source.
+
 ## Migration and API clients
 
 Existing distinct configurations become presets, with equivalent configurations reused. Existing extra saved prompts are preserved in the Markdown body. Legacy script automation is disabled; historical runs remain readable. Migration can resume after a failed file publication without duplicating presets or instructions.

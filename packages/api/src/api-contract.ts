@@ -1,3 +1,4 @@
+import { cloneInfo, gitCredential } from "./git-https-contracts";
 import { presetInput, presetResponse, presetList } from "./presets";
 import { skillTriggerInput, skillTriggerResponse } from "./skill-trigger";
 import { skillSettings, skillSettingsInput } from "./skill-settings";
@@ -822,6 +823,8 @@ export const API_ROUTES: RouteContract[] = [
     summary: "Replace the current team's run defaults",
     responses: { "200": { description: "Team run defaults", content: { "application/json": { schema: jsonSchema(teamRunDefaults, "output") } } } },
   }, (service, { body }) => service.setTeamRunDefaults(body), { body: teamRunDefaults, ownerSession: true }),
+  route("GET", "/api/v1/skill-library/clone", "skills:read", { summary: "Read the readable HTTPS clone URL for the authoritative skills repository", responses: { "200": { description: "Clone URL and tracked folder; never credentials", content: { "application/json": { schema: jsonSchema(cloneInfo, "output") } } } } }, service => service.skillCloneInfo()),
+  route("POST", "/api/v1/skill-library/git-token", "skills:write", { summary: "Issue a one-hour personal Git HTTPS password for the managed skills repository", description: "Interactive owner session required. The token is bound to this user, membership session version and repository. It cannot access GitHub mirrors or another team. Only its digest is stored. Use username git and the token as the password; never include it in the remote URL.", responses: { "200": { description: "One-hour Git credential", content: { "application/json": { schema: jsonSchema(gitCredential, "output") } } } } }, service => service.issueGitCredential(), { ownerSession: true }),
   route("GET", "/api/v1/skill-library", "skills:read", { summary: "Read skill repository settings", responses: { "200": { description: "Read skill repository settings", content: { "application/json": { schema: jsonSchema(libraryStatus, "output") } } } } }, (service) => service.skillLibraryStatus()),
   route("PUT", "/api/v1/skill-library", "skills:write", { summary: "Select the authoritative skills repository", responses: { "200": { description: "Select the authoritative skills repository", content: { "application/json": { schema: jsonSchema(libraryStatus, "output") } } } } }, (service,{body}) => service.configureSkillLibrary(body), {body:configureLibrary}),
   route("POST", "/api/v1/skill-library/token", "skills:write", { summary: "Issue a one-hour repository credential (read-only for GitHub mirrors)", responses: { "200": { description: "Issue a one-hour repository credential (read-only for GitHub mirrors)", content: { "application/json": { schema: jsonSchema(libraryToken, "output") } } } } }, (service) => service.skillLibraryToken()),

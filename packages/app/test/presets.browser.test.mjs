@@ -36,7 +36,7 @@ for(const width of [390,1280])for(const [kind,section] of [["vm","vm"],["permiss
   await page.getByRole("link",{name:"Add preset",exact:true}).click();
   assert.equal(new URL(page.url()).pathname,`/settings/${section}/new`);
   await page.reload();await page.getByLabel("Preset name",{exact:true}).fill("New preset");
-  if(kind==="model"){await page.getByLabel("Model account",{exact:true}).selectOption("account");await page.getByLabel("Model",{exact:true}).fill("new-model");}
+  if(kind==="model"){await page.getByRole("combobox",{name:"Model account",exact:true}).click();await page.getByRole("option",{name:"Fixture account",exact:true}).click();await page.getByLabel("Model",{exact:true}).fill("new-model");}
   await page.getByRole("button",{name:"Save preset",exact:true}).click();
   await page.getByText("New preset",{exact:true}).waitFor();
   await page.getByLabel("Actions for New preset").click();await page.getByRole("menuitem",{name:"Edit",exact:true}).click();

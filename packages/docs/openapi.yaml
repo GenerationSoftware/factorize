@@ -10649,6 +10649,125 @@ paths:
                     format: uuid
                     pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
               additionalProperties: false
+  /api/v1/skill-library/clone:
+    get:
+      summary: Read the readable HTTPS clone URL for the authoritative skills repository
+      responses:
+        "200":
+          description: Clone URL and tracked folder; never credentials
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  source:
+                    anyOf:
+                      - type: string
+                        enum:
+                          - managed
+                          - github
+                      - type: "null"
+                  url:
+                    type:
+                      - string
+                      - "null"
+                  writable:
+                    type: boolean
+                  branch:
+                    type: string
+                  folder:
+                    type: string
+                required:
+                  - source
+                  - url
+                  - writable
+                  - branch
+                  - folder
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the skills:read scope.
+
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+      operationId: get_api_v1_skill_library_clone
+      tags:
+        - skill-library
+      security:
+        - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
+        - cookieAuth: []
+      x-required-scope: skills:read
+      x-owner-session-required: false
+  /api/v1/skill-library/git-token:
+    post:
+      summary: Issue a one-hour personal Git HTTPS password for the managed skills repository
+      description: |-
+        Interactive owner session required. The token is bound to this user, membership session version and repository. It cannot access GitHub mirrors or another team. Only its digest is stored. Use username git and the token as the password; never include it in the remote URL.
+
+        Requires the skills:write scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      responses:
+        "200":
+          description: One-hour Git credential
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  username:
+                    type: string
+                    const: git
+                  token:
+                    type: string
+                  expiresAt:
+                    type: string
+                    format: date-time
+                    pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z))$
+                required:
+                  - username
+                  - token
+                  - expiresAt
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: post_api_v1_skill_library_git_token
+      tags:
+        - skill-library
+      security:
+        - cookieAuth: []
+      x-required-scope: skills:write
+      x-owner-session-required: true
   /api/v1/skill-library:
     get:
       summary: Read skill repository settings

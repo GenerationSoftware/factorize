@@ -240,3 +240,13 @@ export const databaseSchema = {
   runTraceProjections, traceReplayLimits, traceReplayOperations,
   tenantRelations, triggerRelations, eventRelations, invocationRelations, runRelations,
 };
+
+export const skillGitNamespaces = app.table("skill_git_namespaces", {
+ tenantId: uuid("tenant_id").primaryKey().references(() => tenants.id, { onDelete: "cascade" }),
+ slug: text("slug").notNull().unique(),
+}, t => [check("skill_git_namespaces_slug_check", sql`length(${t.slug}) BETWEEN 1 AND 63 AND ${t.slug} ~ '^[a-z0-9]+(-[a-z0-9]+)*$'`)]);
+export const skillGitTokens = app.table("skill_git_tokens", {
+ digest: text("digest").primaryKey(), tenantId: uuid("tenant_id").notNull(), userId: uuid("user_id").notNull(),
+ repo: text("repo").notNull(), sessionVersion: integer("session_version").notNull(),
+ expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+}, t => [foreignKey({ columns: [t.tenantId, t.userId], foreignColumns: [members.tenantId, members.userId] }).onDelete("cascade"), index("skill_git_tokens_expiry").on(t.expiresAt)]);

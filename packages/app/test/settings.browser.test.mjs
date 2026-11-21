@@ -31,7 +31,7 @@ test("model integration edits accept a provider URL and optional key without dev
  await page.route("**/api/v1/model-accounts",route=>route.fulfill({json:{revision:1,accounts:[{id,name:"Work account",description:null,providerUrl:null,revision:1,credentialConfigured:false}]}}));
  await page.route("**/api/v1/model-accounts/*",route=>{written=route.request().postDataJSON();return route.fulfill({json:{revision:2,duplicate:false}});});
  await page.goto(origin+"/settings/integrations");
- await page.getByLabel("Actions for Work account",{exact:true}).click();await page.getByRole("button",{name:"Edit model integration",exact:true}).click();
+ await page.getByLabel("Actions for Work account",{exact:true}).click();await page.getByRole("menuitem",{name:"Edit model integration",exact:true}).click();
  const form=page.getByRole("dialog",{name:"Edit model integration"});await form.getByLabel("Provider URL",{exact:true}).fill("https://models.example/v1");await form.getByRole("button",{name:"Save model integration",exact:true}).click();
  await form.waitFor({state:"hidden"});assert.equal(written.providerUrl,"https://models.example/v1");assert.equal(written.apiKey,undefined);assert.equal(written.initialState,undefined);
  assert.equal(await page.getByRole("button",{name:"Connect ChatGPT",exact:true}).count(),0);await context.close();
@@ -112,12 +112,12 @@ test("model account create/delete uses server-managed state without an unlock ke
   page.once("dialog", dialog => dialog.accept());
   const refreshAfterConflict = page.waitForResponse(response => response.url().includes("/api/v1/model-accounts") && response.request().method() === "GET" && response.status() === 200);
   await models.getByLabel("Actions for Work account",{exact:true}).click();
-  await models.getByRole("button", { name: "Delete account" }).click();
+  await models.getByRole("menuitem", { name: "Delete account" }).click();
   await models.getByRole("alert").filter({ hasText: "collection changed" }).waitFor();
   await refreshAfterConflict;
   page.once("dialog", dialog => dialog.accept());
   await models.getByLabel("Actions for Work account",{exact:true}).click();
-  await models.getByRole("button", { name: "Delete account" }).click();
+  await models.getByRole("menuitem", { name: "Delete account" }).click();
   await models.getByText(/No integrations added yet/).waitFor();
   assert.equal(deleteBodies.length, 2);
   assert.equal(deleteBodies[0].expectedRevision, 1);
@@ -182,7 +182,7 @@ test("all connections share one list, row policies save by identity and disabled
   assert.equal(updates.at(-1).policy,'requestable');
   const disabled=list.getByRole('checkbox',{name:'Model fixture available by default',exact:true});
   assert.equal(await disabled.isDisabled(),true);assert.equal(await disabled.isChecked(),false);
-  await list.getByLabel('Actions for Model fixture',{exact:true}).click();await list.getByRole('button',{name:'MCP access…',exact:true}).click();
+  await list.getByLabel('Actions for Model fixture',{exact:true}).click();await list.getByRole('menuitem',{name:'MCP access…',exact:true}).click();
   const dialog=page.getByRole('dialog',{name:'model MCP access'});
   assert.equal(await dialog.getByRole('combobox').inputValue(),'disabled');
   assert.equal(updates.filter(row=>row.id===policies.find(row=>row.kind==='model').id).length,0,'opening settings does not enable access');
@@ -208,7 +208,7 @@ test("Fly setup opens from its tile, verifies and saves, then appears in the uni
   await dialog.getByRole('button',{name:'Save Fly.io integration',exact:true}).click();
   const list=page.getByRole('list',{name:'Your integrations'});await list.getByText('Fixture org (fixture)',{exact:true}).waitFor();
   assert.equal(await dialog.count(),0);assert.deepEqual(savedBody,{token:'synthetic-fly-token',organizationSlug:'fixture'});
-  await list.getByLabel('Actions for Fly.io',{exact:true}).click();await list.getByRole('button',{name:'Edit / verify connection',exact:true}).click();
+  await list.getByLabel('Actions for Fly.io',{exact:true}).click();await list.getByRole('menuitem',{name:'Edit / verify connection',exact:true}).click();
   assert.equal(await page.getByRole('dialog').getByLabel('Fly organization token',{exact:true}).inputValue(),'');
   await page.keyboard.press('Escape');assert.equal(await page.getByRole('dialog').count(),0);
   assert.equal(await page.evaluate(()=>JSON.stringify(localStorage).includes('synthetic-fly-token')),false);
@@ -232,7 +232,7 @@ test("dashboard VM presets use dedicated editors and confirmed deletion", async 
   });
   try{
     await page.goto(origin+"/settings/vm-presets");await page.getByText("No presets yet.",{exact:true}).waitFor();assert.equal(new URL(page.url()).pathname,"/settings/vm");
-    await page.getByRole("link",{name:"Add preset",exact:true}).click();await page.getByLabel("Preset name",{exact:true}).fill("Build");await page.getByLabel("Execution provider",{exact:true}).selectOption("exe");await page.getByLabel("Connection",{exact:true}).selectOption("dev");await page.getByLabel("work",{exact:true}).check();await page.getByRole("button",{name:"Save preset",exact:true}).click();
+    await page.getByRole("link",{name:"Add preset",exact:true}).click();await page.getByLabel("Preset name",{exact:true}).fill("Build");await page.getByRole("combobox",{name:"Execution provider",exact:true}).click();await page.getByRole("option",{name:"exe.dev",exact:true}).click();await page.getByRole("combobox",{name:"Connection",exact:true}).click();await page.getByRole("option",{name:"dev",exact:true}).click();await page.getByLabel("work",{exact:true}).check();await page.getByRole("button",{name:"Save preset",exact:true}).click();
     await page.getByLabel("Actions for Build",{exact:true}).click();await page.getByRole("menuitem",{name:"Edit",exact:true}).click();assert.equal(await page.getByLabel("work",{exact:true}).isChecked(),true);await page.getByLabel("Preset name",{exact:true}).fill("Release");await page.getByRole("button",{name:"Save preset",exact:true}).click();
     await page.getByLabel("Actions for Release",{exact:true}).click();await page.getByRole("menuitem",{name:"Delete",exact:true}).click();await page.getByRole("dialog").getByRole("button",{name:"Delete preset",exact:true}).click();await page.getByText("No presets yet.",{exact:true}).waitFor();
   }finally{await context.close();}
