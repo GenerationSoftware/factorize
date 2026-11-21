@@ -30,6 +30,7 @@ import { submitRun } from "./postgres/run-submission";
 import type { DatabaseClient } from "./postgres/database";
 import { startRunInput,projectRunDefaults,scopeSchema, teamRunDefaults } from "./flow-schemas";
 import { grantVm, renewVmGrant, revokeVmGrant } from "./vm-grants";
+import { decideOidcConsent, inspectOidcConsent, oidcConsentInput, oidcConsentPreview } from "./oidc-provider";
 import { AppsRepository } from "./postgres/apps-repository";
 import { appRegistrationInput, appRegistrationUpdate, appSecret, connectedApp, registeredApp } from "./apps-contracts";
 import { VmAttachmentRepository } from "./postgres/vm-attachment-repository";
@@ -1704,6 +1705,19 @@ export class ApiService {
   async githubRepositories(installationId: number) { await this.authorize("integrations:read"); return publicValue(z.array(githubRepository), await this.providers().githubRepositories(installationId)); }
   async githubIssueOptions(installationId: number, repositoryId: number) { await this.authorize("integrations:read"); return publicValue(providerOptions, await this.providers().githubIssueOptions(installationId, repositoryId)); }
   async removeGitHubInstallation(id: number) { await this.authorize("integrations:write"); if (!await new GitHubRepository(databaseFor(this.env), this.auth.tenantId).delete(id)) throw new ServiceError(404, "not_found", "Installation not found"); return { id, deleted: true }; }
+
+  async inspectAppConsent(requestId: string) {
+    await this.authorizeOwnerSession("team:read");
+    const preview = await inspectOidcConsent(this.env, this.auth, requestId);
+    if (!preview) throw new ServiceError(404, "not_found", "App sign-in request is unavailable.");
+    return publicValue(oidcConsentPreview, preview);
+  }
+  async decideAppConsent(body: unknown) {
+    await this.authorizeOwnerSession("team:read");
+    const redirectTo = await decideOidcConsent(this.env, this.auth, oidcConsentInput.parse(body));
+    if (!redirectTo) throw new ServiceError(404, "not_found", "App sign-in request is unavailable.");
+    return { redirectTo };
+  }
 
   private apps() { return new AppsRepository(databaseFor(this.env), this.auth.tenantId); }
   async listApps() {

@@ -41,10 +41,12 @@ Verified with the PostgreSQL app registration test, the backend TypeScript check
 
 ## 4. Implement Sign in with Factorize
 
-- [ ] Implement OpenID Connect for confidential server-side applications with code flow, PKCE S256, registered redirect URLs, client authentication, discovery, JWKS, and signed ID tokens. Verify a sample server app can perform sign-in and validate its ID token.
-- [ ] The built-in default is minimal identity with a stable subject. An app can explicitly ask for the current Factorize API scopes and receives only scopes expressly authorized by the user. Verify identity-only tokens cannot exercise Factorize application permissions and an approved scope can access its API operation.
-- [ ] Verify private apps reject other teams, public apps can accept other teams, and granted API access applies to the authorizing user's team. Cover invalid redirect, client secret, PKCE, and code reuse, and handling of scope and token audience.
-- [ ] **Connected apps** displays authorized sign-in app connections and supports revoking each connection. Verify revocation, app disabling, and secret rotation enforce their respective token and authentication effects. Verify existing MCP OAuth and device-code flows still work.
+- [x] Implement OpenID Connect for confidential server-side applications with code flow, PKCE S256, registered redirect URLs, client authentication, discovery, JWKS, and signed ID tokens. Verify a sample server app can perform sign-in and validate its ID token.
+- [x] The built-in default is minimal identity with a stable subject. An app can explicitly ask for the current Factorize API scopes and receives only scopes expressly authorized by the user. Verify identity-only tokens cannot exercise Factorize application permissions and an approved scope can access its API operation.
+- [x] Verify private apps reject other teams, public apps can accept other teams, and granted API access applies to the authorizing user's team. Cover invalid redirect, client secret, PKCE, and code reuse, and handling of scope and token audience.
+- [x] **Connected apps** displays authorized sign-in app connections and supports revoking each connection. Verify revocation, app disabling, and secret rotation enforce their respective token and authentication effects. Verify existing MCP OAuth and device-code flows still work.
+
+Verified with the PostgreSQL server-app and token tests (3 passed), the Chromium sign-in consent test, and the existing OAuth and device-code runtime test.
 
 ## 5. Finish validation and open the PR
 

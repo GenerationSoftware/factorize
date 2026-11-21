@@ -22598,6 +22598,127 @@ paths:
           schema:
             type: string
             minLength: 1
+  /api/v1/app-consent/{requestId}:
+    get:
+      summary: Preview a registered app sign-in request
+      responses:
+        "200":
+          description: Requested app permissions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  appName:
+                    type: string
+                  scopes:
+                    type: array
+                    items:
+                      type: string
+                required:
+                  - appName
+                  - scopes
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the team:read scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      operationId: get_api_v1_app_consent_requestId
+      tags:
+        - app-consent
+      security:
+        - cookieAuth: []
+      x-required-scope: team:read
+      x-owner-session-required: true
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+  /api/v1/app-consent/decision:
+    post:
+      summary: Allow or deny a registered app sign-in request
+      responses:
+        "200":
+          description: Registered redirect destination
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  redirectTo:
+                    type: string
+                required:
+                  - redirectTo
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the team:read scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      operationId: post_api_v1_app_consent_decision
+      tags:
+        - app-consent
+      security:
+        - cookieAuth: []
+      x-required-scope: team:read
+      x-owner-session-required: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                requestId:
+                  type: string
+                  format: uuid
+                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                decision:
+                  type: string
+                  enum:
+                    - allow
+                    - deny
+              required:
+                - requestId
+                - decision
+              additionalProperties: false
   /api/v1/apps:
     get:
       summary: List the team's app registrations

@@ -238,6 +238,27 @@ test("dashboard VM presets use dedicated editors and confirmed deletion", async 
   }finally{await context.close();}
 });
 
+test("Sign in with Factorize shows requested access and returns to the app", async () => {
+  const {context, page} = await setup();
+  const id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  await page.route(`**/api/v1/app-consent/${id}`, route => route.fulfill({json:{appName:"Report viewer",scopes:["openid","runs:read"]}}));
+  let approved;
+  await page.route("**/api/v1/app-consent/decision", route => {
+    approved = route.request().postDataJSON();
+    return route.fulfill({json:{redirectTo:"https://report.example/callback?code=verifier-receipt"}});
+  });
+  await page.route("https://report.example/callback?code=verifier-receipt", route => route.fulfill({body:"App callback confirmed"}));
+  try {
+    await page.goto(origin + "/app-consent?request=" + id);
+    await page.getByRole("heading", {name:"Sign in with Factorize"}).waitFor();
+    await page.getByText("Your Factorize identity").waitFor();
+    await page.getByText("runs:read", {exact:true}).waitFor();
+    await page.getByRole("button", {name:"Allow",exact:true}).click();
+    await page.getByText("App callback confirmed").waitFor();
+    assert.deepEqual(approved, {requestId:id,decision:"allow"});
+  } finally { await context.close(); }
+});
+
 test("Apps separates connected accounts and team registrations", async () => {
   const {context, page} = await setup();
   const app = {id:"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",name:"Reports",enabled:true,public:false,redirectUris:["https://reports.example/callback"],secretConfigured:false};

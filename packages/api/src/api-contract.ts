@@ -25,6 +25,7 @@ import { runSummaryResponse, runPageResponse, runStatusResponse, fullRunResponse
 import { triggerPageQuery, triggerSummaryPage, triggerSelectorPage, triggerResponse, triggerUpdateInput } from "./job-contracts";
 import { projectGraphResponse } from "./project-graph-contracts";
 import { z } from "zod";
+import { oidcConsentInput, oidcConsentPreview } from "./oidc-provider";
 import { appRegistrationInput, appRegistrationUpdate, appSecret, connectedApp, registeredApp } from "./apps-contracts";
 import { vmAttachments } from "./vm-attachment-contracts";
 import type { ApiService } from "./flow-service";
@@ -1087,6 +1088,14 @@ export const API_ROUTES: RouteContract[] = [
     },
     (service, { params }) => service.getWebhookDelivery(params.deliveryId),
   ),
+  route("GET", "/api/v1/app-consent/{requestId}", "team:read", {
+    summary: "Preview a registered app sign-in request",
+    responses: { "200": { description: "Requested app permissions", content: { "application/json": { schema: jsonSchema(oidcConsentPreview, "output") } } } },
+  }, (service, { params }) => service.inspectAppConsent(params.requestId), { parameters: z.object({ requestId: z.uuid() }), ownerSession: true }),
+  route("POST", "/api/v1/app-consent/decision", "team:read", {
+    summary: "Allow or deny a registered app sign-in request",
+    responses: { "200": { description: "Registered redirect destination", content: { "application/json": { schema: jsonSchema(z.object({ redirectTo: z.string() }), "output") } } } },
+  }, (service, { body }) => service.decideAppConsent(body), { body: oidcConsentInput, ownerSession: true }),
   route("GET", "/api/v1/apps", "apps:manage", {
     summary: "List the team's app registrations",
     responses: { "200": { description: "Registered apps", content: { "application/json": { schema: jsonSchema(z.array(registeredApp), "output") } } } },

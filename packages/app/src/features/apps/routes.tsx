@@ -8,6 +8,9 @@ export function appRoutes(root: AnyRootRoute) {
       throw redirect({ to: "/auth/login", search: { returnTo: location.href, token: undefined } });
   };
   return [
+    createRoute({ getParentRoute: () => root, path: "/app-consent", beforeLoad,
+      validateSearch: (search: Record<string, unknown>) => ({ request: typeof search.request === "string" ? search.request : undefined }),
+      component: lazyRouteComponent(() => import("./consent"), "AppConsentPage") }),
     createRoute({ getParentRoute: () => root, path: "/apps", beforeLoad,
       component: lazyRouteComponent(() => import("./index"), "ConnectedAppsPage") }),
     createRoute({ getParentRoute: () => root, path: "/apps/registered", beforeLoad,
