@@ -15,7 +15,7 @@ describe.skipIf(!dbUrl)("Sign in with Factorize", () => {
   let f: Awaited<ReturnType<typeof loadingFixture>>;
   let callback: ReturnType<typeof createServer>;
   let redirectUri: string;
-  const context = { waitUntil() {} } as ExecutionContext;
+  const context = { waitUntil() {} } as unknown as ExecutionContext;
   const verifier = "z".repeat(64);
   const request = (path: string, init?: RequestInit) => worker.fetch(new Request(f.env.APP_ORIGIN + path, init), f.env, context);
   const token = (body: Record<string,string>, clientId: string, secret: string) => request("/oauth/apps/token", {
