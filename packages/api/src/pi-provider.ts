@@ -1,6 +1,7 @@
 import {z} from "zod";
 import {createModels,createProvider} from "@earendil-works/pi-ai/models";
 import {openAICompletionsApi} from "@earendil-works/pi-ai/api/openai-completions.lazy";
+import {openaiProvider} from "@earendil-works/pi-ai/providers/openai";
 import type {Model} from "@earendil-works/pi-ai";
 import {CredentialRepository} from "./postgres/credential-repository";
 import type {Database} from "./postgres/database";
@@ -24,11 +25,53 @@ export async function runPiProvider(database:Database,env:Env,tenantId:string,ru
   if(revoked.rowCount || !config)throw new Error("The selected model integration is unavailable or needs a provider URL. Repair it before starting a new run.");
   return piProvider(config,modelId,effort);
 }
-/** Only the selected OpenAI-compatible adapter is bundled; no global provider catalog. */
 export function piProvider(config:ModelProviderConfiguration,modelId:string,effort?:string) {
-  const baseUrl=config.providerUrl.replace(/\/$/,"");
-  const model:Model<"openai-completions">={id:modelId,name:modelId,api:"openai-completions",provider:"factorize",baseUrl,reasoning:Boolean(effort),input:["text","image"],cost:{input:0,output:0,cacheRead:0,cacheWrite:0},contextWindow:config.contextWindow,maxTokens:config.maxTokens};
-  const models=createModels();
-  models.setProvider(createProvider({id:"factorize",name:"Factorize model integration",baseUrl,models:[model],auth:{apiKey:{name:"Integration credential",resolve:async()=>({auth:config.apiKey?{apiKey:config.apiKey}:{apiKey:"unused",headers:{Authorization:null}}})}},api:openAICompletionsApi()}));
+  const baseUrl = config.providerUrl.replace(/\/$/, "");
+  const models = createModels();
+  const auth = {
+    apiKey: {
+      name: "Integration credential",
+      resolve: async () => ({
+        auth: config.apiKey ? { apiKey: config.apiKey } : { apiKey: "unused", headers: { Authorization: null } },
+      }),
+    },
+  };
+  const configuredModel = {
+    id: modelId,
+    name: modelId,
+    baseUrl,
+    reasoning: Boolean(effort),
+    input: ["text", "image"],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: config.contextWindow,
+    maxTokens: config.maxTokens,
+  } satisfies Omit<Model<"openai-completions">, "api" | "provider">;
+
+  if (new URL(baseUrl).href === "https://api.openai.com/v1") {
+    const provider = openaiProvider();
+    const catalogModel = provider.getModels().find(model => model.id === modelId);
+    const model: Model<"openai-responses"> = {
+      ...configuredModel,
+      ...catalogModel,
+      api: "openai-responses",
+      provider: provider.id,
+      baseUrl,
+      contextWindow: config.contextWindow,
+      maxTokens: config.maxTokens,
+    };
+    // Resolve only the saved integration credential, including for direct OpenAI runs.
+    models.setProvider({ ...provider, auth });
+    return { models, model, config };
+  }
+
+  const model: Model<"openai-completions"> = { ...configuredModel, api: "openai-completions", provider: "factorize" };
+  models.setProvider(createProvider({
+    id: model.provider,
+    name: "Factorize model integration",
+    baseUrl,
+    models: [model],
+    auth,
+    api: openAICompletionsApi(),
+  }));
   return {models,model,config};
 }
