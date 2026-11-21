@@ -24,6 +24,10 @@ describe.skipIf(!url)("VM attachment inventory", () => {
 
     const inventory = new VmAttachmentRepository(db, tenantId);
     expect(await inventory.runs()).toMatchObject([{ sourceId: runId, status: "active" }]);
+    const route = await fixture.request("/api/v1/vms");
+    expect(route.status).toBe(200);
+    expect(await route.json()).toMatchObject([{ sourceId: runId, status: "active" }]);
+    expect((await fixture.request("/api/v1/vms", "invalid-session")).status).toBe(401);
     expect(await new VmAttachmentRepository(db, crypto.randomUUID()).runs(runId)).toEqual([]);
 
     await db.pool.query("UPDATE app.vendor_run_identity_bindings SET revoked_at=now() WHERE tenant_id=$1 AND run_id=$2", [tenantId, runId]);

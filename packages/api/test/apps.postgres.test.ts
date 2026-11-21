@@ -29,6 +29,9 @@ describe.skipIf(!url)("Registered apps", () => {
     expect(stored.rows[0].secret_digest).toBe(await accessTokenDigest(second.clientSecret));
     expect(await oauth.getApp(app.id)).toMatchObject({ secretConfigured: true });
     expect(await oauth.getApp(app.id)).not.toHaveProperty("clientSecret");
+    const response = await f.request("/api/v1/apps/" + app.id);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ id: app.id, secretConfigured: true });
     const owner = await f.db.pool.query("SELECT email FROM app.members WHERE tenant_id=$1 AND user_id=$2", [f.tenantId, f.userId]);
     await f.db.pool.query("INSERT INTO app.members(tenant_id,user_id,email,role,session_version) VALUES($1,$2,$3,'owner',$4)",
       [f.otherTenant, f.userId, owner.rows[0].email, f.auth.sessionVersion]);
