@@ -238,34 +238,70 @@ test("dashboard VM presets use dedicated editors and confirmed deletion", async 
   }finally{await context.close();}
 });
 
-test("owner edits one MCP connection’s scopes and integration access", async () => {
+test("Sign in with Factorize shows requested access and returns to the app", async () => {
   const {context, page} = await setup();
-  const id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", requiredScope = `integration:${id}:3`;
-  const client = {grantId:"first", clientId:"shared", clientName:"Release assistant", availableScopes:["triggers:read", "triggers:write"], scopes:["triggers:read", "triggers:write"], integrationOverrides:{}, revision:0, authorizationDate:"2026-11-19", expiresAt:null, lastUsedAt:null};
-  await page.route("**/api/v1/access/authorized-clients", route => route.fulfill({json:[client]}));
-  await page.route("**/api/v1/integration-api-policies", route => route.fulfill({json:{integrations:[{id, requiredScope, available:true, policy:"requestable", name:"Linear"}]}}));
+  const id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  await page.route(`**/api/v1/app-consent/${id}`, route => route.fulfill({json:{appName:"Report viewer",scopes:["openid","runs:read"]}}));
+  let approved;
+  await page.route("**/api/v1/app-consent/decision", route => {
+    approved = route.request().postDataJSON();
+    return route.fulfill({json:{redirectTo:"https://report.example/callback?code=verifier-receipt"}});
+  });
+  await page.route("https://report.example/callback?code=verifier-receipt", route => route.fulfill({body:"App callback confirmed"}));
+  try {
+    await page.goto(origin + "/app-consent?request=" + id);
+    await page.getByRole("heading", {name:"Sign in with Factorize"}).waitFor();
+    await page.getByText("Your Factorize identity").waitFor();
+    await page.getByText("runs:read", {exact:true}).waitFor();
+    await page.getByRole("button", {name:"Allow",exact:true}).click();
+    await page.getByText("App callback confirmed").waitFor();
+    assert.deepEqual(approved, {requestId:id,decision:"allow"});
+  } finally { await context.close(); }
+});
+
+test("Apps separates connected accounts and team registrations", async () => {
+  const {context, page} = await setup();
+  const app = {id:"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",name:"Reports",enabled:true,public:false,redirectUris:["https://reports.example/callback"],secretConfigured:false};
+  await page.route("**/api/v1/apps", route => route.fulfill({json:[app]}));
+  await page.route("**/api/v1/app-connections", route => route.fulfill({json:[]}));
+  await page.route(`**/api/v1/apps/${app.id}/secret`, route => route.fulfill({json:{clientId:app.id,clientSecret:"fixture-value"}}));
+  try {
+    await page.goto(origin + "/apps");
+    await page.getByText("No connected apps.").waitFor();
+    await page.getByRole("link", {name:"Registered apps"}).click();
+    await page.getByText("Team only").waitFor();
+    await page.getByRole("button", {name:"Create client secret"}).click();
+    const dialog = page.getByRole("dialog", {name:"Client secret"});
+    await dialog.waitFor();
+    assert.equal(await dialog.getByLabel("Client secret", {exact:true}).inputValue(),"fixture-value");
+    await dialog.getByRole("button",{name:"Done"}).click();
+    await dialog.waitFor({state:"hidden"});
+  } finally { await context.close(); }
+});
+
+test("owner edits an MCP connection with the team permission preset", async () => {
+  const {context, page} = await setup();
+  const client = {grantId:"first", clientId:"shared", clientName:"Release assistant", appName:"Shared MCP app", availableScopes:["triggers:read", "triggers:write"], scopes:["triggers:read", "triggers:write"], integrationOverrides:{}, revision:0, authorizationDate:"2026-11-19", expiresAt:null, lastUsedAt:null};
+  await page.route("**/api/v1/access/authorized-clients", route => route.fulfill({json:[client, {...client, grantId:"second", clientName:"Another connection"}]}));
+  await page.route("**/api/v1/presets", route => route.fulfill({json:{presets:[{kind:"permission",isDefault:true}]}}));
+  await page.route("**/api/v1/access/authorizations/second/vms", route => route.fulfill({json:[]}));
   let saved;
   await page.route("**/api/v1/access/authorizations/first/permissions", route => {
     saved = route.request().postDataJSON();
-    client.scopes = ["triggers:read"];
-    client.integrationOverrides = saved.integrationOverrides;
-    client.revision++;
     return route.fulfill({json:{ok:true}});
   });
   try {
     await page.goto(origin + "/settings/authorized-clients");
-    const edit = page.getByRole("button", {name:"Edit permissions"});
-    await edit.click();
+    await page.waitForURL("**/clients");
+    await page.getByRole("row", {name:/Release assistant/}).getByRole("button", {name:"Edit permissions"}).click();
     const dialog = page.getByRole("dialog", {name:"Permissions for Release assistant"});
-    await dialog.getByLabel("triggers:write").uncheck();
-    await dialog.getByLabel("Linear").selectOption("allow");
+    await dialog.getByLabel("Permission preset").selectOption("team-default");
     await dialog.getByRole("button", {name:"Save permissions"}).click();
     await dialog.waitFor({state:"hidden"});
-    assert.deepEqual(saved, {disabledScopes:["triggers:write"], integrationOverrides:{[id]:requiredScope}, expectedRevision:0});
-    await page.reload();
-    await edit.click();
-    assert.equal(await dialog.getByLabel("triggers:write").isChecked(), false);
-    assert.equal(await dialog.getByLabel("Linear").inputValue(), "allow");
+    assert.deepEqual(saved, {preset:"team-default", expectedRevision:0});
+    assert.equal(await page.getByText("Shared MCP app",{exact:true}).count(),2);
+    await page.getByRole("link",{name:"Another connection"}).click();
+    await page.getByText("No VM attachments recorded.").waitFor();
   } finally { await context.close(); }
 });
 

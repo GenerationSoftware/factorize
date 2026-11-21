@@ -19,12 +19,15 @@ import { queryOf } from "./query-params";
 import { launchPayloadResponse } from "./launch-payload";
 import { searchResponse } from "./search-contracts";
 import { consentPreviewInput, consentPreviewResponse, consentDecisionInput, consentDecisionResponse } from "./consent-api";
-import { exeConnection, integrationStatus, clientPermissionsInput, authorizedClient, accessToken, createdAccessToken, savedExe, testedExe, savedAmp, savedTail, okResult } from "./settings-contracts";
+import { exeConnection, integrationStatus, clientPermissionsUpdate, authorizedClient, accessToken, createdAccessToken, savedExe, testedExe, savedAmp, savedTail, okResult } from "./settings-contracts";
 import { eventAvailabilityResponse, namedOption, providerOptions, githubInstallation, githubRepository, tailIntegration } from "./editor-contracts";
 import { runSummaryResponse, runPageResponse, runStatusResponse, fullRunResponse, revisionTracePage, revisionTraceQuery, runtimeContextResponse, runtimeIntegrationsResponse } from "./run-read-contracts";
 import { triggerPageQuery, triggerSummaryPage, triggerSelectorPage, triggerResponse, triggerUpdateInput } from "./job-contracts";
 import { projectGraphResponse } from "./project-graph-contracts";
 import { z } from "zod";
+import { oidcConsentInput, oidcConsentPreview } from "./oidc-provider";
+import { appRegistrationInput, appRegistrationUpdate, appSecret, connectedApp, registeredApp } from "./apps-contracts";
+import { vmAttachments } from "./vm-attachment-contracts";
 import type { ApiService } from "./flow-service";
 import {
   triggerInputSchema,
@@ -675,7 +678,7 @@ export const API_ROUTES: RouteContract[] = [
   route("PUT", "/api/v1/access/authorizations/{grantId}/permissions", "triggers:write", {
     summary: "Edit an OAuth connection’s scopes and integration access",
     responses: {"200": {description: "Permissions saved", content: {"application/json": {schema: jsonSchema(okResult, "output")}}}},
-  }, (service, {params, body}) => service.updateClientPermissions(params.grantId, body), {ownerSession: true, body: clientPermissionsInput}),
+  }, (service, {params, body}) => service.updateClientPermissions(params.grantId, body), {ownerSession: true, body: clientPermissionsUpdate}),
   route("DELETE", "/api/v1/access/authorizations/{grantId}", "triggers:write", {summary:"Revoke one isolated OAuth connection", description:"Other connections, including copies of the same client, retain their approvals.",responses:{"200":{description:"Authorization revoked",content:{"application/json":{schema:jsonSchema(z.object({revoked:z.number().int()}),"output")}}}}}, (service,{params})=>service.revokeOAuthAuthorization(params.grantId), {ownerSession:true}),
   route(
     "DELETE",
@@ -1085,6 +1088,56 @@ export const API_ROUTES: RouteContract[] = [
     },
     (service, { params }) => service.getWebhookDelivery(params.deliveryId),
   ),
+  route("GET", "/api/v1/app-consent/{requestId}", "team:read", {
+    summary: "Preview a registered app sign-in request",
+    responses: { "200": { description: "Requested app permissions", content: { "application/json": { schema: jsonSchema(oidcConsentPreview, "output") } } } },
+  }, (service, { params }) => service.inspectAppConsent(params.requestId), { parameters: z.object({ requestId: z.uuid() }), ownerSession: true }),
+  route("POST", "/api/v1/app-consent/decision", "team:read", {
+    summary: "Allow or deny a registered app sign-in request",
+    responses: { "200": { description: "Registered redirect destination", content: { "application/json": { schema: jsonSchema(z.object({ redirectTo: z.string() }), "output") } } } },
+  }, (service, { body }) => service.decideAppConsent(body), { body: oidcConsentInput, ownerSession: true }),
+  route("GET", "/api/v1/apps", "apps:manage", {
+    summary: "List the team's app registrations",
+    responses: { "200": { description: "Registered apps", content: { "application/json": { schema: jsonSchema(z.array(registeredApp), "output") } } } },
+  }, service => service.listApps()),
+  route("POST", "/api/v1/apps", "apps:manage", {
+    summary: "Register a server-side application",
+    responses: { "200": { description: "Registered app", content: { "application/json": { schema: jsonSchema(registeredApp, "output") } } } },
+  }, (service, { body }) => service.createApp(body), { body: appRegistrationInput }),
+  route("GET", "/api/v1/apps/{appId}", "apps:manage", {
+    summary: "Read an app registration",
+    responses: { "200": { description: "Registered app", content: { "application/json": { schema: jsonSchema(registeredApp, "output") } } } },
+  }, (service, { params }) => service.getApp(params.appId), { parameters: z.object({ appId: z.uuid() }) }),
+  route("PUT", "/api/v1/apps/{appId}", "apps:manage", {
+    summary: "Change an app registration, its visibility, or its enabled state",
+    responses: { "200": { description: "Registered app", content: { "application/json": { schema: jsonSchema(registeredApp, "output") } } } },
+  }, (service, { params, body }) => service.updateApp(params.appId, body), { parameters: z.object({ appId: z.uuid() }), body: appRegistrationUpdate }),
+  route("POST", "/api/v1/apps/{appId}/secret", "apps:manage", {
+    summary: "Issue or rotate a client secret in a browser session",
+    responses: { "200": { description: "One-time secret", content: { "application/json": { schema: jsonSchema(appSecret, "output") } } } },
+  }, (service, { params }) => service.rotateAppSecret(params.appId), { parameters: z.object({ appId: z.uuid() }), ownerSession: true }),
+  route("GET", "/api/v1/app-connections", "team:read", {
+    summary: "List sign-in apps authorized by the current user",
+    responses: { "200": { description: "Connected apps", content: { "application/json": { schema: jsonSchema(z.array(connectedApp), "output") } } } },
+  }, service => service.listConnectedApps(), { ownerSession: true }),
+  route("DELETE", "/api/v1/app-connections/{connectionId}", "team:write", {
+    summary: "Revoke one sign-in app connection",
+    responses: { "200": { description: "Connection revoked", content: { "application/json": { schema: jsonSchema(okResult, "output") } } } },
+  }, (service, { params }) => service.revokeConnectedApp(params.connectionId), { parameters: z.object({ connectionId: z.uuid() }), ownerSession: true }),
+  route("GET", "/api/v1/vms", "runs:read", {
+    summary: "List VMs with active Factorize proxy access",
+    description: "Requires an interactive owner session. Reports access status from Factorize records.",
+    responses: { "200": { description: "Active VM access attachments", content: { "application/json": { schema: jsonSchema(vmAttachments, "output") } } } },
+  }, service => service.listProxyVms()),
+  route("GET", "/api/v1/runs/{runId}/vms", "runs:read", {
+    summary: "List a run's current and historical VM access",
+    responses: { "200": { description: "Run VM attachments", content: { "application/json": { schema: jsonSchema(vmAttachments, "output") } } } },
+  }, (service, { params }) => service.listRunVms(params.runId), { parameters: z.object({ runId: z.guid() }) }),
+  route("GET", "/api/v1/access/authorizations/{grantId}/vms", "runs:read", {
+    summary: "List current and historical VM access delegated by an MCP connection",
+    description: "Requires an interactive owner session.",
+    responses: { "200": { description: "Connection VM attachments", content: { "application/json": { schema: jsonSchema(vmAttachments, "output") } } } },
+  }, (service, { params }) => service.listClientVms(params.grantId), { parameters: z.object({ grantId: z.string().min(1).max(255) }) }),
   route("GET", "/api/v1/runs/{runId}/status", "runs:read", {
     summary: "Get lightweight run status",
     description: "Only bounded encrypted prompt/script previews are decrypted; full prompt, invocation context, artifacts, activity and diagnostics stay in the detail operation. Continue polling terminal runs while finalizing is true. trace_revision changes on generation transition or canonical projection/replay; live appends retain the revision. Full detail remains available at GET /runs/{runId}.",

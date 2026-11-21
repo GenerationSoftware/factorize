@@ -30,6 +30,11 @@ import { submitRun } from "./postgres/run-submission";
 import type { DatabaseClient } from "./postgres/database";
 import { startRunInput,projectRunDefaults,scopeSchema, teamRunDefaults } from "./flow-schemas";
 import { grantVm, renewVmGrant, revokeVmGrant } from "./vm-grants";
+import { decideOidcConsent, inspectOidcConsent, oidcConsentInput, oidcConsentPreview } from "./oidc-provider";
+import { AppsRepository } from "./postgres/apps-repository";
+import { appRegistrationInput, appRegistrationUpdate, appSecret, connectedApp, registeredApp } from "./apps-contracts";
+import { VmAttachmentRepository } from "./postgres/vm-attachment-repository";
+import { vmAttachments } from "./vm-attachment-contracts";
 import { AgentApiService, listAgentPolicies } from "./agent-api";
 import {PhoenixIntegration,runPhoenixStatus} from "./phoenix";
 import {phoenixInput,phoenixRevision} from "./phoenix-contracts";
@@ -42,7 +47,7 @@ import { apiPolicyInput, integrationRef, requestApiInput, readApiResponseInput }
 import { DEFAULT_RUN_SCOPES } from "./run-scopes";
 import { launchPayloadResponse } from "./launch-payload";
 import { searchResponse } from "./search-contracts";
-import { integrationStatus, exeConnection, accessToken, createdAccessToken, clientPermissionsInput, clientNameInput, authorizedClient } from "./settings-contracts";
+import { integrationStatus, exeConnection, accessToken, createdAccessToken, clientPermissionsUpdate, clientNameInput, authorizedClient } from "./settings-contracts";
 import { namedOption, providerOptions, githubRepository, githubInstallation, tailIntegration } from "./editor-contracts";
 import { z } from "zod";
 import { runPageResponse, fullRunResponse, runtimeContextResponse, runtimeIntegrationsResponse } from "./run-read-contracts";
@@ -106,7 +111,7 @@ export function publicValue<T extends z.ZodType>(schema: T, value: unknown): z.o
   return result.data;
 }
 
-type Scope = "runs:start" | "team:read" | "team:write" | "triggers:read" | "triggers:write" | "runs:read" | "runs:invoke" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write";
+type Scope = "apps:manage" | "runs:start" | "team:read" | "team:write" | "triggers:read" | "triggers:write" | "runs:read" | "runs:invoke" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write";
 
 export class ApiService {
   authorizationDuration = 0;
@@ -701,6 +706,25 @@ export class ApiService {
   }
   async search(query: string) { await this.authorize("skills:read"); await this.authorize("runs:read"); return publicValue(searchResponse, await new OperationsRepository(databaseFor(this.env), this.auth.tenantId).search(query)); }
   async eventContextMetadata() { await this.authorize("triggers:read"); return eventContextCatalog; }
+  async listProxyVms() {
+    await this.authorizeOwnerSession("runs:read");
+    const repository = new VmAttachmentRepository(databaseFor(this.env), this.auth.tenantId);
+    const [runs, clients] = await Promise.all([repository.runs(), repository.clients(this.auth.userId)]);
+    return publicValue(vmAttachments, [...runs, ...clients].filter(attachment => attachment.status === "active"));
+  }
+
+  async listRunVms(runId: string) {
+    await this.getRunStatus(runId);
+    const repository = new VmAttachmentRepository(databaseFor(this.env), this.auth.tenantId);
+    return publicValue(vmAttachments, await repository.runs(runId));
+  }
+
+  async listClientVms(grantId: string) {
+    await this.authorizeOwnerSession("runs:read");
+    const repository = new VmAttachmentRepository(databaseFor(this.env), this.auth.tenantId);
+    return publicValue(vmAttachments, await repository.clients(this.auth.userId, grantId));
+  }
+
   async getRunStatus(runId: string) { await this.authorize("runs:read"); const status = await new RunQueryRepository(databaseFor(this.env), this.auth.tenantId).status(runId); if (!status) throw new ServiceError(404, "not_found", "Run not found"); return status; }
   async reportRunError(runId: string, input: unknown) {
     await this.authorize("runs:write");
@@ -1682,6 +1706,56 @@ export class ApiService {
   async githubIssueOptions(installationId: number, repositoryId: number) { await this.authorize("integrations:read"); return publicValue(providerOptions, await this.providers().githubIssueOptions(installationId, repositoryId)); }
   async removeGitHubInstallation(id: number) { await this.authorize("integrations:write"); if (!await new GitHubRepository(databaseFor(this.env), this.auth.tenantId).delete(id)) throw new ServiceError(404, "not_found", "Installation not found"); return { id, deleted: true }; }
 
+  async inspectAppConsent(requestId: string) {
+    await this.authorizeOwnerSession("team:read");
+    const preview = await inspectOidcConsent(this.env, this.auth, requestId);
+    if (!preview) throw new ServiceError(404, "not_found", "App sign-in request is unavailable.");
+    return publicValue(oidcConsentPreview, preview);
+  }
+  async decideAppConsent(body: unknown) {
+    await this.authorizeOwnerSession("team:read");
+    const redirectTo = await decideOidcConsent(this.env, this.auth, oidcConsentInput.parse(body));
+    if (!redirectTo) throw new ServiceError(404, "not_found", "App sign-in request is unavailable.");
+    return { redirectTo };
+  }
+
+  private apps() { return new AppsRepository(databaseFor(this.env), this.auth.tenantId); }
+  async listApps() {
+    await this.authorize("apps:manage");
+    return publicValue(z.array(registeredApp), await this.apps().list());
+  }
+  async getApp(id: string) {
+    await this.authorize("apps:manage");
+    const value = await this.apps().find(id);
+    if (!value) throw new ServiceError(404, "not_found", "App not found.");
+    return publicValue(registeredApp, value);
+  }
+  async createApp(body: unknown) {
+    await this.authorize("apps:manage");
+    return publicValue(registeredApp, await this.apps().create(appRegistrationInput.parse(body)));
+  }
+  async updateApp(id: string, body: unknown) {
+    await this.authorize("apps:manage");
+    const value = await this.apps().update(id, appRegistrationUpdate.parse(body));
+    if (!value) throw new ServiceError(404, "not_found", "App not found.");
+    return publicValue(registeredApp, value);
+  }
+  async rotateAppSecret(id: string) {
+    await this.authorizeOwnerSession("apps:manage");
+    const secret = await this.apps().rotateSecret(id);
+    if (!secret) throw new ServiceError(404, "not_found", "App not found.");
+    return publicValue(appSecret, secret);
+  }
+  async listConnectedApps() {
+    await this.authorizeOwnerSession("team:read");
+    return publicValue(z.array(connectedApp), await this.apps().connected(this.auth.userId));
+  }
+  async revokeConnectedApp(id: string) {
+    await this.authorizeOwnerSession("team:write");
+    if (!await this.apps().revoke(this.auth.userId, id)) throw new ServiceError(404, "not_found", "App connection not found.");
+    return { ok: true };
+  }
+
   async renameMcpClient(input: unknown) {
     const { name } = clientNameInput.parse(input);
     if (this.auth.authMethod !== "oauth") throw new ServiceError(403, "forbidden", "An OAuth connection is required.");
@@ -1691,16 +1765,29 @@ export class ApiService {
   }
   async updateClientPermissions(grantId: string, input: unknown) {
     await this.authorizeOwnerSession("triggers:write");
-    const edit = clientPermissionsInput.parse(input);
+    const edit = clientPermissionsUpdate.parse(input);
     const client = (await this.listAuthorizedClients()).find(client => client.grantId === grantId);
     if (!client) throw new ServiceError(404, "not_found", "Authorization not found.");
-    if (edit.disabledScopes.some(scope => !client.availableScopes.includes(scope))) throw new ServiceError(400, "invalid_request", "Scope is outside this authorization.");
-    const { integrations } = await listAgentPolicies(this.env, this.auth.tenantId);
-    const current = new Map(integrations.map(row => [row.id, row]));
-    if (Object.entries(edit.integrationOverrides).some(([id, approval]) => {
-      const row = current.get(id);
-      return !row || (approval !== false && (!row.available || row.policy === "disabled" || approval !== row.requiredScope));
-    })) throw new ServiceError(409, "conflict", "Integration availability changed. Reload permissions.");
+    let disabledScopes: typeof client.availableScopes;
+    let integrationOverrides: Record<string, string | false>;
+    if ("preset" in edit) {
+      await migratePresetSkills(this.env, this.auth.tenantId);
+      const preset = (await this.presets().list()).find(item => item.kind === "permission" && item.isDefault);
+      if (!preset || preset.kind !== "permission") throw new ServiceError(409, "conflict", "Team permission default is unavailable.");
+      const allowed = new Set<string>(preset.settings.runScopes ?? []);
+      disabledScopes = client.availableScopes.filter(scope => !allowed.has(scope) || !client.scopes.includes(scope));
+      integrationOverrides = client.integrationOverrides;
+    } else {
+      disabledScopes = edit.disabledScopes;
+      integrationOverrides = edit.integrationOverrides;
+      if (disabledScopes.some(scope => !client.availableScopes.includes(scope))) throw new ServiceError(400, "invalid_request", "Scope is outside this authorization.");
+      const { integrations } = await listAgentPolicies(this.env, this.auth.tenantId);
+      const current = new Map(integrations.map(row => [row.id, row]));
+      if (Object.entries(integrationOverrides).some(([id, approval]) => {
+        const row = current.get(id);
+        return !row || (approval !== false && (!row.available || row.policy === "disabled" || approval !== row.requiredScope));
+      })) throw new ServiceError(409, "conflict", "Integration availability changed. Reload permissions.");
+    }
     const result = await databaseFor(this.env).pool.query(`
       INSERT INTO app.agent_identities AS i(tenant_id,kind,subject,user_id,session_version,disabled_scopes,integration_overrides,permissions_revision)
       SELECT $1,'oauth',$2,$3,$4,$5,$6,1 WHERE coalesce($7::integer,0)=0 OR EXISTS
@@ -1708,7 +1795,7 @@ export class ApiService {
       ON CONFLICT(tenant_id,kind,subject) DO UPDATE SET disabled_scopes=excluded.disabled_scopes,
         integration_overrides=excluded.integration_overrides, permissions_revision=i.permissions_revision+1
       WHERE i.revoked_at IS NULL AND i.user_id=excluded.user_id AND ($7 IS NULL OR i.permissions_revision=$7)
-      RETURNING permissions_revision`, [this.auth.tenantId, grantId, this.auth.userId, this.auth.sessionVersion, edit.disabledScopes, JSON.stringify(edit.integrationOverrides), edit.expectedRevision]);
+      RETURNING permissions_revision`, [this.auth.tenantId, grantId, this.auth.userId, this.auth.sessionVersion, disabledScopes, JSON.stringify(integrationOverrides), edit.expectedRevision ?? ("preset" in edit ? client.revision : undefined)]);
     if (!result.rowCount) throw new ServiceError(409, "conflict", "Connection permissions changed. Reload permissions.");
     return { ok: true };
   }
@@ -1723,7 +1810,7 @@ export class ApiService {
     const byGrant = new Map(settings.rows.map(row => [row.subject, row]));
     return publicValue(z.array(authorizedClient), grants.map(grant => {
       const row = byGrant.get(grant.id), availableScopes = normalizeScopes(grant.scope);
-      return { grantId: grant.id, clientId: grant.clientId, clientName: row?.display_name ?? byId.get(grant.clientId)?.clientName ?? grant.clientId,
+      return { grantId: grant.id, clientId: grant.clientId, clientName: row?.display_name ?? byId.get(grant.clientId)?.clientName ?? grant.clientId, appName: byId.get(grant.clientId)?.clientName ?? grant.clientId,
         availableScopes: availableScopes.filter(scope => !scope.startsWith("integration:")), scopes: availableScopes.filter(scope => !row?.disabled_scopes.includes(scope)), revision: row?.permissions_revision ?? 0,
         integrationOverrides: row?.integration_overrides ?? {}, authorizationDate: new Date(grant.createdAt * 1000).toISOString(),
         expiresAt: grant.expiresAt ? new Date(grant.expiresAt * 1000).toISOString() : null, lastUsedAt: null };

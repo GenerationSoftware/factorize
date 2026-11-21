@@ -24,7 +24,7 @@ export function runRoutes(root: AnyRootRoute) {
   const base = createRoute({ getParentRoute: () => root, path: "/runs/$runId",
     validateSearch, beforeLoad, loader, component,
   });
-  const tab = (path: "/trace" | "/info") => createRoute({ getParentRoute: () => root, path: `/runs/$runId${path}`,
+  const tab = (path: "/trace" | "/info" | "/vms") => createRoute({ getParentRoute: () => root, path: `/runs/$runId${path}`,
     validateSearch, beforeLoad, loader, component,
   });
   const contextCompatibility = createRoute({ getParentRoute: () => root, path: "/runs/$runId/context",
@@ -33,5 +33,5 @@ export function runRoutes(root: AnyRootRoute) {
   const settingsCompatibility = createRoute({ getParentRoute: () => root, path: "/runs/$runId/settings",
     validateSearch, beforeLoad: ({ params, search }) => { throw redirect({ to: "/runs/$runId/info", params, search }); },
   });
-  return [list, base, tab("/trace"), tab("/info"), settingsCompatibility, contextCompatibility];
+  return [list, base, tab("/trace"), tab("/info"), tab("/vms"), settingsCompatibility, contextCompatibility];
 }

@@ -4,7 +4,7 @@ import { databaseFor } from "./postgres/database";
 import { AccessTokenRepository } from "./postgres/access-token-repository";
 
 export const ACCESS_SCOPES = ["team:read", "team:write", "triggers:read", "triggers:write", "runs:read", "runs:invoke", "runs:start", "runs:cancel", "runs:write", "integrations:read", "integrations:write", "skills:read", "skills:write"] as const;
-export const AGENT_SCOPES = [...ACCESS_SCOPES, "proxy:use", "vm:grant"] as const;
+export const AGENT_SCOPES = [...ACCESS_SCOPES, "proxy:use", "vm:grant", "apps:manage"] as const;
 export type AccessScope = typeof ACCESS_SCOPES[number];
 export function normalizeScopes(scopes: readonly string[]): string[] {
   return [...new Set(scopes.filter(scope => (AGENT_SCOPES as readonly string[]).includes(scope) || isIntegrationScope(scope)))];

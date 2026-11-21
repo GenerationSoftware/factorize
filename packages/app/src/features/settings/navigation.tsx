@@ -11,7 +11,6 @@ export function SettingsNavigation() {
   return <SettingsSidebar label="Settings">
     <Link className={cls} activeOptions={{ exact: true }} activeProps={active} to="/settings/profile"><NavIcon name="users" />Profile</Link>
     <Link className={cls} activeOptions={{ exact: true }} activeProps={active} to="/settings/api-keys"><NavIcon name="key" />API keys</Link>
-    <Link className={cls} activeOptions={{ exact: true }} activeProps={active} to="/settings/authorized-clients"><NavIcon name="users" />Authorized clients</Link>
     <Link className={cls} activeOptions={{ exact: true }} activeProps={active} to="/settings/password"><NavIcon name="lock" />Change password</Link>
   </SettingsSidebar>;
 }
