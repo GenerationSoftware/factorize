@@ -113,12 +113,12 @@ test("model account create/delete uses server-managed state without an unlock ke
   const refreshAfterConflict = page.waitForResponse(response => response.url().includes("/api/v1/model-accounts") && response.request().method() === "GET" && response.status() === 200);
   await models.getByLabel("Actions for Work account",{exact:true}).click();
   await models.getByRole("menuitem", { name: "Delete account" }).click();
-  await models.getByRole("alert").filter({ hasText: "collection changed" }).waitFor();
+  await page.getByRole("alert").filter({ hasText: "collection changed" }).waitFor();
   await refreshAfterConflict;
   page.once("dialog", dialog => dialog.accept());
   await models.getByLabel("Actions for Work account",{exact:true}).click();
   await models.getByRole("menuitem", { name: "Delete account" }).click();
-  await models.getByText(/No integrations added yet/).waitFor();
+  await page.getByText(/No integrations added yet/).waitFor();
   assert.equal(deleteBodies.length, 2);
   assert.equal(deleteBodies[0].expectedRevision, 1);
   assert.equal(deleteBodies[1].expectedRevision, 2);

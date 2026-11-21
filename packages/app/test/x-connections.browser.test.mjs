@@ -86,7 +86,7 @@ test("X settings explains terminal authorization failures and offers an explicit
   await page.goto(origin + "/settings/integrations");
   await page.getByText("Needs attention", { exact: true }).waitFor();
   await page.getByLabel("Actions for X · Work account",{exact:true}).click();
-  await page.getByRole("button", { name: "Connect X", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Connect X", exact: true }).click();
   await page.waitForURL("https://x.com/i/oauth2/authorize**");
   assert.equal(authorizeCalls, 1);
   await context.close();
@@ -115,11 +115,11 @@ test("X owner can test safely and replace app credentials before same-account re
   await page.route("https://x.com/**", route => route.fulfill({ contentType: "text/html", body: "X consent" }));
   await page.goto(origin + "/settings/integrations");
   await page.getByLabel("Actions for X · Work account",{exact:true}).click();
-  await page.getByRole("button", { name: "Test connection",exact:true }).click();
+  await page.getByRole("menuitem", { name: "Test connection",exact:true }).click();
   await page.getByRole("status").filter({ hasText: "X could not verify the connection" }).waitFor();
   assert.equal(tested, 1);
   await page.getByLabel("Actions for X · Work account",{exact:true}).click();
-  await page.getByRole("button", { name: "Replace app credentials" }).click();
+  await page.getByRole("menuitem", { name: "Replace app credentials" }).click();
   await page.getByRole("dialog",{name:"Replace X app credentials",exact:true}).waitFor();
   await page.getByLabel("Replacement OAuth 2.0 Client ID").fill("replacement-client");
   await page.getByLabel("Replacement OAuth 2.0 Client Secret").fill("replacement-secret");

@@ -18,7 +18,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("OpenAI-compatible provider
   for(const change of [{providerUrl:"file:///etc/passwd"},{providerUrl:"https://user:secret@models.example/v1"},{maxTokens:40000},{initialState:'{"OPENAI_API_KEY":"retired"}'}])expect((await request("/api/v1/model-accounts","POST",{...body,...change})).status).toBe(400);
  });
  it("supports a keyless replacement and rejects another Team's account and retired authorization routes",async()=>{
-  const body={name:"Keyless",description:null,expectedRevision:1,idempotencyKey:crypto.randomUUID(),providerUrl:"https://keyless.example/v1"};
+  const body={name:"Keyless",description:null,apiKey:null,expectedRevision:1,idempotencyKey:crypto.randomUUID(),providerUrl:"https://keyless.example/v1"};
   expect((await request(`/api/v1/model-accounts/${id}`,"PUT",body)).status).toBe(200);
   const stored=await new CredentialRepository(f.db,f.tenantId,f.env.CREDENTIAL_ENCRYPTION_KEY).managedCredential(id,"model");expect(configuredPiProvider(stored!.payload)).toMatchObject({providerUrl:body.providerUrl});expect(configuredPiProvider(stored!.payload)?.apiKey).toBeUndefined();
   expect((await request(`/api/v1/model-accounts/${crypto.randomUUID()}`,"PUT",body)).status).toBe(404);

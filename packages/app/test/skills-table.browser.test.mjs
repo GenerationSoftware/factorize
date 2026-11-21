@@ -25,7 +25,7 @@ for(const width of [390,1280])test(`skills table, descriptions, Run actions and 
    return route.fulfill({json});
   });
   await page.goto(origin+"/skills");await page.getByText("Loading skills…",{exact:true}).waitFor();releaseInitial();const table=page.getByRole("table",{name:"Skills",exact:true});await table.waitFor();
-  assert.deepEqual(await table.getByRole("columnheader").allTextContents(),["Skill name","Description","Actions"]);
+  assert.deepEqual(await table.getByRole("columnheader").allTextContents(),["Run skill","Skill name","Description"]);
   await table.getByText("Review every day",{exact:true}).waitFor();await table.getByRole("button",{name:"Run scheduled-review",exact:true}).waitFor();
   assert.equal(await page.getByRole("heading",{name:"Skills",exact:true}).count(),0);assert.equal(await page.getByPlaceholder("Search keys").count(),0);assert.equal(await page.getByRole("navigation",{name:"Skill views"}).count(),0);
   await page.getByRole("button",{name:"More skills",exact:true}).click();await table.getByRole("link",{name:"manual-only",exact:true}).waitFor();await table.getByRole("button",{name:"Run manual-only",exact:true}).waitFor();
