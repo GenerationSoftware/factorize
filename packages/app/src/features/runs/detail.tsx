@@ -1,4 +1,5 @@
 import {RunTelemetry} from "./telemetry";
+import { VmAttachments } from "../vms/attachments";
 import { Button, Breadcrumb, Page, ResourceHeader, RunStatusLabel } from "../../shared/ui";
 import { ContinuousTrace } from "./continuous-trace";
 import { ExpandedRunDetail } from "./expanded-detail";
@@ -24,9 +25,9 @@ function RuntimeInfo({ startedAt, updatedAt, active }: { startedAt: string | nul
 export function RunDetail() {
   const { runId } = useParams({ strict: false });
   const location = useLocation(), navigate = useNavigate(), cache = useQueryClient();
-  const tab: "trace" | "info" = location.pathname.endsWith("/info") ? "info" : "trace";
+  const tab: "trace" | "info" | "vms" = location.pathname.endsWith("/vms") ? "vms" : location.pathname.endsWith("/info") ? "info" : "trace";
   const fullTrace = location.pathname.endsWith("/trace");
-  const tabPath = (name: "trace" | "info"): "/runs/$runId" | "/runs/$runId/info" => name === "trace" ? "/runs/$runId" : "/runs/$runId/info";
+  const tabPath = (name: typeof tab) => ({ trace: "/runs/$runId", info: "/runs/$runId/info", vms: "/runs/$runId/vms" } as const)[name];
   const status = useQuery(runStatusQuery(runId!));
   const trigger = useQuery({ ...triggerQuery(status.data?.trigger_id ?? ""), enabled: !!status.data?.trigger_id });
   const triggerRuns = useQuery({ ...runPageQuery({ triggerId: status.data?.trigger_id ?? undefined, limit: 30 }), enabled: !!status.data?.trigger_id });
@@ -63,13 +64,13 @@ export function RunDetail() {
     {!status.data && <ResourceHeader type="Run" title="Run" />}
     {stop.error && <p role="alert">{stop.error.message}</p>}
     {!fullTrace && <nav role="tablist" aria-label="Run details" className="mt-5 flex gap-1 overflow-x-auto border-b border-stone-200 dark:border-slate-700">
-      {(["trace", "info"] as const).map((name, index, tabs) => <Link key={name} to={tabPath(name)} params={{ runId: runId! }} search={{ after: 0 }} role="tab" id={`run-tab-${name}`} aria-controls={`run-panel-${name}`} aria-selected={tab === name} tabIndex={tab === name ? 0 : -1}
+      {(["trace", "info", "vms"] as const).map((name, index, tabs) => <Link key={name} to={tabPath(name)} params={{ runId: runId! }} search={{ after: 0 }} role="tab" id={`run-tab-${name}`} aria-controls={`run-panel-${name}`} aria-selected={tab === name} tabIndex={tab === name ? 0 : -1}
         className={`inline-flex min-h-11 shrink-0 items-center gap-2 border-b-2 px-4 py-3 text-sm capitalize ${tab === name ? "border-factorize-500 font-semibold" : "border-transparent text-slate-600 hover:border-stone-300 dark:text-slate-400"}`}
         onKeyDown={event => {
           const next = event.key === "ArrowRight" ? (index + 1) % tabs.length : event.key === "ArrowLeft" ? (index + tabs.length - 1) % tabs.length : event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : null;
           if (next === null) return;
           event.preventDefault(); void navigate({ to: tabPath(tabs[next]), params: { runId: runId! }, search: { after: 0 } }).then(() => document.getElementById(`run-tab-${tabs[next]}`)?.focus());
-        }}><NavIcon name={name} />{name === "info" ? "Info" : name[0].toUpperCase() + name.slice(1)}</Link>)}
+        }}><NavIcon name={name === "vms" ? "runs" : name} />{{trace: "Trace", info: "Info", vms: "VMs"}[name]}</Link>)}
     </nav>}
     {!fullTrace && <section role="tabpanel" id="run-panel-info" aria-labelledby="run-tab-info" hidden={tab !== "info"} tabIndex={0}>
       {status.data && <dl className="my-4 grid min-w-0 gap-4 sm:grid-cols-2">
@@ -82,6 +83,9 @@ export function RunDetail() {
       <RunTelemetry runId={runId!} active={active} visible={tab==="info"}/>
       <ExpandedRunDetail runId={runId!} />
       {status.data && !active ? <ReplayTrace runId={runId!} /> : <p className="my-4">Replay is available after the run finishes and trace finalization completes.</p>}
+    </section>}
+    {!fullTrace && tab === "vms" && runId && <section role="tabpanel" id="run-panel-vms" aria-labelledby="run-tab-vms" tabIndex={0} className="my-4">
+      <VmAttachments source={{ kind: "run", id: runId }} />
     </section>}
     {(fullTrace || tab === "trace") && <section role="tabpanel" id="run-panel-trace" aria-labelledby="run-tab-trace" hidden={!fullTrace && tab !== "trace"} tabIndex={0} className="flex min-h-0 flex-col">
     {fullTrace ? <><Breadcrumb><Link to="/runs/$runId" params={{ runId: runId! }}>Run overview</Link></Breadcrumb><h2 className="my-4 text-xl font-semibold">Full trace</h2></> : <div className="my-4 flex flex-wrap items-center justify-between gap-3"><h2 className="text-xl font-semibold">Trace</h2><a className="rounded-lg border border-stone-300 px-3 py-2 text-sm font-medium hover:bg-stone-100 dark:border-slate-700 dark:hover:bg-slate-800" href={`/runs/${encodeURIComponent(runId!)}/trace`} target="_blank" rel="noopener noreferrer">Show full trace</a></div>}

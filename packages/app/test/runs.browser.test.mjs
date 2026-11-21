@@ -9,6 +9,27 @@ const siblingRunId = "00000000-0000-4000-8000-000000000004";
 before(async () => { server = createServer(async (req, res) => { const path = new URL(req.url, "http://local").pathname, file = (/^(\/assets\/|\/theme-init.js$|\/bee-mark-monochrome.png$|\/favicon.ico$)/.test(path)) ? path : "/index.html"; try { const body = await readFile(new URL("../dist" + file, import.meta.url)); res.setHeader("Content-Type", file.endsWith(".js") ? "application/javascript" : file.endsWith(".css") ? "text/css" : "text/html"); res.end(body); } catch { res.statusCode = 404; res.end(); } }); await new Promise(resolve => server.listen(0, "127.0.0.1", resolve)); origin = "http://127.0.0.1:" + server.address().port; browser = await chromium.launch({ headless: true }); });
 after(async () => { await browser?.close(); if (server) await new Promise(resolve => server.close(resolve)); });
 async function setup(locale = "en-US") { const context = await browser.newContext({ locale }), page = await context.newPage(); page.setDefaultTimeout(10000); await page.route("**/api/v1/session", route => route.fulfill({ json: { authenticated: true, user: { id: "owner", email: "owner@example.test" }, team: { id: "tenant", name: "Workspace" }, capabilities: [], expiresAt: "2026-10-10T00:00:00Z" } })); return { context, page }; }
+test("VM inventory links to run history and shows the empty state", async () => {
+  const { context, page } = await setup();
+  const attachment = { id: "test-binding", source: "run", sourceId: runId, sourceName: null, vmId: "fixture-worker", app: null, provider: "exe.dev", expiresAt: time, revokedAt: null, status: "active" };
+  let active = true;
+  await page.route("**/api/v1/vms", route => route.fulfill({ json: active ? [attachment] : [] }));
+  await page.route(`**/api/v1/runs/${runId}/status`, route => route.fulfill({ json: { id: runId, trigger_id: null, run_name: "VM fixture", state: "succeeded", finalizing: false, trace_revision: "rev", artifact_state: "stored", created_at: time, updated_at: time, started_at: time, destination_url: null } }));
+  await page.route(`**/api/v1/runs/${runId}/vms`, route => route.fulfill({ json: [{ ...attachment, status: "revoked", revokedAt: time }] }));
+  await page.goto(origin + "/vms");
+  await page.getByRole("navigation", { name: "Dashboard navigation" }).getByRole("link", { name: "VMs", exact: true }).waitFor();
+  const table = page.getByRole("table", { name: "VM attachments" });
+  await table.getByRole("rowheader", { name: "fixture-worker" }).waitFor();
+  await table.getByRole("link", { name: /Run/ }).click();
+  await page.getByRole("tab", { name: "VMs" }).waitFor();
+  assert.equal(await page.getByRole("tab", { name: "VMs" }).getAttribute("aria-selected"), "true");
+  await page.getByRole("tabpanel", { name: "VMs" }).getByText("revoked", { exact: true }).waitFor();
+  active = false;
+  await page.goto(origin + "/vms");
+  await page.getByText("No VMs currently have Factorize proxy access.", { exact: true }).waitFor();
+  await context.close();
+});
+
 test("individual run uses team navigation and retains its run switcher", async () => {
   const { context, page } = await setup();
   await page.route(`**/api/v1/runs/${runId}/status`, route => route.fulfill({ json: { id: runId, trigger_id: triggerId, trigger_name: "Review builds", run_name: "Project run", state: "succeeded", finalizing: false, trace_revision: "rev", artifact_state: "stored", created_at: time, updated_at: time, started_at: time, destination_url: null } }));

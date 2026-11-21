@@ -2977,6 +2977,76 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/vms": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List VMs with active Factorize proxy access
+         * @description Requires an interactive owner session. Reports access status from Factorize records.
+         *
+         *     Requires the runs:read scope.
+         *
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+         */
+        get: operations["get_api_v1_vms"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{runId}/vms": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List a run's current and historical VM access
+         * @description Requires the runs:read scope.
+         *
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+         */
+        get: operations["get_api_v1_runs_runId_vms"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/access/authorizations/{grantId}/vms": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List current and historical VM access delegated by an MCP connection
+         * @description Requires an interactive owner session.
+         *
+         *     Requires the runs:read scope.
+         *
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+         */
+        get: operations["get_api_v1_access_authorizations_grantId_vms"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{runId}/status": {
         parameters: {
             query?: never;
@@ -12824,6 +12894,139 @@ export interface operations {
                 };
                 content: {
                     "application/json": Record<string, never>;
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    get_api_v1_vms: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Active VM access attachments */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        id: string;
+                        /** @enum {string} */
+                        source: "run" | "client";
+                        sourceId: string;
+                        sourceName: string | null;
+                        vmId: string;
+                        app: string | null;
+                        /** @enum {string} */
+                        provider: "exe.dev" | "fly.io";
+                        /** Format: date-time */
+                        expiresAt: string;
+                        revokedAt: string | null;
+                        /** @enum {string} */
+                        status: "active" | "expired" | "revoked" | "inactive" | "pending";
+                    }[];
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    get_api_v1_runs_runId_vms: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                runId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Run VM attachments */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        id: string;
+                        /** @enum {string} */
+                        source: "run" | "client";
+                        sourceId: string;
+                        sourceName: string | null;
+                        vmId: string;
+                        app: string | null;
+                        /** @enum {string} */
+                        provider: "exe.dev" | "fly.io";
+                        /** Format: date-time */
+                        expiresAt: string;
+                        revokedAt: string | null;
+                        /** @enum {string} */
+                        status: "active" | "expired" | "revoked" | "inactive" | "pending";
+                    }[];
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    get_api_v1_access_authorizations_grantId_vms: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                grantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Connection VM attachments */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        id: string;
+                        /** @enum {string} */
+                        source: "run" | "client";
+                        sourceId: string;
+                        sourceName: string | null;
+                        vmId: string;
+                        app: string | null;
+                        /** @enum {string} */
+                        provider: "exe.dev" | "fly.io";
+                        /** Format: date-time */
+                        expiresAt: string;
+                        revokedAt: string | null;
+                        /** @enum {string} */
+                        status: "active" | "expired" | "revoked" | "inactive" | "pending";
+                    }[];
                 };
             };
             400: components["responses"]["Error400"];

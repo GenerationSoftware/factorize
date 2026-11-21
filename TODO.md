@@ -8,14 +8,18 @@ Work in the exe.dev checkout on `codex/clients-vms-apps`. Follow `AGENTS.md` and
 
 - [x] Boot the VM from the pinned Factorize validation runner image.
 - [x] Clone `GenerationSoftware/factorize` and verify write access from the guest by pushing the feature branch and reading its ref back from GitHub.
-- [ ] Verify Node 24.12.0 and npm 11.19.0. Run the image smoke check for PostgreSQL and Chromium and run `npm ci`.
+- [x] Verify Node 24.12.0 and npm 11.19.0. Run the image smoke check for PostgreSQL and Chromium and run `npm ci`.
+
+Verified on `factorize-clients-vms-apps`. The image smoke script passed with the image-provided `/etc/environment` loaded for the non-login guest process. PostgreSQL authenticated on loopback, Chromium launched as `exedev`, and `npm ci` succeeded.
 
 ## 1. Display existing VM attachments
 
-- [ ] Add a **VMs** dashboard navigation entry. Show VMs with active Factorize proxy access, with machine name or ID, provider, access status, and links to the authorizing run or client connection.
-- [ ] Add **VMs** beside **Trace** and **Info** on run details. Show current and historical run VM access from retained binding records, including terminated runs where a record exists.
-- [ ] Make the same tenant-scoped read model support current and historical client VM grants for the Clients screen in item 2. Record attachment source, expiry and revocation where available. Use persisted access eligibility without polling provider power state or changing how VMs are granted or provisioned.
-- [ ] Verify with application tests that active and historical records appear in the appropriate views, unrelated machines are excluded, and another tenant cannot read them. Verify navigation and links in Chromium, including the empty state.
+- [x] Add a **VMs** dashboard navigation entry. Show VMs with active Factorize proxy access, with machine name or ID, provider, access status, and links to the authorizing run or client connection.
+- [x] Add **VMs** beside **Trace** and **Info** on run details. Show current and historical run VM access from retained binding records, including terminated runs where a record exists.
+- [x] Make the same tenant-scoped read model support current and historical client VM grants for the Clients screen in item 2. Record attachment source, expiry and revocation where available. Use persisted access eligibility without polling provider power state or changing how VMs are granted or provisioned.
+- [x] Verify with application tests that active and historical records appear in the appropriate views, unrelated machines are excluded, and another tenant cannot read them. Verify navigation and links in Chromium, including the empty state.
+
+Verified with `vitest run test/vm-attachments.postgres.test.ts` (2 passed), `npm run build:app`, the focused Chromium inventory test (1 passed), and `git diff --check`.
 
 ## 2. Move Authorized Clients to Clients
 

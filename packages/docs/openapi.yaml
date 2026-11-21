@@ -22580,6 +22580,317 @@ paths:
           schema:
             type: string
             minLength: 1
+  /api/v1/vms:
+    get:
+      summary: List VMs with active Factorize proxy access
+      description: |-
+        Requires an interactive owner session. Reports access status from Factorize records.
+
+        Requires the runs:read scope.
+
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+      responses:
+        "200":
+          description: Active VM access attachments
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    source:
+                      type: string
+                      enum:
+                        - run
+                        - client
+                    sourceId:
+                      type: string
+                    sourceName:
+                      type:
+                        - string
+                        - "null"
+                    vmId:
+                      type: string
+                    app:
+                      type:
+                        - string
+                        - "null"
+                    provider:
+                      type: string
+                      enum:
+                        - exe.dev
+                        - fly.io
+                    expiresAt:
+                      type: string
+                      format: date-time
+                      pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z))$
+                    revokedAt:
+                      anyOf:
+                        - type: string
+                          format: date-time
+                          pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z))$
+                        - type: "null"
+                    status:
+                      type: string
+                      enum:
+                        - active
+                        - expired
+                        - revoked
+                        - inactive
+                        - pending
+                  required:
+                    - id
+                    - source
+                    - sourceId
+                    - sourceName
+                    - vmId
+                    - app
+                    - provider
+                    - expiresAt
+                    - revokedAt
+                    - status
+                  additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: get_api_v1_vms
+      tags:
+        - vms
+      security:
+        - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
+        - cookieAuth: []
+      x-required-scope: runs:read
+      x-owner-session-required: false
+  /api/v1/runs/{runId}/vms:
+    get:
+      summary: List a run's current and historical VM access
+      responses:
+        "200":
+          description: Run VM attachments
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    source:
+                      type: string
+                      enum:
+                        - run
+                        - client
+                    sourceId:
+                      type: string
+                    sourceName:
+                      type:
+                        - string
+                        - "null"
+                    vmId:
+                      type: string
+                    app:
+                      type:
+                        - string
+                        - "null"
+                    provider:
+                      type: string
+                      enum:
+                        - exe.dev
+                        - fly.io
+                    expiresAt:
+                      type: string
+                      format: date-time
+                      pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z))$
+                    revokedAt:
+                      anyOf:
+                        - type: string
+                          format: date-time
+                          pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z))$
+                        - type: "null"
+                    status:
+                      type: string
+                      enum:
+                        - active
+                        - expired
+                        - revoked
+                        - inactive
+                        - pending
+                  required:
+                    - id
+                    - source
+                    - sourceId
+                    - sourceName
+                    - vmId
+                    - app
+                    - provider
+                    - expiresAt
+                    - revokedAt
+                    - status
+                  additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the runs:read scope.
+
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+      operationId: get_api_v1_runs_runId_vms
+      tags:
+        - runs
+      security:
+        - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
+        - cookieAuth: []
+      x-required-scope: runs:read
+      x-owner-session-required: false
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+  /api/v1/access/authorizations/{grantId}/vms:
+    get:
+      summary: List current and historical VM access delegated by an MCP connection
+      description: |-
+        Requires an interactive owner session.
+
+        Requires the runs:read scope.
+
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+      responses:
+        "200":
+          description: Connection VM attachments
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    source:
+                      type: string
+                      enum:
+                        - run
+                        - client
+                    sourceId:
+                      type: string
+                    sourceName:
+                      type:
+                        - string
+                        - "null"
+                    vmId:
+                      type: string
+                    app:
+                      type:
+                        - string
+                        - "null"
+                    provider:
+                      type: string
+                      enum:
+                        - exe.dev
+                        - fly.io
+                    expiresAt:
+                      type: string
+                      format: date-time
+                      pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z))$
+                    revokedAt:
+                      anyOf:
+                        - type: string
+                          format: date-time
+                          pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z))$
+                        - type: "null"
+                    status:
+                      type: string
+                      enum:
+                        - active
+                        - expired
+                        - revoked
+                        - inactive
+                        - pending
+                  required:
+                    - id
+                    - source
+                    - sourceId
+                    - sourceName
+                    - vmId
+                    - app
+                    - provider
+                    - expiresAt
+                    - revokedAt
+                    - status
+                  additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: get_api_v1_access_authorizations_grantId_vms
+      tags:
+        - access
+      security:
+        - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
+        - cookieAuth: []
+      x-required-scope: runs:read
+      x-owner-session-required: false
+      parameters:
+        - name: grantId
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 255
   /api/v1/runs/{runId}/status:
     get:
       summary: Get lightweight run status

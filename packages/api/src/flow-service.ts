@@ -30,6 +30,8 @@ import { submitRun } from "./postgres/run-submission";
 import type { DatabaseClient } from "./postgres/database";
 import { startRunInput,projectRunDefaults,scopeSchema, teamRunDefaults } from "./flow-schemas";
 import { grantVm, renewVmGrant, revokeVmGrant } from "./vm-grants";
+import { VmAttachmentRepository } from "./postgres/vm-attachment-repository";
+import { vmAttachments } from "./vm-attachment-contracts";
 import { AgentApiService, listAgentPolicies } from "./agent-api";
 import {PhoenixIntegration,runPhoenixStatus} from "./phoenix";
 import {phoenixInput,phoenixRevision} from "./phoenix-contracts";
@@ -701,6 +703,25 @@ export class ApiService {
   }
   async search(query: string) { await this.authorize("skills:read"); await this.authorize("runs:read"); return publicValue(searchResponse, await new OperationsRepository(databaseFor(this.env), this.auth.tenantId).search(query)); }
   async eventContextMetadata() { await this.authorize("triggers:read"); return eventContextCatalog; }
+  async listProxyVms() {
+    await this.authorizeOwnerSession("runs:read");
+    const repository = new VmAttachmentRepository(databaseFor(this.env), this.auth.tenantId);
+    const [runs, clients] = await Promise.all([repository.runs(), repository.clients(this.auth.userId)]);
+    return publicValue(vmAttachments, [...runs, ...clients].filter(attachment => attachment.status === "active"));
+  }
+
+  async listRunVms(runId: string) {
+    await this.getRunStatus(runId);
+    const repository = new VmAttachmentRepository(databaseFor(this.env), this.auth.tenantId);
+    return publicValue(vmAttachments, await repository.runs(runId));
+  }
+
+  async listClientVms(grantId: string) {
+    await this.authorizeOwnerSession("runs:read");
+    const repository = new VmAttachmentRepository(databaseFor(this.env), this.auth.tenantId);
+    return publicValue(vmAttachments, await repository.clients(this.auth.userId, grantId));
+  }
+
   async getRunStatus(runId: string) { await this.authorize("runs:read"); const status = await new RunQueryRepository(databaseFor(this.env), this.auth.tenantId).status(runId); if (!status) throw new ServiceError(404, "not_found", "Run not found"); return status; }
   async reportRunError(runId: string, input: unknown) {
     await this.authorize("runs:write");

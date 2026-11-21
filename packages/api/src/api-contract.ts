@@ -25,6 +25,7 @@ import { runSummaryResponse, runPageResponse, runStatusResponse, fullRunResponse
 import { triggerPageQuery, triggerSummaryPage, triggerSelectorPage, triggerResponse, triggerUpdateInput } from "./job-contracts";
 import { projectGraphResponse } from "./project-graph-contracts";
 import { z } from "zod";
+import { vmAttachments } from "./vm-attachment-contracts";
 import type { ApiService } from "./flow-service";
 import {
   triggerInputSchema,
@@ -1085,6 +1086,20 @@ export const API_ROUTES: RouteContract[] = [
     },
     (service, { params }) => service.getWebhookDelivery(params.deliveryId),
   ),
+  route("GET", "/api/v1/vms", "runs:read", {
+    summary: "List VMs with active Factorize proxy access",
+    description: "Requires an interactive owner session. Reports access status from Factorize records.",
+    responses: { "200": { description: "Active VM access attachments", content: { "application/json": { schema: jsonSchema(vmAttachments, "output") } } } },
+  }, service => service.listProxyVms()),
+  route("GET", "/api/v1/runs/{runId}/vms", "runs:read", {
+    summary: "List a run's current and historical VM access",
+    responses: { "200": { description: "Run VM attachments", content: { "application/json": { schema: jsonSchema(vmAttachments, "output") } } } },
+  }, (service, { params }) => service.listRunVms(params.runId), { parameters: z.object({ runId: z.guid() }) }),
+  route("GET", "/api/v1/access/authorizations/{grantId}/vms", "runs:read", {
+    summary: "List current and historical VM access delegated by an MCP connection",
+    description: "Requires an interactive owner session.",
+    responses: { "200": { description: "Connection VM attachments", content: { "application/json": { schema: jsonSchema(vmAttachments, "output") } } } },
+  }, (service, { params }) => service.listClientVms(params.grantId), { parameters: z.object({ grantId: z.string().min(1).max(255) }) }),
   route("GET", "/api/v1/runs/{runId}/status", "runs:read", {
     summary: "Get lightweight run status",
     description: "Only bounded encrypted prompt/script previews are decrypted; full prompt, invocation context, artifacts, activity and diagnostics stay in the detail operation. Continue polling terminal runs while finalizing is true. trace_revision changes on generation transition or canonical projection/replay; live appends retain the revision. Full detail remains available at GET /runs/{runId}.",
