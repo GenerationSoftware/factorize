@@ -79,3 +79,24 @@ test("run header shows its parent skill above RUN and links to the skill page", 
   await link.click(); await expect(page).toHaveURL(origin + `/skills/${skillId}`); await expect(page.getByRole("heading", { name: "review", exact: true })).toBeVisible();
   parent = { launch_skill_id: null, launch_skill_key: null }; await page.goto(origin + `/runs/${runId}`); await expect(page.getByRole("heading", { name: run.run_name, exact: true })).toBeVisible(); await expect(label).toHaveCount(0);
 });
+
+test("Settings use the common header borders and run pages have no rename UI", async ({ page }) => {
+  await setup(page);
+  const borders = locator => locator.evaluate(node => {
+    const nav = getComputedStyle(node), header = getComputedStyle(node.closest("header"));
+    return { top: nav.borderTopWidth, topColor: nav.borderTopColor, bottom: header.borderBottomWidth, bottomColor: header.borderBottomColor, background: header.backgroundColor };
+  });
+  for (const { width, theme } of [{ width: 390, theme: "dark" }, { width: 1280, theme: "light" }]) {
+    await page.setViewportSize({ width, height: 900 }); await page.emulateMedia({ colorScheme: theme }); await page.goto(origin + "/integrations");
+    const nav = page.getByRole("banner").getByRole("navigation", { name: "Dashboard navigation" }); await expect(nav).toBeVisible(); const expected = await borders(nav);
+    let sidebar;
+    for (const path of ["/settings/models", "/settings/models/new", "/settings/vm", "/settings/profile"]) {
+      await page.goto(origin + path); await expect(nav).toBeVisible(); await expect(page.getByRole("navigation", { name: "Dashboard navigation" })).toHaveCount(1); expect(await borders(nav)).toEqual(expected);
+      const localNav = page.getByRole("navigation", { name: path.endsWith("profile") ? "Settings" : "Team settings", exact: true });
+      const current = await localNav.evaluate(node => { const style = getComputedStyle(node); return { width: style.borderBottomWidth, color: style.borderBottomColor }; });
+      if (sidebar) expect(current).toEqual(sidebar); else sidebar = current;
+    }
+  }
+  await page.goto(origin + `/runs/${runId}`); await expect(page.getByRole("heading", { name: run.run_name, exact: true })).toBeVisible(); await expect(page.getByRole("button", { name: "Switch run", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Rename", exact: true })).toHaveCount(0); await expect(page.getByRole("textbox", { name: "Run name", exact: true })).toHaveCount(0);
+});

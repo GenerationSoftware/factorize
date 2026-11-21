@@ -1,18 +1,20 @@
 import type { ReactNode } from "react";
 import { Page } from "../../shared/ui";
-import { TeamNavigation } from "../auth/team-navigation";
-import { Link, useRouterState } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
 import { NavIcon } from "../../shared/nav-icon";
+export function SettingsSidebar({ label, children }: { label: string; children: ReactNode }) {
+  return <nav aria-label={label} className="flex flex-wrap gap-2 border-b border-stone-200 pb-4 text-sm font-semibold dark:border-slate-800 md:flex-col md:border-b-0">{children}</nav>;
+}
 export function SettingsNavigation() {
   const cls = "inline-flex items-center gap-2 rounded-lg px-3 py-2 hover:bg-stone-100 dark:hover:bg-slate-800";
   const active = { className: "bg-factorize-50 text-factorize-700 dark:bg-factorize-500/10 dark:text-factorize-500" };
-  return <nav aria-label="Settings" className="flex flex-wrap gap-2 border-b border-stone-200 pb-4 text-sm font-semibold dark:border-slate-800 md:flex-col md:border-b-0">
+  return <SettingsSidebar label="Settings">
     <Link className={cls} activeOptions={{ exact: true }} activeProps={active} to="/settings/profile"><NavIcon name="users" />Profile</Link>
     <Link className={cls} activeOptions={{ exact: true }} activeProps={active} to="/settings/api-keys"><NavIcon name="key" />API keys</Link>
     <Link className={cls} activeOptions={{ exact: true }} activeProps={active} to="/settings/authorized-clients"><NavIcon name="users" />Authorized clients</Link>
     <Link className={cls} activeOptions={{ exact: true }} activeProps={active} to="/settings/password"><NavIcon name="lock" />Change password</Link>
-  </nav>;
+  </SettingsSidebar>;
 }
-export function SettingsFrame({ title, children, navigation }: { title: string; children: ReactNode; navigation: ReactNode }) { const pathname = useRouterState({ select: state => state.location.pathname }); return <><TeamNavigation pathname={pathname}/><Page><div className="grid min-w-0 gap-8 md:grid-cols-[13rem_minmax(0,1fr)] md:gap-10">{navigation}<div className="min-w-0"><h1>{title}</h1><p className="mb-6 text-sm text-slate-600 dark:text-slate-400">Manage access to your software factory.</p>{children}</div></div></Page></>; }
+export function SettingsFrame({ title, children, navigation }: { title: string; children: ReactNode; navigation: ReactNode }) { return <Page><div className="grid min-w-0 gap-8 md:grid-cols-[13rem_minmax(0,1fr)] md:gap-10">{navigation}<div className="min-w-0"><h1>{title}</h1><p className="mb-6 text-sm text-slate-600 dark:text-slate-400">Manage access to your software factory.</p>{children}</div></div></Page>; }
 
 export function SettingsLayout({title,children}:{title:string;children:ReactNode}) { return <SettingsFrame title={title} navigation={<SettingsNavigation />}>{children}</SettingsFrame>; }
