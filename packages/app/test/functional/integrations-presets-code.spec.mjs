@@ -80,3 +80,21 @@ test("skills settings use personal Git tokens only for Factorize repositories an
   await expect(page.getByText("Auth with Github", { exact: true })).toBeVisible(); await expect(page.getByRole("button", { name: "Get Git Token", exact: true })).toHaveCount(0); await expect(page.getByLabel("Git token", { exact: true })).toHaveCount(0);
   expect(tokenRequests).toBe(1); expect(legacyRequests).toBe(0);
 });
+
+test("integration add and action controls align left at the same size on desktop and mobile", async ({ page }, testInfo) => {
+  await mockApi(page); await page.route("**/api/v1/integrations/phoenix", route => route.fulfill({ json: { configured: false, revision: 0 } }));
+  for (const width of [390, 1280]) {
+    await page.setViewportSize({ width, height: 900 }); await page.goto(origin + "/integrations");
+    const row = page.getByRole("list", { name: "Installed Integrations" }).getByRole("listitem").first(), actions = row.getByRole("button", { name: "Actions for Linear" });
+    const providers = page.getByRole("list", { name: "Available integration providers" }), add = providers.getByRole("link", { name: "Add Linear integration" });
+    await expect(actions).toBeVisible(); await expect(add).toBeVisible();
+    const actionBox = await actions.boundingBox(), addBox = await add.boundingBox();
+    expect(actionBox.width).toBe(40); expect(actionBox.height).toBe(40); expect(addBox.width).toBe(actionBox.width); expect(addBox.height).toBe(actionBox.height); expect(addBox.x).toBe(actionBox.x);
+    expect(actionBox.x + actionBox.width).toBeLessThan((await row.getByText("Linear", { exact: true }).boundingBox()).x);
+    expect(addBox.x + addBox.width).toBeLessThan((await providers.getByText("Linear", { exact: true }).boundingBox()).x);
+    await actions.click(); await expect(page.getByRole("menuitem", { name: "Reconnect Linear" })).toBeVisible(); await withinViewport(page.getByRole("menu")); await page.keyboard.press("Escape");
+    await providers.getByRole("button", { name: "Add Phoenix Cloud telemetry integration" }).click(); await expect(page.getByRole("dialog", { name: "Add Phoenix integration" })).toBeVisible(); await page.keyboard.press("Escape");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: testInfo.outputPath(`left-integration-controls-${width}.png`) });
+  }
+});
