@@ -196,7 +196,7 @@ starting a new run. After a successful manual review, add a
 ## Skills and presets
 Source: https://docs.factorize.sh/work/skills
 
-The team navigation contains **Skills**, **Runs**, **Integrations**, and **Settings**. Skills appear in a table with description, VM preset, permission preset, model preset and **Triggers**. Triggers is Yes when any non-manual event exists, including disabled events. Global search matches only skill names and run names.
+The team navigation contains **Skills**, **Runs**, **Integrations**, and **Settings**. Skills appear in a table with name, description and a **Run** action. Run launches that skill directly and opens its run. Preset choices and trigger settings remain on the skill detail page. Global search matches only skill names and run names.
 
 ## Skill definition
 

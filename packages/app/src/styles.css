@@ -73,3 +73,16 @@
 
 /* ANSI colors use a stable dark terminal surface in both application themes. */
 .terminal { background: #151410; color: #f5f1e8; }
+
+/* Permission presets present shared connection choices as selectable cards. */
+.permission-preset-connections > fieldset { border: 0; padding: 0; display: grid; gap: .75rem; }
+.permission-preset-connections > fieldset > legend { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.permission-preset-connections > fieldset > p { grid-column: 1 / -1; margin: 0; font-size: .875rem; }
+.permission-preset-connections label { margin: 0; min-width: 0; overflow-wrap: anywhere; padding: .875rem; border: 1px solid var(--color-stone-200); border-radius: .625rem; align-items: flex-start; font-size: .875rem; cursor: pointer; }
+.permission-preset-connections label:hover { background: var(--color-stone-50); }
+.permission-preset-connections label:has(input:checked) { border-color: var(--color-factorize-500); background: var(--color-factorize-50); }
+.permission-preset-connections input { margin-top: .2rem; width: 1rem; height: 1rem; flex-shrink: 0; accent-color: var(--color-factorize-600); }
+[data-theme="dark"] .permission-preset-connections label { border-color: var(--color-slate-700); }
+[data-theme="dark"] .permission-preset-connections label:hover { background: var(--color-slate-800); }
+[data-theme="dark"] .permission-preset-connections label:has(input:checked) { border-color: var(--color-factorize-500); background: color-mix(in srgb, var(--color-factorize-500) 10%, transparent); }
+@media (min-width: 640px) { .permission-preset-connections > fieldset { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

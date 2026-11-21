@@ -8,7 +8,7 @@ before(async()=>{server=createServer(async(req,res)=>{const path=new URL(req.url
 after(async()=>{await browser?.close();await new Promise(resolve=>server.close(resolve));});
 
 
-for(const width of [390,1280])test(`skills table, trigger flags, defaults and pagination at ${width}px`,async()=>{
+for(const width of [390,1280])test(`skills table, descriptions, Run actions and pagination at ${width}px`,async()=>{
  const context=await browser.newContext({viewport:{width,height:900}}),page=await context.newPage();page.setDefaultTimeout(7000);
  try{
   let mode="rows",releaseInitial;const initialGate=new Promise(resolve=>releaseInitial=resolve);let initial=true;
@@ -25,10 +25,10 @@ for(const width of [390,1280])test(`skills table, trigger flags, defaults and pa
    return route.fulfill({json});
   });
   await page.goto(origin+"/skills");await page.getByText("Loading skills…",{exact:true}).waitFor();releaseInitial();const table=page.getByRole("table",{name:"Skills",exact:true});await table.waitFor();
-  assert.deepEqual(await table.getByRole("columnheader").allTextContents(),["Skill name","Description","VM preset","Permission preset","Model preset","Triggers","Actions"]);
-  await table.getByText("Review every day",{exact:true}).waitFor();await table.getByText("Standard",{exact:true}).waitFor();await table.getByText("Team default · Limited",{exact:true}).waitFor();await table.getByText("Yes",{exact:true}).waitFor();
+  assert.deepEqual(await table.getByRole("columnheader").allTextContents(),["Skill name","Description","Actions"]);
+  await table.getByText("Review every day",{exact:true}).waitFor();await table.getByRole("button",{name:"Run scheduled-review",exact:true}).waitFor();
   assert.equal(await page.getByRole("heading",{name:"Skills",exact:true}).count(),0);assert.equal(await page.getByPlaceholder("Search keys").count(),0);assert.equal(await page.getByRole("navigation",{name:"Skill views"}).count(),0);
-  await page.getByRole("button",{name:"More skills",exact:true}).click();await table.getByRole("link",{name:"manual-only",exact:true}).waitFor();await table.getByText("No",{exact:true}).waitFor();
+  await page.getByRole("button",{name:"More skills",exact:true}).click();await table.getByRole("link",{name:"manual-only",exact:true}).waitFor();await table.getByRole("button",{name:"Run manual-only",exact:true}).waitFor();
   await page.getByRole("button",{name:"Previous skills",exact:true}).click();await table.getByRole("link",{name:"scheduled-review",exact:true}).waitFor();
   mode="empty";await page.reload();await page.getByRole("heading",{name:"No skills yet",exact:true}).waitFor();
   mode="error";await page.reload();await page.getByRole("alert").filter({hasText:"Fixture list unavailable"}).waitFor();
