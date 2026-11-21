@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
-import { mockApi, runId } from "../visual/fixtures.mjs";
+import { mockApi, runId, run } from "../visual/fixtures.mjs";
 let server, origin;
 test.beforeAll(async () => {
   server = createServer(async (req, res) => {
@@ -64,3 +64,18 @@ for (const width of [390, 1280]) {
     await page.screenshot({ path: testInfo.outputPath(`installed-integrations-${width}.png`), fullPage: true });
   });
 }
+
+
+test("run header shows its parent skill above RUN and links to the skill page", async ({ page }) => {
+  await setup(page); await page.emulateMedia({ colorScheme: "dark" });
+  let parent = { launch_skill_id: skillId, launch_skill_key: "review" };
+  await page.route(`**/api/v1/runs/${runId}/status`, route => route.fulfill({ json: { ...run, trigger_id: null, ...parent } }));
+  await page.goto(origin + `/runs/${runId}`);
+  const label = page.getByText("SKILL:", { exact: true }), link = page.getByRole("link", { name: "review", exact: true }), runLabel = page.getByText("Run", { exact: true });
+  await expect(link).toBeVisible(); await expect(label).toHaveCSS("font-size", "12px");
+  expect(await label.evaluate(node => getComputedStyle(node).color)).toBe(await runLabel.evaluate(node => getComputedStyle(node).color));
+  expect(await link.evaluate(node => getComputedStyle(node).color)).not.toBe(await label.evaluate(node => getComputedStyle(node).color));
+  expect((await label.boundingBox()).y).toBeLessThan((await runLabel.boundingBox()).y);
+  await link.click(); await expect(page).toHaveURL(origin + `/skills/${skillId}`); await expect(page.getByRole("heading", { name: "review", exact: true })).toBeVisible();
+  parent = { launch_skill_id: null, launch_skill_key: null }; await page.goto(origin + `/runs/${runId}`); await expect(page.getByRole("heading", { name: run.run_name, exact: true })).toBeVisible(); await expect(label).toHaveCount(0);
+});
