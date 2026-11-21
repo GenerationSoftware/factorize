@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "factorize-api-client";
 import { integrationsQuery } from "./queries";
 import { installationsQuery } from "../jobs/provider-queries";
-import { Page, PageHeader } from "../../shared/ui";
+import { Page } from "../../shared/ui";
 import { IntegrationForm } from "./integration-form";
 import { messageOf } from "../auth/session";
 import { useBearerIntegrations } from "./bearer-integrations";
@@ -18,7 +18,7 @@ import { Dialog } from "../../shared/dialog";
 type Kind = "exe" | "amp" | "cloudflareTail" | "github";
 const linkClass = "inline-flex min-h-10 items-center rounded-lg border border-stone-200 px-3 py-2 text-sm font-semibold hover:bg-stone-100 dark:border-slate-700 dark:hover:bg-slate-800";
 export function Integrations() {
-  return <Page><PageHeader title="Integrations" description="Connect the providers used by your triggers." /><IntegrationPoliciesProvider><IntegrationsContent /></IntegrationPoliciesProvider></Page>;
+  return <Page><IntegrationPoliciesProvider><IntegrationsContent /></IntegrationPoliciesProvider></Page>;
 }
 function IntegrationsContent() {
   const cache = useQueryClient(), status = useQuery(integrationsQuery), github = useQuery(installationsQuery);
@@ -53,10 +53,10 @@ function IntegrationsContent() {
   const pending = status.isPending || github.isPending || fly.pending || bearer.pending || models.pending || x.pending || phoenix.pending;
   return <>
     {[status.error, github.error].filter(Boolean).map((error, i) => <p role="alert" key={i}>{error?.message}</p>)}
-    <section aria-labelledby="your-integrations-heading"><h2 id="your-integrations-heading" className="text-xl font-bold">Your integrations</h2><p className="mb-4 mt-1 text-sm text-slate-600 dark:text-slate-400">Manage workspace connections. Default API access applies to connected MCP clients; other access requires approval.</p>
+    <section aria-labelledby="your-integrations-heading"><h2 id="your-integrations-heading" className="text-xl font-bold">Installed Integrations</h2><p className="mb-4 mt-1 text-sm text-slate-600 dark:text-slate-400">Manage workspace connections. Default API access applies to connected MCP clients; other access requires approval.</p>
       {pending && <p role="status">Loading integrations…</p>}
       {!count && !pending && <p className="rounded-xl border border-dashed border-stone-300 p-5 dark:border-slate-700">No integrations added yet. Choose a provider below to get started.</p>}
-      {Boolean(count) && <div role="list" aria-label="Your integrations" className="rounded-xl border border-stone-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+      {Boolean(count) && <div role="list" aria-label="Installed Integrations" className="rounded-xl border border-stone-200 bg-white dark:border-slate-800 dark:bg-slate-900">
         {data?.linear && <IntegrationRow kind="linear" credentialId="linear" name="Linear" detail={data.linear.organizationName ?? data.linear.viewerEmail ?? "Connected account"} actions={[{label: "Reconnect Linear", href: "/auth/linear"}]} />}
         {data?.clickup && <IntegrationRow kind="clickup" credentialId="clickup" name="ClickUp" detail={data.clickup.teamName ?? "Connected workspace"} actions={[{label: "Reconnect ClickUp", href: "/auth/clickup"}]} />}
         {github.data?.map(i => <IntegrationRow key={i.installationId} kind="github" credentialId={String(i.installationId)} name={`GitHub · ${i.accountLogin}`} detail={i.accountType} connected={i.state === "active"} status={i.state === "active" ? "Connected" : `Needs attention · ${i.state}`} actions={[{label: "Manage on GitHub", href: "https://github.com/settings/installations", external: true}, ...actions("github", String(i.installationId))]}>{result(`github:${i.installationId}`)}</IntegrationRow>)}

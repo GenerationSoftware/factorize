@@ -68,6 +68,6 @@ export const screens = [
   ["trigger", "/triggers/" + triggerId, trigger.name],
   ["editor", "/triggers/" + triggerId + "/settings", trigger.name],
   ["trace", "/runs/" + runId, run.run_name],
-  ["settings", "/integrations", "Integrations"],
+  ["settings", "/integrations", "Installed Integrations"],
   ["login", "/auth/login", "Sign in to Factorize"],
 ];

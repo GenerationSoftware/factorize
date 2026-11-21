@@ -99,7 +99,7 @@ test("model account create/delete uses server-managed state without an unlock ke
   await page.goto(origin + "/settings/integrations");
   await page.getByRole("button",{name:"Add Model integration integration",exact:true}).click();
   const form = page.getByRole("dialog",{name:"Add a model integration"});
-  const models = page.getByRole("region", { name: "Your integrations" });
+  const models = page.getByRole("list", { name: "Installed Integrations" });
   await form.getByLabel("Name").fill("Work account");
   await form.getByLabel("Description (optional)").fill("Personal account");
   await form.getByLabel("Provider URL",{exact:true}).fill("https://models.example/v1");
@@ -137,7 +137,7 @@ for (const malformed of ["bearer integrations", "model accounts"]) test(`setting
   await page.route("**/api/v1/model-accounts", route => route.fulfill({ json: malformed === "model accounts" ? { revision: 0 } : { revision: 0, accounts: [] } }));
   try {
     await page.goto(origin + "/integrations");
-    await page.getByRole("heading", { name: "Integrations", exact: true }).waitFor();
+    await page.getByRole("heading", { name: "Installed Integrations", exact: true }).waitFor();
     await page.getByRole("alert").filter({ hasText: /could not be loaded\. Reload the page to try again\./ }).waitFor();
     await page.getByRole("navigation", { name: "Dashboard navigation", exact: true }).getByRole("link", { name: "Settings", exact: true }).waitFor();
     assert.equal(await page.getByRole("heading", { name: "Could not load this page", exact: true }).count(), 0);
@@ -164,7 +164,7 @@ test("all connections share one list, row policies save by identity and disabled
     return route.fulfill({json:{integrations:policies}});
   });
   await page.goto(origin+'/settings/integrations');
-  const list=page.getByRole('list',{name:'Your integrations'});
+  const list=page.getByRole('list',{name:'Installed Integrations'});
   await list.getByText('Example API',{exact:true}).waitFor();
   assert.equal(await list.getByRole('listitem').count(),10);
   assert.equal(await page.getByRole('heading',{name:'MCP API access',exact:true}).count(),0);
@@ -206,7 +206,7 @@ test("Fly setup opens from its tile, verifies and saves, then appears in the uni
   await dialog.getByLabel('Fly organization slug',{exact:true}).fill('fixture');await dialog.getByLabel('Fly organization token',{exact:true}).fill('synthetic-fly-token');
   await dialog.getByRole('button',{name:'Verify connection',exact:true}).click();await dialog.getByText('Fly.io connection verified.',{exact:true}).waitFor();
   await dialog.getByRole('button',{name:'Save Fly.io integration',exact:true}).click();
-  const list=page.getByRole('list',{name:'Your integrations'});await list.getByText('Fixture org (fixture)',{exact:true}).waitFor();
+  const list=page.getByRole('list',{name:'Installed Integrations'});await list.getByText('Fixture org (fixture)',{exact:true}).waitFor();
   assert.equal(await dialog.count(),0);assert.deepEqual(savedBody,{token:'synthetic-fly-token',organizationSlug:'fixture'});
   await list.getByLabel('Actions for Fly.io',{exact:true}).click();await list.getByRole('menuitem',{name:'Edit / verify connection',exact:true}).click();
   assert.equal(await page.getByRole('dialog').getByLabel('Fly organization token',{exact:true}).inputValue(),'');

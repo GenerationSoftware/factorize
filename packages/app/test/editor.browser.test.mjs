@@ -39,7 +39,7 @@ test("Integrations displays credentials cached by the Trigger editor", async t =
   await page.getByRole("option", { name: account.name }).waitFor({ state: "attached" });
   await page.getByRole("link", { name: "Factorize dashboard" }).click();
   await page.getByRole("link", { name: "Integrations", exact: true }).click();
-  const list = page.getByRole("list", { name: "Your integrations" });
+  const list = page.getByRole("list", { name: "Installed Integrations" });
   await list.getByText(bearer.name, { exact: true }).waitFor();
   await list.getByText(account.name, { exact: true }).waitFor();
 });

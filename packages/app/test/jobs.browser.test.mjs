@@ -355,7 +355,7 @@ test("flat dashboard lists team triggers without project requests and retires pr
   assert.equal(await table.getByRole("columnheader", { name: "Project", exact: true }).count(), 0);
   assert.equal(requests.some(path => path.startsWith("/api/v1/projects")), false);
   await page.getByRole("navigation", { name: "Dashboard navigation" }).getByRole("link", { name: "Runs", exact: true }).click();
-  await page.getByRole("button", { name: "Start run", exact: true }).click();
+  assert.equal(await page.getByRole("button", { name: "Start run", exact: true }).count(), 0);
   assert.equal(await page.getByRole("combobox", { name: "Project", exact: true }).count(), 0);
   await page.goto(origin + "/projects");
   await page.getByRole("heading", { name: "Page not found" }).waitFor();

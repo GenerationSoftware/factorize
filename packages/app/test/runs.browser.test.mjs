@@ -87,7 +87,7 @@ test("all-triggers runs index uses a tenant-scoped page, navigation, refresh, an
   const { context, page } = await setup(); const requests = []; let refreshes = 0;
 const runs = Array.from({ length: 21 }, (_, index) => ({ id: `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`, project_id: projectId, project_name: "Project Alpha", trigger_id: triggerId, trigger_name: "Review builds", run_name: `Run ${index}`, state: index === 0 ? "running" : "succeeded", created_at: time, updated_at: time, started_at: index === 0 ? time : null, agent_kind: "codex", elapsed_time: index === 0 ? { low: 60, high: 180 } : { duration: 120 } }));
   await page.route("**/api/v1/runs?**", route => { const url = new URL(route.request().url()); requests.push(url); refreshes++; const second = url.searchParams.has("cursor"); return route.fulfill({ json: { items: second ? [runs[20]] : runs.slice(0, 20), nextCursor: second ? null : "page-2" } }); });
-  await page.goto(origin + "/runs"); await page.getByRole("heading", { name: "Runs", exact: true }).waitFor(); await page.getByRole("link", { name: "Run 0", exact: true }).waitFor();
+  await page.goto(origin + "/runs"); await page.getByRole("link", { name: "Run 0", exact: true }).waitFor();
   assert.equal(await page.getByRole("link", { name: "Triggers", exact: true }).count(), 0); assert.equal(await page.getByRole("link", { name: "Skills", exact: true }).count(),1); assert.equal(await page.getByRole("link", { name: "Runs", exact: true }).count(), 1);
   const table = page.getByRole("table"); await table.getByRole("columnheader",{name:"Prompt",exact:true}).waitFor();
  assert.deepEqual(await table.locator("thead th").allTextContents(), ["Status", "Source", "Run", "Prompt", "Elapsed", "Created"]); assert.equal(await page.getByText("Run 0", { exact: true }).count(), 1); assert.equal(await page.getByText("1m–3m", { exact: true }).count(), 1); assert.equal(await page.getByText("2m", { exact: true }).count(), 19); assert.equal(await page.getByRole("link", { name: "Project Alpha", exact: true }).count(), 0); assert.equal(await page.locator("td time").count(), 20); assert.equal(await page.locator("td time").first().getAttribute("datetime"), time);
@@ -487,32 +487,26 @@ test("filter direct runs by launch skill and start another in the team", async (
     const row = page.getByRole("row").filter({hasText: "Review"});
     await row.getByText("manual", {exact: true}).waitFor();
     await row.getByText("/dev", {exact: true}).waitFor();
-    await page.getByRole("button", {name: "Start run"}).click();
-    const form = page.locator("form").filter({has: page.getByLabel("Prompt", {exact: true})});
-    await form.getByLabel("Skill").selectOption(skillId);
-    await form.getByLabel("Prompt").fill("Review the migration");
-    await page.getByRole("button", {name: "Start run", exact: true}).click();
+    assert.equal(await page.getByRole("button", {name:"Start run",exact:true}).count(),0);
+    await page.route("**/api/v1/presets",route=>route.fulfill({json:{presets:[]}}));
+    await page.goto(origin+"/skills");
+    await page.getByRole("button", {name:"Run dev",exact:true}).click();
     await page.waitForURL(new RegExp("/runs/"+runId));
-    assert.deepEqual(submitted, {prompt: "Review the migration", skill: skillId, idempotencyKey: submitted.idempotencyKey});
+    assert.deepEqual(submitted, {skill: skillId, idempotencyKey: submitted.idempotencyKey});
     assert.match(submitted.idempotencyKey, /^[\da-f-]{36}$/);
   } finally {
     await context.close();
   }
 });
 
-test("direct run uploads unchanged image bytes before admitting an image-only run",async t=>{
+test("team run history has no launch form or Runs heading",async t=>{
  const {context,page}=await setup();t.after(()=>context.close());
- const artifactId="00000000-0000-4000-8000-000000000099",bytes=Buffer.from([137,80,78,71,0,1,2,255]);let metadata,uploaded,launch;
  await page.route("**/api/v1/runs?**",route=>route.fulfill({json:{items:[],nextCursor:null}}));
  await page.route("**/api/v1/skills?**",route=>route.fulfill({json:{items:[],nextCursor:null}}));
- await page.route("**/api/v1/media/uploads",route=>{metadata=route.request().postDataJSON();return route.fulfill({status:201,json:{artifactId,mediaType:"image/png",byteSize:bytes.length,sha256:metadata.sha256,state:"pending",uploadUrl:origin+"/api/v1/media/"+artifactId,readUrl:origin+"/api/v1/media/"+artifactId}});});
- await page.route("**/api/v1/media/"+artifactId,route=>{uploaded=route.request().postDataBuffer();return route.fulfill({json:{artifactId,state:"ready"}});});
- await page.route("**/api/v1/runs",route=>{launch=route.request().postDataJSON();return route.fulfill({status:202,json:{runId,duplicate:false,url:origin+"/runs/"+runId,outcomeUri:"factorize://runs/"+runId+"/outcome"}});});
- await page.route(`**/api/v1/runs/${runId}/status`,route=>route.fulfill({json:{id:runId,run_name:"Image run",state:"running",finalizing:false,trace_revision:"image",artifact_state:"pending",created_at:time}}));
- await page.goto(origin+"/runs");await page.getByRole("button",{name:"Start run",exact:true}).click();
- await page.getByLabel("Images",{exact:true}).setInputFiles({name:"image.png",mimeType:"image/png",buffer:bytes});
- await page.getByRole("button",{name:"Start run",exact:true}).click();await page.waitForURL(new RegExp("/runs/"+runId));
- assert.deepEqual(uploaded,bytes);assert.equal(metadata.byteSize,bytes.length);assert.match(metadata.sha256,/^[a-f0-9]{64}$/);assert.deepEqual(launch.attachments,[{artifactId}]);assert.equal(launch.prompt,undefined);
+ await page.goto(origin+"/runs");await page.getByText("No runs yet",{exact:true}).waitFor();
+ assert.equal(await page.getByRole("button",{name:"Start run",exact:true}).count(),0);
+ assert.equal(await page.getByRole("heading",{name:"Runs",exact:true}).count(),0);
+ assert.equal(await page.getByLabel("Images",{exact:true}).count(),0);
 });
 
 for(const viewport of [{width:1440,height:1000},{width:390,height:844}])test(`Source and Prompt snapshots keep run names and scroll safely at ${viewport.width}px`,async t=>{

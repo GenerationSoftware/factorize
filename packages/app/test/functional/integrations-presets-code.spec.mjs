@@ -32,9 +32,9 @@ test("Phoenix installs through the compact provider list and joins connected int
   await phoenix.click(); const dialog = page.getByRole("dialog", { name: "Add Phoenix integration" });
   await dialog.getByLabel("Phoenix base URL").fill("https://phoenix.example/space"); await dialog.getByLabel("Phoenix project").fill("team-runs"); await dialog.getByLabel("Phoenix API key").fill("private-phoenix-key");
   await dialog.getByRole("button", { name: "Save Phoenix settings" }).click(); await expect(dialog).toBeHidden();
-  const row = page.getByRole("list", { name: "Your integrations" }).getByRole("listitem").filter({ hasText: "Phoenix Cloud telemetry" }); await expect(row).toBeVisible();
+  const row = page.getByRole("list", { name: "Installed Integrations" }).getByRole("listitem").filter({ hasText: "Phoenix Cloud telemetry" }); await expect(row).toBeVisible();
   await row.getByRole("button", { name: "Actions for Phoenix Cloud telemetry" }).click(); await expect(page.getByRole("menuitem", { name: "Test connection" })).toBeVisible(); await withinViewport(page.getByRole("menu"));
-  await page.getByRole("heading", { name: "Integrations", exact: true }).click(); await expect(page.getByRole("menu")).toBeHidden();
+  await page.getByRole("heading", { name: "Installed Integrations", exact: true }).click(); await expect(page.getByRole("menu")).toBeHidden();
   await expect(page.getByText("private-phoenix-key")).toHaveCount(0);
 });
 test("all preset menus close outside, stay on mobile screens and editor selects use styled options", async ({ page }) => {

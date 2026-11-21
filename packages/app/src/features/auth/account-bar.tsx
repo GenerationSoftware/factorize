@@ -85,7 +85,7 @@ export function AccountBar() {
         </div> : <Link to="/auth/login" className="rounded-lg px-3 py-2 text-sm font-semibold">Account</Link>}
       </div>
     </nav>
-    {authenticated && (["/", "/triggers", "/runs", "/skills", "/integrations", "/settings"].includes(pathname) || pathname.startsWith("/runs/") || /^\/settings\/(vm|permissions|skills|vm-presets)$/.test(pathname)) && <TeamNavigation pathname={pathname}/>}
+    {authenticated && (["/", "/triggers", "/runs", "/skills", "/integrations"].includes(pathname) || pathname.startsWith("/runs/")) && <TeamNavigation pathname={pathname}/>}
     {logout.isError && <p role="alert">{logout.error.message}</p>}
   </header>;
 }
