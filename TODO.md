@@ -50,7 +50,7 @@ Verified with the PostgreSQL server-app and token tests (3 passed), the Chromium
 
 ## 5. Finish validation and open the PR
 
-- [ ] New JSON application operations use the shared documented `/api/v1` contract. Register routes in `protected-api.ts`, update OpenAPI, regenerate the API client, and verify authorization, validation and contract tests. Keep OAuth and OIDC wire-protocol routes in their protocol namespaces.
-- [ ] Document server app sign-in setup, team and public visibility, scopes, client secret rotation, and revocation. Preserve REST and MCP full/detail/trace responses and conditional-write omission compatibility.
-- [ ] Run `npm run check:boundaries`, `git diff --check`, and `npm run test:local` on the final code. The last command runs the complete root `npm test` suite with the isolated database. Record results and check every criterion supported by verification.
+- [x] New JSON application operations use the shared documented `/api/v1` contract. Register routes in `protected-api.ts`, update OpenAPI, regenerate the API client, and verify authorization, validation and contract tests. Keep OAuth and OIDC wire-protocol routes in their protocol namespaces.
+- [x] Document server app sign-in setup, team and public visibility, scopes, client secret rotation, and revocation. Preserve REST and MCP full/detail/trace responses and conditional-write omission compatibility.
+- [x] Run `npm run check:boundaries`, `git diff --check`, and `npm run test:local` on the final code. The last command runs the complete root `npm test` suite with the isolated database. Record results and check every criterion supported by verification.
 - [ ] Commit and push the completed branch from the VM. Open a pull request against `main`, verify its URL and head, and include validation results. Update the final checklist state on the branch.
