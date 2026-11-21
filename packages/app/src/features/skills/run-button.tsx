@@ -23,7 +23,7 @@ export function RunSkillButton({ skillId, name, disabled = false, compact = fals
   return <div className="min-w-0">
     {compact ? <div className="inline-flex rounded-lg border border-stone-200 dark:border-slate-700">
       <button type="button" className={`${quietButton} w-10 rounded-l-lg`} aria-label={`Run ${name}`} aria-busy={launch.isPending} title={disabled ? "This skill is disabled" : `Run ${name}`} disabled={unavailable} onClick={() => launch.mutate(undefined)}>
-        <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeWidth="1.5"/><path d="M10 7.5 17 12l-7 4.5Z" fill="currentColor"/></svg>
+        <svg aria-hidden="true" width="32" height="32" viewBox="0 0 24 24"><path d="M6 3 21 12 6 21Z" fill="currentColor"/></svg>
       </button>
       <button ref={element => { menu.anchor.current = element; }} type="button" className={`${quietButton} w-7 rounded-r-lg`} aria-label={`Run options for ${name}`} aria-haspopup="menu" aria-expanded={menu.open} aria-controls={menuId} disabled={unavailable} onClick={() => menu.setOpen(!menu.open)} onKeyDown={event => { if (["ArrowDown", "ArrowUp"].includes(event.key)) { event.preventDefault(); menu.setOpen(true); } }}>
         <svg aria-hidden="true" width="12" height="12" viewBox="0 0 16 16"><path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
