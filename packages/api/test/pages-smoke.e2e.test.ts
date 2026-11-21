@@ -66,7 +66,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("every page E2E smoke", () 
     "trigger context": { path: () => trigger() + "/settings/context", ready: label("Prompt") },
     "trigger permissions": { path: () => trigger() + "/settings/permissions", ready: heading("Manual invocation permissions") },
     "trigger events": { path: () => trigger() + "/settings/events", ready: heading("Events") },
-    "runs": { path: () => "/runs", ready: heading("Runs") },
+    "runs": { path: () => "/runs", ready: page => page.getByRole("region", { name: "Trigger runs table", exact: true }).waitFor() },
     "run": { path: run, ready: heading("Trace") },
     "full trace": { path: () => run() + "/trace", ready: heading("Full trace") },
     "run info": { path: () => run() + "/info", ready: info },

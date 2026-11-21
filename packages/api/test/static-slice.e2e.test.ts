@@ -63,7 +63,8 @@ describe.skipIf(!url)("compiled React + actual Worker API + PostgreSQL", () => {
         await page.getByRole("img", { name: "Status: Succeeded", exact: true }).waitFor();
       }
       await page.goto("https://factorize.test/runs");
-      await page.getByRole("heading", { name: "Runs", exact: true }).waitFor();
+      await page.getByRole("region", { name: "Trigger runs table", exact: true }).waitFor();
+      expect(await page.getByRole("heading", { name: "Runs", exact: true }).count()).toBe(0);
       expect(await page.getByRole("columnheader", { name: "Project", exact: true }).count()).toBe(0);
       await page.goto(`https://factorize.test/triggers/${f.triggerIds[1]}`);
       await page.getByRole("button", { name: "More run options", exact: true }).click();
