@@ -127,7 +127,9 @@ export async function backgroundRunAcceptance({
   await delivery;
   assert.match(await liveFrames, /notifications\/resources\/updated/);
   assert.equal((await messages()).get(receipt.runId)?.conversationId, "parent-session");
-  assert.equal((await messages()).get(receipt.runId)?.result.summary, "Review complete");
+  const completed=(await messages()).get(receipt.runId);
+  assert.equal(completed?.state,"succeeded",JSON.stringify(completed));
+  assert.equal(completed.result.summary, "Review complete");
   // The host went offline before failure. A new listen and read must recover it.
   await watch(raw.outcomeUri);
   assert.equal((await messages()).get(raw.runId)?.state, "failed");

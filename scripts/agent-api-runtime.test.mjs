@@ -112,6 +112,13 @@ test('agent API OAuth, policy, connection isolation, run identity and response l
       if(target.hostname==='oidc.fly.io') {res.setHeader('Content-Type','application/json');res.end(JSON.stringify(target.pathname.endsWith('openid-configuration')?{issuer:'https://oidc.fly.io/fixture',jwks_uri:'https://oidc.fly.io/fixture/jwks'}:{keys:[jwk]}));return;}
       if(target.pathname==='/app/installations/17/access_tokens') {res.setHeader('Content-Type','application/json');res.end(JSON.stringify({token:'github-private',expires_at:new Date(Date.now()+3600000).toISOString()}));return;}
       if(target.pathname==='/oauth/token') {res.setHeader('Content-Type','application/json');res.end(JSON.stringify({access_token:target.hostname==='api.linear.app'?'linear-refreshed':'model-oauth-private',refresh_token:'refreshed-private',expires_in:3600}));return;}
+      if(target.pathname==='/v1/responses' && req.method==='POST') {
+        const input=JSON.parse(body);
+        if(JSON.stringify(input.input).includes('Simulate a launch failure')) {res.writeHead(400,{'Content-Type':'application/json'});res.end(JSON.stringify({error:{message:'Fixture model unavailable',type:'invalid_request_error'}}));return;}
+        const item={id:'msg_background',type:'message',role:'assistant',content:[{type:'output_text',text:JSON.stringify({status:'succeeded',summary:'Review complete'}),annotations:[]}]};
+        const events=[{type:'response.output_item.added',output_index:0,item},{type:'response.output_item.done',output_index:0,item},{type:'response.completed',response:{id:'background',status:'completed',output:[item]}}];
+        res.writeHead(200,{'Content-Type':'text/event-stream'});res.end(events.map(event=>'data: '+JSON.stringify(event)+'\n\n').join(''));return;
+      }
       if(target.pathname==='/v1/chat/completions') {
         const input=JSON.parse(body);
         if(JSON.stringify(input.messages).includes('Simulate a launch failure')) {res.writeHead(400,{'Content-Type':'application/json'});res.end(JSON.stringify({error:{message:'Fixture model unavailable',type:'invalid_request_error'}}));return;}
