@@ -1,3 +1,4 @@
+import { SecretInput } from "../../shared/credential-fields";
 import { Button, Input, Select, Label, Card } from "../../shared/ui";
 import { AutosaveStatus, useDebouncedAutosave } from "../../shared/use-debounced-autosave";
 import { useRef, useState } from "react";
@@ -27,9 +28,9 @@ export function IntegrationForm({ kind, connectionId, initialName = "", initialT
     return undefined;
   };
   const autosave = useDebouncedAutosave({ value, enabled: Boolean(connectionId) && JSON.stringify(value) !== savedSnapshot.current, validate, save: async next => { await save.mutateAsync(); savedSnapshot.current = JSON.stringify({ ...next, credential: "" }); } });
-  return <form className="my-4 grid gap-3" onSubmit={e => { e.preventDefault(); save.mutate(); }}>
+  return <form autoComplete="off" method="post" className="my-4 grid gap-3" onSubmit={e => { e.preventDefault(); save.mutate(); }}>
     {kind !== "exe" && <Label>{kind === "amp" ? "Amp project" : "Tail name"} <Input required value={name} onChange={e => setName(e.target.value)} /></Label>}
-    <Label>{kind === "exe" ? "exe.dev account token" : kind === "amp" ? "Amp access token" : "Tail signing secret (leave blank to generate or retain)"} <Input type="password" autoComplete="new-password" required={!connectionId && kind !== "cloudflareTail"} value={credential} onChange={e => { setCredential(e.target.value); test.reset(); }} /></Label>
+    <Label>{kind === "exe" ? "exe.dev account token" : kind === "amp" ? "Amp access token" : "Tail signing secret (leave blank to generate or retain)"} <SecretInput name="integration-api-token" required={!connectionId && kind !== "cloudflareTail"} value={credential} onChange={e => { setCredential(e.target.value); test.reset(); }} /></Label>
     {kind === "exe" && <><Label>VM tags <Select multiple value={tags} disabled={!connectionId && !test.data?.ok} onChange={e => setTags(Array.from(e.target.selectedOptions, option => option.value))}>{Array.from(new Set([...initialTags, ...(test.data?.tags ?? [])])).map(tag => <option key={tag}>{tag}</option>)}</Select></Label><p>Saving verifies VM account permissions. Managed Pi runs in Factorize.</p></>}
     {kind !== "cloudflareTail" && <Button type="button" disabled={test.isPending || save.isPending} onClick={() => test.mutate()}>Test credentials</Button>}
     {test.data?.ok && <p role="status" aria-live="polite" className="text-green-700 dark:text-green-400">✓ Credentials verified.</p>}

@@ -1,3 +1,4 @@
+import { SecretInput } from "../../shared/credential-fields";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "factorize-api-client";
@@ -35,9 +36,9 @@ export function useFlyIntegration() {
     tile: <ProviderTile kind="fly" name="Fly.io" description="Run triggers on Fly Machines in your organization." count={connection.data ? 1 : 0} onAdd={() => {action.reset(); setOpen(true);}} />,
     feedback: <>{connection.error && <p role="alert">{connection.error.message}</p>}{!open && action.error && <p role="alert">{action.error.message}</p>}{!open && action.isSuccess && <p role="status">{action.data === "save" ? "Fly.io integration saved." : "Fly.io disconnected."}</p>}</>,
     dialog: open && <Dialog title={connection.data ? "Edit Fly.io integration" : "Add Fly.io integration"} close={close}>
-      <form className="mt-4 grid gap-3" onSubmit={event => {event.preventDefault(); action.mutate("save");}}>
+      <form autoComplete="off" method="post" className="mt-4 grid gap-3" onSubmit={event => {event.preventDefault(); action.mutate("save");}}>
         <Label>Fly organization slug <Input required disabled={action.isPending} value={organizationSlug || connection.data?.organizationSlug || ""} onChange={event => {setOrganizationSlug(event.target.value); action.reset();}} /></Label>
-        <Label>Fly organization token <Input required disabled={action.isPending} type="password" autoComplete="new-password" value={token} onChange={event => {setToken(event.target.value); action.reset();}} /></Label>
+        <Label>Fly organization token <SecretInput name="fly-organization-token" required disabled={action.isPending} value={token} onChange={event => {setToken(event.target.value); action.reset();}} /></Label>
         <p className="text-sm">Use an organization deploy token with Machines permissions. Enter the token to verify or replace the connection. Verification checks credentials without launching a VM.</p>
         <div className="flex flex-wrap gap-2"><Button type="button" disabled={!token.trim() || action.isPending} onClick={() => action.mutate("verify")}>{action.isPending && action.variables === "verify" ? "Verifying…" : "Verify connection"}</Button><Button disabled={action.isPending || connection.isPending || Boolean(connection.error)}>Save Fly.io integration</Button><Button type="button" onClick={close}>Cancel</Button></div>
       </form>

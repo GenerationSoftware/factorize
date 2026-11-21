@@ -1,3 +1,4 @@
+import { SecretInput } from "../../shared/credential-fields";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "factorize-api-client";
@@ -32,10 +33,10 @@ export function usePhoenixIntegration() {
     feedback: <>{query.error && <p role="alert">{query.error.message}</p>}{!open && action.error && <p role="alert">{action.error.message}</p>}{!open && action.isSuccess && <p role="status">{action.data === "test" ? "Phoenix connection verified." : action.data === "save" ? "Phoenix settings saved." : "Phoenix disconnected."}</p>}</>,
     dialog: open && <Dialog title={query.data?.configured ? "Edit Phoenix integration" : "Add Phoenix integration"} close={close}>
       <p className="mb-4 text-sm">Export new runs, including captured conversation and tool content. Local telemetry stays available when export is disabled or Phoenix is unavailable.</p>
-      <form className="grid gap-3" onSubmit={event => { event.preventDefault(); action.mutate("save"); }}>
+      <form autoComplete="off" method="post" className="grid gap-3" onSubmit={event => { event.preventDefault(); action.mutate("save"); }}>
         <Label>Phoenix base URL<Input type="url" required maxLength={2048} placeholder="https://app.phoenix.arize.com/s/your-space" value={endpoint} onChange={e => setEndpoint(e.target.value)} /></Label>
         <Label>Phoenix project<Input required maxLength={128} value={project} onChange={e => setProject(e.target.value)} /></Label>
-        <Label>Phoenix API key<Input type="password" autoComplete="new-password" required={!query.data?.credentialConfigured} value={key} maxLength={8192} onChange={e => setKey(e.target.value)} />{query.data?.credentialConfigured && <span className="text-xs">Leave blank to keep the configured key.</span>}</Label>
+        <Label>Phoenix API key<SecretInput name="phoenix-api-key" required={!query.data?.credentialConfigured} value={key} maxLength={8192} onChange={e => setKey(e.target.value)} />{query.data?.credentialConfigured && <span className="text-xs">Leave blank to keep the configured key.</span>}</Label>
         <Label><Input type="checkbox" checked={enabled} onChange={e => setEnabled(e.target.checked)} />Export telemetry for new runs</Label>
         <div className="flex flex-wrap gap-2"><Button variant="primary" disabled={action.isPending || query.isPending || !!query.error}>Save Phoenix settings</Button><Button type="button" onClick={close}>Cancel</Button></div>
       </form>{action.error && <p role="alert">{action.error.message}</p>}

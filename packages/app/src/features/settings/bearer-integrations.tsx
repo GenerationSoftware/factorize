@@ -1,3 +1,4 @@
+import { SecretInput } from "../../shared/credential-fields";
 import { bearerIntegrationsQuery } from "./queries";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -66,11 +67,11 @@ export function useBearerIntegrations() {
     feedback: <>{records.error && <p role="alert">{records.error.message}</p>}{notice && !open && <p role={save.isError || remove.isError ? "alert" : "status"}>{notice}</p>}</>,
     dialog: open && <Dialog title={editing ? "Edit bearer integration" : "Add bearer integration"} close={() => {reset(); setOpen(false);}}>
       <p className="text-sm">Stored tokens cannot be viewed. Editing requires a replacement token.</p>
-      <form className="mt-3 grid gap-3" onSubmit={event => {event.preventDefault(); setNotice(""); save.mutate();}}>
+      <form autoComplete="off" method="post" className="mt-3 grid gap-3" onSubmit={event => {event.preventDefault(); setNotice(""); save.mutate();}}>
         <Label>Name <Input required maxLength={120} value={name} onChange={event => setName(event.target.value)} /></Label>
         <Label>HTTPS origin <Input required type="url" placeholder="https://api.example.com" value={origin} onChange={event => setOrigin(event.target.value)} /></Label>
         <Label>Description or help (optional) <Input maxLength={500} value={description} onChange={event => setDescription(event.target.value)} /></Label>
-        <Label>{editing ? "Replacement bearer token" : "Bearer token"} <Input required type="password" autoComplete="new-password" value={token} onChange={event => setToken(event.target.value)} /></Label>
+        <Label>{editing ? "Replacement bearer token" : "Bearer token"} <SecretInput name="integration-bearer-token" required value={token} onChange={event => setToken(event.target.value)} /></Label>
         <div className="flex gap-2"><Button variant="primary" disabled={save.isPending || records.isPending || Boolean(records.error)}>{save.isPending ? "Saving…" : editing ? "Save replacement" : "Add integration"}</Button><Button type="button" onClick={() => {reset(); setOpen(false);}}>Cancel</Button></div>
       </form>{notice && <p role={save.isError ? "alert" : "status"}>{notice}</p>}
     </Dialog>,

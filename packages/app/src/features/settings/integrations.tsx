@@ -1,3 +1,4 @@
+import { useDisableCredentialAutofill } from "../../shared/credential-fields";
 import {usePhoenixIntegration} from "./phoenix";
 import { useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -18,6 +19,7 @@ import { Dialog } from "../../shared/dialog";
 type Kind = "exe" | "amp" | "cloudflareTail" | "github";
 const linkClass = "inline-flex min-h-10 items-center rounded-lg border border-stone-200 px-3 py-2 text-sm font-semibold hover:bg-stone-100 dark:border-slate-700 dark:hover:bg-slate-800";
 export function Integrations() {
+  useDisableCredentialAutofill();
   return <Page><IntegrationPoliciesProvider><IntegrationsContent /></IntegrationPoliciesProvider></Page>;
 }
 function IntegrationsContent() {

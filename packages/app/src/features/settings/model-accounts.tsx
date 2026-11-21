@@ -1,3 +1,4 @@
+import { SecretInput } from "../../shared/credential-fields";
 import {ModelPricing} from "./model-pricing";
 import {modelAccountsQuery} from "./queries";
 import {useState} from "react";
@@ -30,11 +31,11 @@ export function useModelAccounts(){
   ]}/>),
   tile:<ProviderTile kind="model" name="Model integration" description="OpenAI-compatible provider URL and optional API key." count={accounts.data?.accounts.length??0} onAdd={()=>{reset();setOpen(true);}}/>,
   feedback:<>{accounts.error&&<p role="alert">{accounts.error.message}</p>}{error&&!open&&<p role="alert">{error}</p>}</>,
-  dialog:open&&<Dialog title={editId?"Edit model integration":"Add a model integration"} close={()=>{reset();setOpen(false);}}><p className="text-sm">Pi uses this OpenAI-compatible endpoint. Choose the model in Team or Trigger settings.</p><form className="mt-3 grid gap-3" onSubmit={event=>{event.preventDefault();save.mutate();}}>
+  dialog:open&&<Dialog title={editId?"Edit model integration":"Add a model integration"} close={()=>{reset();setOpen(false);}}><p className="text-sm">Pi uses this OpenAI-compatible endpoint. Choose the model in Team or Trigger settings.</p><form autoComplete="off" method="post" className="mt-3 grid gap-3" onSubmit={event=>{event.preventDefault();save.mutate();}}>
    <Label>Name<Input required maxLength={120} value={name} onChange={event=>setName(event.target.value)}/></Label>
    <Label>Description (optional)<Input maxLength={500} value={description} onChange={event=>setDescription(event.target.value)}/></Label>
    <Label>Provider URL<Input required type="url" placeholder="https://provider.example/v1" maxLength={2048} value={providerUrl} onChange={event=>setProviderUrl(event.target.value)}/></Label>
-   <Label>API key (optional)<Input aria-label="API key (optional)" type="password" autoComplete="off" maxLength={32768} value={key} onChange={event=>setKey(event.target.value)}/><span className="text-xs">Blank saves a keyless integration. Enter the replacement key when editing an authenticated provider.</span></Label>
+   <Label>API key (optional)<SecretInput name="model-api-key" aria-label="API key (optional)" maxLength={32768} value={key} onChange={event=>setKey(event.target.value)}/><span className="text-xs">Blank saves a keyless integration. Enter the replacement key when editing an authenticated provider.</span></Label>
    <details><summary>Model limits</summary><Label>Context window (tokens)<Input required type="number" min={1024} max={2000000} value={contextWindow} onChange={event=>setContextWindow(event.target.valueAsNumber)}/></Label><Label>Maximum output tokens<Input required type="number" min={1} max={200000} value={maxTokens} onChange={event=>setMaxTokens(event.target.valueAsNumber)}/></Label></details>
    <Button variant="primary" disabled={save.isPending||accounts.isPending||Boolean(accounts.error)}>{save.isPending?"Saving…":"Save model integration"}</Button>
   </form>{editId&&<ModelPricing integrationId={editId}/ >}{error&&<p role="alert">{error}</p>}</Dialog>};

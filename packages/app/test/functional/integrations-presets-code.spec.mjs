@@ -98,3 +98,28 @@ test("integration add and action controls align left at the same size on desktop
     await page.screenshot({ path: testInfo.outputPath(`left-integration-controls-${width}.png`) });
   }
 });
+
+test("Integrations suppresses login autofill and unmounts credential forms across refreshes", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.credentialRequests = 0;
+    if (navigator.credentials) Object.defineProperty(navigator.credentials, "get", { configurable: true, value: () => { window.credentialRequests++; return Promise.reject(new DOMException("Unexpected credential request", "NotAllowedError")); } });
+  });
+  await page.clock.install(); await mockApi(page);
+  let sessionReads = 0;
+  await page.route("**/api/v1/session", route => { sessionReads++; return route.fulfill({ json: { authenticated: true, user: { id: "owner", email: "owner@example.test" }, team: { id: "tenant", name: "Release" }, capabilities: [], expiresAt: "2099-01-01T00:00:00Z" } }); });
+  await page.route("**/api/v1/integrations/phoenix", route => route.fulfill({ json: { configured: false, revision: 0 } }));
+  await page.goto(origin + "/integrations"); await expect(page.getByRole("heading", { name: "Installed Integrations" })).toBeVisible();
+  const idle = async () => { await expect(page.locator("form, dialog, input[type=password], input[autocomplete*=webauthn]")).toHaveCount(0); expect(await page.evaluate(() => window.credentialRequests)).toBe(0); };
+  await expect(page.locator("body")).toHaveAttribute("data-1p-ignore", "true");
+  await expect(page.locator("body")).toHaveAttribute("data-op-ignore", "true");
+  await idle(); await page.clock.fastForward(61_000); await expect.poll(() => sessionReads).toBeGreaterThan(1); await idle();
+  await page.getByRole("button", { name: "Actions for Linear" }).click(); await page.getByRole("heading", { name: "Installed Integrations" }).click(); await idle();
+  for (const name of ["exe.dev", "Amp", "Fly.io", "Bearer API", "Model integration", "Phoenix Cloud telemetry", "Cloudflare Tail", "X"]) {
+    await page.getByRole("button", { name: `Add ${name} integration`, exact: true }).click(); const dialog = page.getByRole("dialog"); await expect(dialog).toBeVisible();
+    const secret = dialog.locator('input[type="password"]'); await expect(secret).toHaveCount(1); await expect(secret).toHaveAttribute("autocomplete", "off"); await expect(secret).toHaveAttribute("data-1p-ignore", "true"); await expect(secret).toHaveAttribute("data-op-ignore", "true");
+    if (name === "Model integration") { await secret.fill("manual-api-key"); await secret.evaluate(node => { node.dataset.identity = "same-secret-input"; }); await page.clock.fastForward(61_000); await expect(secret).toHaveValue("manual-api-key"); await expect(secret).toHaveAttribute("data-identity", "same-secret-input"); }
+    await page.keyboard.press("Escape"); await idle();
+  }
+  await page.getByRole("navigation", { name: "Dashboard navigation" }).getByRole("link", { name: "Runs", exact: true }).click(); await expect(page).toHaveURL(origin + "/runs"); await expect(page.locator("body")).not.toHaveAttribute("data-1p-ignore"); await expect(page.locator("body")).not.toHaveAttribute("data-op-ignore");
+  await page.goto(origin + "/auth/login"); await expect(page.getByLabel("Password", { exact: true })).toHaveAttribute("autocomplete", "current-password"); await expect(page.getByLabel("Password", { exact: true })).not.toHaveAttribute("data-1p-ignore");
+});
