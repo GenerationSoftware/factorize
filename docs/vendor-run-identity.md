@@ -120,3 +120,12 @@ an old grant. Execution-connection disconnection also revokes its VM identity
 bindings. Newly created runs can use explicitly selected reconnected credentials.
 These guarantees currently apply to the new backend request path; the legacy
 runtime and its bypasses still need removal before release.
+
+
+## Renewable external VM grants
+
+External session proxy grants reuse `discoverVendorIssuerTrust` and `verifyVendorMachineIdentity` without pretending to be managed runs. `vm-grant-providers.ts` supplies verified provider inventory bindings: exe.dev uses its exclusive WIF attachment; Fly uses the connected organization, selected app, exact Machine ID and inventory-derived subject. Fly enrollment reuses `acquireFlyMachineOidcToken` and `createFlyHttpGuestTransport`. A separate guest-local proof is hashed and pinned; only the hash and verified claim metadata are stored. Guests receive neither control-plane credentials nor client OAuth tokens.
+
+The additive `0093_fly_vm_grants` migration stores an optional app on grants; existing exe.dev rows and expirations are preserved. Creation grants one hour independently of the current client token expiry. Explicit REST/MCP renewal requires the same active parent authorization and all currently authorized provider/selected integration epochs; expired or revoked grants cannot be revived. Ordinary proxy traffic, provider-token renewal and client-token refresh do not extend this lease. Every guest proxy call verifies its signed identity and current delegation policy. Cleanup removes exe.dev grant identity attachments and marks Fly grants clean without stopping or deleting Machines.
+
+Deterministic local Worker/OAuth fixtures in `scripts/agent-api-runtime.test.mjs` exercise both providers with real signed JWTs, including Fly Unix-socket token acquisition, wrong issuer/subject/machine/audience/proof/signature rejection, refreshed-parent renewal, expiry, revocation and cleanup. These are local protocol and authorization evidence, not new live-provider acceptance claims.

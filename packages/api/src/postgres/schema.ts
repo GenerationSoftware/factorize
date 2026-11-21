@@ -85,7 +85,7 @@ export const agentIdentities = app.table("agent_identities", {
 export const vmGrants = app.table("vm_grants", {
   tenantId: uuid("tenant_id").notNull(), id: uuid("id").primaryKey().defaultRandom(),
   parentId: uuid("parent_id").notNull(), providerId: uuid("provider_id").notNull(),
-  providerEpoch: integer("provider_epoch").notNull(), vm: text("vm").notNull(),
+  providerEpoch: integer("provider_epoch").notNull(), vm: text("vm").notNull(), app: text("app"),
   permissions: jsonb("permissions").notNull(), parentScopes: jsonb("parent_scopes").notNull(),
   requestKey: text("request_key").notNull(), issuer: text("issuer"), subject: text("subject"), proofHash: text("proof_hash"),
   expiresAt: timestamp("expires_at", {withTimezone:true}).notNull(),

@@ -46,17 +46,29 @@ Other clients must support remote Streamable HTTP and Factorize's OAuth discover
 
 For rejected consent, expired authorization, missing targets, scope errors and reconnection steps, see [connection troubleshooting](/troubleshooting/connection). Protocol implementers should use [authentication](/api/authentication) and [discovery](/api/discovery).
 
-## Team skills
+## Built-in workflow skills
 
-Factorize publishes every active team skill using the [MCP Skills extension](https://skills.extensions.modelcontextprotocol.io/specification/beta/skills), `io.modelcontextprotocol/skills`, on protocol revision 2026-07-28 or later. A compatible client sees the declaration in `server/discover`, pages through `skills/list`, and refreshes individual entries with `skills/get`. These methods and each `resources/read` require `skills:read` and an active authorized identity.
+Factorize publishes five build-shipped workflows through the [MCP Skills extension](https://skills.extensions.modelcontextprotocol.io/specification/beta/skills), `io.modelcontextprotocol/skills`, on protocol revision 2026-07-28 or later:
 
-Skill URIs have the form `skill://teams/TEAM_ID/SKILL_NAME/SKILL.md`. Each entry includes the full frontmatter and a complete manifest with SHA-256 digests and byte lengths. Read supporting files at the URIs in that manifest. Files remain separate resources; Factorize does not execute their scripts. Editor and successful Git publications are visible on the next read. A failed publication preserves the last valid package. Renaming removes the previous URI.
+- **manage-presets:** VM, permission and model presets and team defaults.
+- **manage-skills:** live team-skill discovery, authoring, safe editing and dependencies.
+- **run-and-supervise:** dispatch, completion subscriptions, results and intervention.
+- **manage-triggers:** schedules, webhooks, lifecycle automation and delivery diagnostics.
+- **manage-environments:** reflection, integrations, exe.dev/Fly.io VMs and renewable proxy grants.
 
-Literal skills without frontmatter receive a published `name` and description wrapper. Existing author metadata is retained, with the shared team name authoritative after a rename. Stored instructions and existing run snapshots are preserved. Skill metadata has no VM dependency.
+A compatible client discovers the extension in `server/discover`, calls `skills/list`, inspects `skills/get`, and reads Markdown through `resources/read`. The complete catalog contains five entries with no further pages. Every operation requires an active authenticated identity; built-in instructions do not require `skills:read` or grant application/integration permissions.
 
-Factorize-managed Pi uses this same MCP session boundary. Its short-lived identity is bound to the active run and current execution lease, with application scopes and selected integrations taken from the accepted run snapshot. Cancellation, lease replacement, owner revocation and integration disconnection are checked on subsequent requests. Provider credentials never enter the model context.
+Canonical `skills/WORKFLOW/SKILL.md` files in the repository are embedded into the build, with no runtime database or filesystem lookup. The same standard Markdown can later be packaged into a ChatGPT or Claude plugin; plugin packaging is not included here. `npm run generate:skills` regenerates the embedded catalog and `npm run check:skills` detects drift. Both Worker deployment scripts regenerate it before bundling. URIs have the form `skill://factorize/CONTENT_VERSION/WORKFLOW/SKILL.md`; content versions are derived from the complete catalog. Manifests contain exact SHA-256 digests and UTF-8 byte lengths. Content and URIs are identical across teams, scopes and runs, change only with a new build, and carry a one-hour private cache hint. After an upgrade, rediscover the catalog if an old version URI is rejected.
 
-Selected run skills are pinned inputs under `skill://runs/TEAM_ID/RUN_ID/SKILL_NAME/SKILL.md`, including their supporting files. An active run may discover and read these inputs even with no `skills:read` permission. That capability grants access only to its own accepted package. Broader team-library discovery still requires `skills:read`. Unrelated edits, renames or deletes do not replace the run's pinned inputs.
+## Live team skills and pinned run inputs
+
+Editable team skills are application data. Discover and read them with `list_skills` and `get_skill`, requiring `skills:read`; author them with the skill mutation tools and their write scopes. Team edits, renames and deletions never change the built-in catalog. Existing authorized `skill://teams/TEAM_ID/SKILL_NAME/...` resource reads remain supported for compatibility, but team packages are not returned by `skills/list` or `skills/get`.
+
+Selected run skills are pinned inputs under `skill://runs/TEAM_ID/RUN_ID/SKILL_NAME/SKILL.md`, including supporting files. An active owning run may read supplied pinned resource URIs even without `skills:read`. Those inputs do not appear in extension discovery or `skills/get`. Unrelated edits, renames and deletes do not replace the run's accepted package. Broader team-library discovery still requires `skills:read`.
+
+Factorize-managed Pi uses this same MCP boundary. Its short-lived identity is bound to the active run and current execution lease. Application scopes and selected integrations come from the accepted run snapshot. Cancellation, lease replacement, owner revocation and integration disconnection are checked on subsequent requests. Provider credentials never enter model context.
+
+Completion notifications require a client/host adapter that supports `subscriptions/listen`, reconnects and reads the returned outcome URI. Without that support, use `get_run` while active or explicitly check the run later; installing a workflow skill does not add background notification delivery to a client.
 
 ## Proxy tool discovery
 

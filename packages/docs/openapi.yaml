@@ -15819,9 +15819,9 @@ paths:
       x-owner-session-required: false
   /api/v1/agent/vm-grants:
     post:
-      summary: Delegate selected proxy integrations to an exe.dev VM
+      summary: Delegate selected proxy integrations to an exe.dev VM or Fly.io Machine
       description: |-
-        Requires an OAuth agent with proxy:use, vm:grant and access to the provider and each selected integration. Expires with the issuing access token.
+        Requires an OAuth agent with proxy:use, vm:grant and access to the provider and each selected integration. Fly.io requires app plus the Machine ID as vm; exe.dev uses the VM name. Lasts one hour; explicit renewal is required to extend access.
 
         Requires the vm:grant and proxy:use scopes.
 
@@ -15834,6 +15834,20 @@ paths:
               schema:
                 type: object
                 properties:
+                  provider:
+                    type: string
+                    enum:
+                      - exe.dev
+                      - fly.io
+                  app:
+                    type: string
+                  audience:
+                    type: string
+                  tokenSocket:
+                    type: string
+                  readResponseUrl:
+                    type: string
+                    format: uri
                   grantId:
                     type: string
                     format: uuid
@@ -15907,6 +15921,9 @@ paths:
                   type: string
                   format: uuid
                   pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                app:
+                  type: string
+                  pattern: ^[a-z0-9][a-z0-9-]{0,62}$
                 vm:
                   type: string
                   pattern: ^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$
@@ -15928,6 +15945,67 @@ paths:
                 - integrationIds
                 - idempotencyKey
               additionalProperties: false
+  /api/v1/agent/vm-grants/{grantId}/renew:
+    post:
+      summary: Renew an active VM proxy grant for one hour
+      description: |-
+        Only the same active OAuth authorization may renew. Rechecks provider and all selected integration grants; expired or revoked VM grants require a new grant. OAuth token refresh alone does not renew VM access.
+
+        Requires the vm:grant and proxy:use scopes.
+
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+      responses:
+        "200":
+          description: Renewed lease
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  grantId:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                  expiresAt:
+                    type: string
+                required:
+                  - grantId
+                  - expiresAt
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: post_api_v1_agent_vm_grants_grantId_renew
+      tags:
+        - agent
+      security:
+        - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
+        - cookieAuth: []
+      x-required-scope: vm:grant+proxy:use
+      x-owner-session-required: false
+      parameters:
+        - name: grantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
   /api/v1/agent/vm-grants/{grantId}:
     delete:
       summary: Revoke an external VM grant
@@ -16622,7 +16700,9 @@ paths:
                           additionalProperties: false
                         vmGrantProvider:
                           type: string
-                          const: exe.dev
+                          enum:
+                            - exe.dev
+                            - fly.io
                       required:
                         - id
                         - credentialId
@@ -16675,7 +16755,7 @@ paths:
     post:
       summary: Make an authorized credential-injected API request
       description: |-
-        OAuth requires proxy:use. An external VM sends its short-lived exe.dev WIF bearer token, X-Factorize-VM-Grant and X-Factorize-VM-Proof. Only server-selected origins are used. Integration-wide grants are bounded by upstream credential permissions. Missing requestable access returns HTTP 403 with WWW-Authenticate insufficient_scope, scope and resource_metadata. Upstream status is returned in the result, including non-2xx. Text is UTF-8; other bodies are base64. Responses above 32 KiB are retained for 30 minutes and read in chunks. Revocation prevents subsequent calls and reads, but cannot undo upstream side effects.
+        OAuth requires proxy:use. An external VM sends its short-lived provider OIDC bearer token, X-Factorize-VM-Grant and X-Factorize-VM-Proof. Only server-selected origins are used. Integration-wide grants are bounded by upstream credential permissions. Missing requestable access returns HTTP 403 with WWW-Authenticate insufficient_scope, scope and resource_metadata. Upstream status is returned in the result, including non-2xx. Text is UTF-8; other bodies are base64. Responses above 32 KiB are retained for 30 minutes and read in chunks. Revocation prevents subsequent calls and reads, but cannot undo upstream side effects.
 
         Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       responses:

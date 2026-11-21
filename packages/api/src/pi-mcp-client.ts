@@ -40,8 +40,8 @@ export class PiMcpClient {
   }});
   if(discovery.capabilities?.extensions?.[SKILLS_EXTENSION]){
    for(const [name,method,description,parameters] of [
-    ["mcp_list_skills","skills/list","Discover skill packages available to this identity. Pass nextCursor to continue.",{type:"object",properties:{cursor:{type:"string"}},additionalProperties:false}],
-    ["mcp_get_skill","skills/get","Inspect a skill's frontmatter and complete file manifest by its SKILL.md URI.",{type:"object",properties:{uri:{type:"string"}},required:["uri"],additionalProperties:false}],
+    ["mcp_list_skills","skills/list","Discover build-shipped Factorize workflow skills. Team skills use list_skills/get_skill; pinned run inputs are resources.",{type:"object",properties:{cursor:{type:"string"}},additionalProperties:false}],
+    ["mcp_get_skill","skills/get","Inspect a built-in workflow's frontmatter and file manifest by its SKILL.md URI.",{type:"object",properties:{uri:{type:"string"}},required:["uri"],additionalProperties:false}],
    ] as const)tools.push({name,label:name,description,parameters,execute:async(_id,args,signal)=>{const result=await this.request(method,args,signal);return {content:[{type:"text",text:JSON.stringify(result)}],details:{mcp:result}};}});
   }
   return tools;

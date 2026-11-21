@@ -123,7 +123,8 @@ const backend = { async fetch(request: Request, env: Env, ctx: ExecutionContext)
     if (!auth) return Response.json({error:{code:"invalid_token"}},{status:401});
     return protectedApiFetch(request,apiEnv,auth,ctx);
   }
-  const grantEndpoint = (url.pathname === "/api/v1/agent/vm-grants" && request.method === "POST")
+  const grantEndpoint = (request.method === "POST" && /^\/api\/v1\/agent\/vm-grants\/[a-f0-9-]+\/renew$/.test(url.pathname))
+    || (url.pathname === "/api/v1/agent/vm-grants" && request.method === "POST")
     || (request.method === "DELETE" && /^\/api\/v1\/agent\/vm-grants\/[a-f0-9-]+$/.test(url.pathname));
   const reflectionEndpoint = request.method === "GET" && url.pathname === "/api/v1/agent/reflection";
   if ((proxyEndpoint || grantEndpoint || reflectionEndpoint) && request.headers.get("Authorization")?.startsWith("Bearer ")) {

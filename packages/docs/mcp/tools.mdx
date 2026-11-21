@@ -53,8 +53,9 @@ The inventory below lists the scope required by each tool. Scopes are explicit. 
 | `query_api_response` | Same access as the original request | Retained handle; mode json/text/bytes, bounded expression/offset/limit/maxResultBytes |
 | `request_api` | proxy:use for OAuth; selected integration for runs | Credential-injected HTTP request with integration, method, relative path, optional headers/body and encoding |
 | `read_api_response` | Same identity and integration grant | Read a retained response handle at an optional byte offset |
-| `grant_vm` | vm:grant and proxy:use | OAuth agent delegates explicit integration IDs to a VM on an eligible exe.dev connection. Requires providerIntegrationId, vm, integrationIds and idempotencyKey. |
-| `revoke_vm_grant` | vm:grant | Requires grantId. Invalidates guest access and schedules identity integration cleanup. |
+| `grant_vm` | vm:grant and proxy:use | Delegate explicit integration IDs for one hour to an exe.dev VM or Fly.io Machine. Requires providerIntegrationId, vm, integrationIds and idempotencyKey; Fly.io also requires app. |
+| `renew_vm_grant` | vm:grant and proxy:use | Required grantId; same parent OAuth authorization renews a live grant for one hour after rechecking provider and selected integration access. |
+| `revoke_vm_grant` | vm:grant | Requires grantId. Invalidates guest access and schedules provider-specific cleanup; leaves the VM running. |
 | `get_runtime_context` | Authenticated identity | `{}`; verified authentication kind, effective scopes, and source run/trigger IDs, without credentials |
 | `get_trigger_invocation_permissions` | triggers:read | Required string `triggerId` |
 | `set_trigger_invocation_permissions` | triggers:write | Required `triggerId` and `destinationTriggerIds` UUID array; owner session, scoped API key, or authorized OAuth client |
@@ -341,3 +342,14 @@ references containing `runId` and `artifactId`. Use `multipart` parts with names
 optional filenames/media types, and a source or small text value for form uploads.
 The 32 MiB request limit includes multipart framing. Payloads expire after 30
 minutes; reads and writes recheck the originating identity.
+
+
+## External VM proxy grants
+
+Reflection advertises `vmGrantProvider: "exe.dev"` or `"fly.io"` for eligible granted provider integrations. Use `request_api` to list/create/use provider VMs; `grant_vm` delegates only the explicitly selected integration subset from the current OAuth connection. It does not bind an external VM as a managed run workspace or give it general application/MCP access.
+
+For exe.dev, supply the returned VM name as `vm`. For Fly.io, supply the returned Machine ID as `vm` and its app as `app`. Enrollment verifies the connected organization, app, exact machine and provider OIDC subject/audience, plus guest-local proof. Provider credentials remain in Factorize. A receipt includes `grantId`, `expiresAt`, token acquisition instructions, `proofFile`, `requestUrl`, and `readResponseUrl`. Fly receipts additionally describe `tokenSocket` and the grant-specific `audience`: POST `{"aud":"RECEIPT_AUDIENCE"}` to `tokenUrl` through `/.fly/api`. Acquire fresh OIDC tokens inside the guest as needed, and send the bearer token with `X-Factorize-VM-Grant` and `X-Factorize-VM-Proof` on HTTP proxy requests.
+
+New grants last one hour independently of the client access token's remaining lifetime. Call `renew_vm_grant({"grantId":"GRANT_UUID"})` before expiry to reset the lease to one hour from renewal. The equivalent REST operation is `POST /api/v1/agent/vm-grants/{grantId}/renew`. Renewal requires the same parent OAuth authorization, both scopes, and continuing access to the provider and every delegated integration. A refreshed token for that authorization can renew; a separate connection cannot. Token refresh, ordinary proxy use and replaying `grant_vm` with the same idempotency key do not renew a lease. Expired/revoked grants require a new grant and idempotency key.
+
+Use `revoke_vm_grant` when work ends. Parent revocation, integration access removal and disconnection block subsequent delegated access. Revocation/expiry leaves the VM running. exe.dev cleans up its dedicated identity integration; Fly has no per-grant OIDC attachment to remove. Provider-native integration access is independent of this grant.

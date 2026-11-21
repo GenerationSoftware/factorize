@@ -75,17 +75,29 @@ Other clients must support remote Streamable HTTP and Factorize's OAuth discover
 
 For rejected consent, expired authorization, missing targets, scope errors and reconnection steps, see [connection troubleshooting](https://docs.factorize.sh/troubleshooting/connection). Protocol implementers should use [authentication](https://docs.factorize.sh/api/authentication) and [discovery](https://docs.factorize.sh/api/discovery).
 
-## Team skills
+## Built-in workflow skills
 
-Factorize publishes every active team skill using the [MCP Skills extension](https://skills.extensions.modelcontextprotocol.io/specification/beta/skills), `io.modelcontextprotocol/skills`, on protocol revision 2026-07-28 or later. A compatible client sees the declaration in `server/discover`, pages through `skills/list`, and refreshes individual entries with `skills/get`. These methods and each `resources/read` require `skills:read` and an active authorized identity.
+Factorize publishes five build-shipped workflows through the [MCP Skills extension](https://skills.extensions.modelcontextprotocol.io/specification/beta/skills), `io.modelcontextprotocol/skills`, on protocol revision 2026-07-28 or later:
 
-Skill URIs have the form `skill://teams/TEAM_ID/SKILL_NAME/SKILL.md`. Each entry includes the full frontmatter and a complete manifest with SHA-256 digests and byte lengths. Read supporting files at the URIs in that manifest. Files remain separate resources; Factorize does not execute their scripts. Editor and successful Git publications are visible on the next read. A failed publication preserves the last valid package. Renaming removes the previous URI.
+- **manage-presets:** VM, permission and model presets and team defaults.
+- **manage-skills:** live team-skill discovery, authoring, safe editing and dependencies.
+- **run-and-supervise:** dispatch, completion subscriptions, results and intervention.
+- **manage-triggers:** schedules, webhooks, lifecycle automation and delivery diagnostics.
+- **manage-environments:** reflection, integrations, exe.dev/Fly.io VMs and renewable proxy grants.
 
-Literal skills without frontmatter receive a published `name` and description wrapper. Existing author metadata is retained, with the shared team name authoritative after a rename. Stored instructions and existing run snapshots are preserved. Skill metadata has no VM dependency.
+A compatible client discovers the extension in `server/discover`, calls `skills/list`, inspects `skills/get`, and reads Markdown through `resources/read`. The complete catalog contains five entries with no further pages. Every operation requires an active authenticated identity; built-in instructions do not require `skills:read` or grant application/integration permissions.
 
-Factorize-managed Pi uses this same MCP session boundary. Its short-lived identity is bound to the active run and current execution lease, with application scopes and selected integrations taken from the accepted run snapshot. Cancellation, lease replacement, owner revocation and integration disconnection are checked on subsequent requests. Provider credentials never enter the model context.
+Canonical `skills/WORKFLOW/SKILL.md` files in the repository are embedded into the build, with no runtime database or filesystem lookup. The same standard Markdown can later be packaged into a ChatGPT or Claude plugin; plugin packaging is not included here. `npm run generate:skills` regenerates the embedded catalog and `npm run check:skills` detects drift. Both Worker deployment scripts regenerate it before bundling. URIs have the form `skill://factorize/CONTENT_VERSION/WORKFLOW/SKILL.md`; content versions are derived from the complete catalog. Manifests contain exact SHA-256 digests and UTF-8 byte lengths. Content and URIs are identical across teams, scopes and runs, change only with a new build, and carry a one-hour private cache hint. After an upgrade, rediscover the catalog if an old version URI is rejected.
 
-Selected run skills are pinned inputs under `skill://runs/TEAM_ID/RUN_ID/SKILL_NAME/SKILL.md`, including their supporting files. An active run may discover and read these inputs even with no `skills:read` permission. That capability grants access only to its own accepted package. Broader team-library discovery still requires `skills:read`. Unrelated edits, renames or deletes do not replace the run's pinned inputs.
+## Live team skills and pinned run inputs
+
+Editable team skills are application data. Discover and read them with `list_skills` and `get_skill`, requiring `skills:read`; author them with the skill mutation tools and their write scopes. Team edits, renames and deletions never change the built-in catalog. Existing authorized `skill://teams/TEAM_ID/SKILL_NAME/...` resource reads remain supported for compatibility, but team packages are not returned by `skills/list` or `skills/get`.
+
+Selected run skills are pinned inputs under `skill://runs/TEAM_ID/RUN_ID/SKILL_NAME/SKILL.md`, including supporting files. An active owning run may read supplied pinned resource URIs even without `skills:read`. Those inputs do not appear in extension discovery or `skills/get`. Unrelated edits, renames and deletes do not replace the run's accepted package. Broader team-library discovery still requires `skills:read`.
+
+Factorize-managed Pi uses this same MCP boundary. Its short-lived identity is bound to the active run and current execution lease. Application scopes and selected integrations come from the accepted run snapshot. Cancellation, lease replacement, owner revocation and integration disconnection are checked on subsequent requests. Provider credentials never enter model context.
+
+Completion notifications require a client/host adapter that supports `subscriptions/listen`, reconnects and reads the returned outcome URI. Without that support, use `get_run` while active or explicitly check the run later; installing a workflow skill does not add background notification delivery to a client.
 
 ## Proxy tool discovery
 
@@ -573,7 +585,11 @@ node scripts/agent-login.mjs codex
 
 Approve the displayed code. The helper sets the short-lived Factorize credential for the child process and configures the Factorize MCP connection to use it. Supply additional integration scopes from reflection in the space-separated `FACTORIZE_SCOPES` environment variable on a subsequent login. In a shell with this environment, send JSON to the reflected request URL using `curl -H "@$FACTORIZE_AGENT_AUTH_FILE" --json ...`. The file is private to your OS user and the helper removes it when the child exits. For exe.dev, send method `POST`, path `/exec`, headers `{"Content-Type":"text/plain"}` and a command in `body`.
 
-After creating a VM, call `grant_vm` with the provider integration ID, VM name, selected integration IDs and an idempotency key. The guest reads its WIF token and local proof using the receipt instructions. Both authenticate only the reflected HTTP proxy operations. Grants expire with the issuing access token. Access through independent provider-native integrations is outside this grant. Revocation removes the Factorize identity integration and leaves the VM running.
+After creating a VM, call `grant_vm` with the reflected provider integration ID, VM name (exe.dev) or Machine ID (Fly.io), selected integration IDs and an idempotency key. Fly.io also requires the app name. Reflection advertises the eligible provider as `vmGrantProvider`. The guest obtains its provider OIDC token and local proof using the receipt instructions; those authenticate only the HTTP proxy operations. Provider credentials and the parent client token never enter the VM.
+
+New grants last one hour. Call `renew_vm_grant` before expiry to reset the timeout to one hour from renewal. Renewal requires the same active OAuth authorization and continuing access to the provider and all selected integrations. A refreshed client token can explicitly renew; client token refresh alone, proxy requests and creation retries do not extend a grant. Expired/revoked grants require a new grant with a new idempotency key. Parent authorization revocation and integration access removal/disconnection block subsequent access. Existing grants retain their stored expiry until explicitly renewed.
+
+For exe.dev, the guest reads its dedicated WIF token endpoint. For Fly.io, it requests a fresh JWT by POSTing the receipt audience to the local OIDC endpoint through `/.fly/api`. OIDC token renewal proves current VM identity; it does not renew the one-hour Factorize grant. Follow the returned proof-file and proxy URL instructions for either provider. Access through independent provider-native integrations is outside this grant. Revocation removes the exe.dev Factorize identity integration; Fly has no per-grant provider attachment. Both leave the VM running.
 
 ## Event configuration
 Source: https://docs.factorize.sh/integrations/events
@@ -744,8 +760,9 @@ The inventory below lists the scope required by each tool. Scopes are explicit. 
 | `query_api_response` | Same access as the original request | Retained handle; mode json/text/bytes, bounded expression/offset/limit/maxResultBytes |
 | `request_api` | proxy:use for OAuth; selected integration for runs | Credential-injected HTTP request with integration, method, relative path, optional headers/body and encoding |
 | `read_api_response` | Same identity and integration grant | Read a retained response handle at an optional byte offset |
-| `grant_vm` | vm:grant and proxy:use | OAuth agent delegates explicit integration IDs to a VM on an eligible exe.dev connection. Requires providerIntegrationId, vm, integrationIds and idempotencyKey. |
-| `revoke_vm_grant` | vm:grant | Requires grantId. Invalidates guest access and schedules identity integration cleanup. |
+| `grant_vm` | vm:grant and proxy:use | Delegate explicit integration IDs for one hour to an exe.dev VM or Fly.io Machine. Requires providerIntegrationId, vm, integrationIds and idempotencyKey; Fly.io also requires app. |
+| `renew_vm_grant` | vm:grant and proxy:use | Required grantId; same parent OAuth authorization renews a live grant for one hour after rechecking provider and selected integration access. |
+| `revoke_vm_grant` | vm:grant | Requires grantId. Invalidates guest access and schedules provider-specific cleanup; leaves the VM running. |
 | `get_runtime_context` | Authenticated identity | `{}`; verified authentication kind, effective scopes, and source run/trigger IDs, without credentials |
 | `get_trigger_invocation_permissions` | triggers:read | Required string `triggerId` |
 | `set_trigger_invocation_permissions` | triggers:write | Required `triggerId` and `destinationTriggerIds` UUID array; owner session, scoped API key, or authorized OAuth client |
@@ -1032,6 +1049,17 @@ references containing `runId` and `artifactId`. Use `multipart` parts with names
 optional filenames/media types, and a source or small text value for form uploads.
 The 32 MiB request limit includes multipart framing. Payloads expire after 30
 minutes; reads and writes recheck the originating identity.
+
+
+## External VM proxy grants
+
+Reflection advertises `vmGrantProvider: "exe.dev"` or `"fly.io"` for eligible granted provider integrations. Use `request_api` to list/create/use provider VMs; `grant_vm` delegates only the explicitly selected integration subset from the current OAuth connection. It does not bind an external VM as a managed run workspace or give it general application/MCP access.
+
+For exe.dev, supply the returned VM name as `vm`. For Fly.io, supply the returned Machine ID as `vm` and its app as `app`. Enrollment verifies the connected organization, app, exact machine and provider OIDC subject/audience, plus guest-local proof. Provider credentials remain in Factorize. A receipt includes `grantId`, `expiresAt`, token acquisition instructions, `proofFile`, `requestUrl`, and `readResponseUrl`. Fly receipts additionally describe `tokenSocket` and the grant-specific `audience`: POST `{"aud":"RECEIPT_AUDIENCE"}` to `tokenUrl` through `/.fly/api`. Acquire fresh OIDC tokens inside the guest as needed, and send the bearer token with `X-Factorize-VM-Grant` and `X-Factorize-VM-Proof` on HTTP proxy requests.
+
+New grants last one hour independently of the client access token's remaining lifetime. Call `renew_vm_grant({"grantId":"GRANT_UUID"})` before expiry to reset the lease to one hour from renewal. The equivalent REST operation is `POST /api/v1/agent/vm-grants/{grantId}/renew`. Renewal requires the same parent OAuth authorization, both scopes, and continuing access to the provider and every delegated integration. A refreshed token for that authorization can renew; a separate connection cannot. Token refresh, ordinary proxy use and replaying `grant_vm` with the same idempotency key do not renew a lease. Expired/revoked grants require a new grant and idempotency key.
+
+Use `revoke_vm_grant` when work ends. Parent revocation, integration access removal and disconnection block subsequent delegated access. Revocation/expiry leaves the VM running. exe.dev cleans up its dedicated identity integration; Fly has no per-grant OIDC attachment to remove. Provider-native integration access is independent of this grant.
 
 ## Teams, Triggers, Events, skills, and runs
 Source: https://docs.factorize.sh/concepts

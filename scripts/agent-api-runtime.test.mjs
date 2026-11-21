@@ -36,6 +36,8 @@ test('agent API OAuth, policy, connection isolation, run identity and response l
   const guestProof=randomBytes(32).toString('hex');
   const issuer='https://exe.dev/issuer/fixture';
   let wif,failEnrollment=true,guestJwt;
+  const flyProof=randomBytes(32).toString('hex'),flyMachine='32873abcd123';
+  let flyGrantJwt,failFlyEnrollment=true,flyOrganization='fixture',flyMachineName='grant-guest';
   const observed=[];let releaseStream;
   try {
     await admin.query(`CREATE DATABASE "${name}"`);address.pathname='/'+name;db=new pg.Client({connectionString:address.href});await db.connect();
@@ -87,6 +89,25 @@ test('agent API OAuth, policy, connection isolation, run identity and response l
           res.end(guestJwt);return;
         }
         if(body.startsWith('integrations remove ')) {wif=undefined;res.end('{}');return;}
+      }
+      if(target.hostname==='api.machines.dev' && target.pathname.startsWith('/v1/apps/external-fly')) {
+        res.setHeader('Content-Type','application/json');
+        if(target.pathname==='/v1/apps/external-fly') {res.end(JSON.stringify({name:'external-fly',organization:{slug:flyOrganization}}));return;}
+        if(target.pathname===`/v1/apps/external-fly/machines/${flyMachine}`) {res.end(JSON.stringify({id:flyMachine,name:flyMachineName,state:'started'}));return;}
+        if(target.pathname===`/v1/apps/external-fly/machines/${flyMachine}/exec`) {
+          if(failFlyEnrollment) {failFlyEnrollment=false;res.statusCode=503;res.end('{}');return;}
+          const {command}=JSON.parse(body);
+          let stdout;
+          if(command.join(' ').includes('sha256sum'))stdout=createHash('sha256').update(flyProof+'\n').digest('hex');
+          else {
+            assert.ok(command.includes('/.fly/api'),'OIDC uses the documented guest socket');
+            const audience=JSON.parse(command[command.indexOf('--data')+1]).aud,now=Math.floor(Date.now()/1000);
+            flyGrantJwt=jwt({iss:'https://oidc.fly.io/fixture',sub:`fixture:external-fly:${flyMachineName}`,aud:audience,machine_id:flyMachine,iat:now,exp:now+300});
+            stdout=flyGrantJwt;
+          }
+          res.end(JSON.stringify({stdout,stderr:'',exit_code:0}));return;
+        }
+        assert.fail('Unexpected Fly grant lifecycle operation: '+target.pathname);
       }
       if(target.hostname==='oidc.fly.io') {res.setHeader('Content-Type','application/json');res.end(JSON.stringify(target.pathname.endsWith('openid-configuration')?{issuer:'https://oidc.fly.io/fixture',jwks_uri:'https://oidc.fly.io/fixture/jwks'}:{keys:[jwk]}));return;}
       if(target.pathname==='/app/installations/17/access_tokens') {res.setHeader('Content-Type','application/json');res.end(JSON.stringify({token:'github-private',expires_at:new Date(Date.now()+3600000).toISOString()}));return;}
@@ -308,11 +329,19 @@ test('agent API OAuth, policy, connection isolation, run identity and response l
         const enrolled=await rpc(delegator,'grant_vm',input);
         assert.ok(enrolled.result?.grantId,enrolled.text);
         const grantId=enrolled.result.grantId;
+        assert.ok(Math.abs(new Date(enrolled.result.expiresAt).getTime()-Date.now()-3600000)<5000,'new grants have a one-hour lease');
+        const originalExpiry=enrolled.result.expiresAt;
+        assert.equal((await rpc(delegator,'grant_vm',input)).result.expiresAt,originalExpiry,'creation retries never renew');
+        await db.query("UPDATE app.vm_grants SET expires_at=now()+interval '5 minutes' WHERE id=$1",[grantId]);
+        assert.ok(!(await rpc(second,'renew_vm_grant',{grantId})).result,'other authorizations cannot renew');
+        const renewal=await rpc(delegator,'renew_vm_grant',{grantId});
+        assert.ok(Math.abs(new Date(renewal.result.expiresAt).getTime()-Date.now()-3600000)<5000,'explicit renewal resets one hour');
         assert.equal((await rpc(delegator,'grant_vm',input)).result.grantId,grantId);
         assert.ok(!(await rpc(delegator,'grant_vm',{...input,vm:'another-guest'})).result);
         const guest=(integration,proof=guestProof)=>json('/api/v1/agent/requests','POST',{integration,method:'GET',path:'/guest'},{
           Authorization:'Bearer '+guestJwt,'X-Factorize-VM-Grant':grantId,'X-Factorize-VM-Proof':proof});
         assert.equal((await guest(baseline.id)).body.body,'fixture response');
+        assert.equal((await db.query('SELECT expires_at FROM app.vm_grants WHERE id=$1',[grantId])).rows[0].expires_at.toISOString(),renewal.result.expiresAt,'proxy use does not renew the lease');
         assert.equal((await guest(row.id)).status,403,'a baseline provider outside the subset stays unavailable');
         assert.equal((await guest(baseline.id,'0'.repeat(64))).status,401,'a replacement VM lacks the enrollment proof');
         wif.attachments.push('vm:other');
@@ -328,6 +357,7 @@ test('agent API OAuth, policy, connection isolation, run identity and response l
         const delegatedRequest=id=>json('/api/v1/agent/requests','POST',{integration:baseline.id,method:'GET',path:'/expired'},{
           Authorization:'Bearer '+guestJwt,'X-Factorize-VM-Grant':id,'X-Factorize-VM-Proof':guestProof});
         assert.equal((await delegatedRequest(expiring.grantId)).status,401);
+        assert.ok(!(await rpc(delegator,'renew_vm_grant',{grantId:expiring.grantId})).result,'expired grants cannot renew');
         await maintenance.fetch('https://maintenance/');
         const child=(await rpc(delegator,'grant_vm',{...input,idempotencyKey:'parent-revoked'})).result;
         assert.equal((await delegatedRequest(child.grantId)).status,200);
@@ -335,6 +365,51 @@ test('agent API OAuth, policy, connection isolation, run identity and response l
         assert.equal((await delegatedRequest(child.grantId)).status,401);
         await maintenance.fetch('https://maintenance/');
         assert.equal(wif,undefined);
+      }
+      if(provider.kind==='fly') {
+        const delegator=await authorize(['vm:grant']);
+        assert.equal((await rpc(delegator,'get_api_reflection')).result.integrations.find(item=>item.id===row.id).vmGrantProvider,'fly.io');
+        const input={providerIntegrationId:row.id,app:'external-fly',vm:flyMachine,integrationIds:[baseline.id],idempotencyKey:'fly-external-guest'};
+        assert.ok(!(await rpc(delegator,'grant_vm',{...input,app:undefined})).result,'Fly requires app');
+        assert.ok(!(await rpc(delegator,'grant_vm',input)).result,'ambiguous enrollment is retryable');
+        flyOrganization='other';
+        assert.ok(!(await rpc(delegator,'grant_vm',input)).result,'app must belong to the connected organization');
+        flyOrganization='fixture';
+        const enrolled=await rpc(delegator,'grant_vm',input);assert.ok(enrolled.result?.grantId,enrolled.text);
+        const receipt=enrolled.result,grantId=receipt.grantId;
+        assert.equal(receipt.provider,'fly.io');assert.equal(receipt.app,'external-fly');assert.equal(receipt.tokenSocket,'/.fly/api');assert.equal(receipt.audience,'factorize://vm-grants/'+grantId);
+        assert.equal((await rpc(delegator,'grant_vm',input)).result.grantId,grantId);
+        assert.ok(!(await rpc(delegator,'grant_vm',{...input,app:'another-app'})).result,'idempotency binds the app');
+        assert.ok(!(await rpc(delegator,'grant_vm',{...input,vm:'another-machine'})).result,'idempotency binds the machine');
+        const guest=(integration=baseline.id,token=flyGrantJwt,proof=flyProof)=>json('/api/v1/agent/requests','POST',{integration,method:'GET',path:'/fly-guest'},{Authorization:'Bearer '+token,'X-Factorize-VM-Grant':grantId,'X-Factorize-VM-Proof':proof});
+        assert.equal((await guest()).status,200);assert.equal((await guest(row.id)).status,403,'only selected integrations are delegated');
+        assert.equal((await guest(baseline.id,flyGrantJwt,'0'.repeat(64))).status,401);
+        const now=Math.floor(Date.now()/1000),claims={iss:'https://oidc.fly.io/fixture',sub:'fixture:external-fly:grant-guest',aud:receipt.audience,machine_id:flyMachine,iat:now,exp:now+300};
+        for(const wrong of [{iss:'https://oidc.fly.io/other'},{sub:'fixture:other-app:grant-guest'},{sub:'fixture:external-fly:other-name'},{machine_id:'other-machine'},{aud:'factorize://vm-grants/other'},{exp:now-1},{iat:now-2000,exp:now+300}])
+          assert.equal((await guest(baseline.id,jwt({...claims,...wrong}))).status,401,JSON.stringify(wrong));
+        assert.equal((await guest(baseline.id,flyGrantJwt.slice(0,-8)+'xxxxxxxx')).status,401,'bad signatures fail');
+        const freshToken=jwt({...claims,iat:now+1,exp:now+301});assert.equal((await guest(baseline.id,freshToken)).status,200,'fresh OIDC identity does not need a new grant');
+        flyMachineName='replacement';assert.equal((await guest()).status,401,'changed inventory subject is rejected');flyMachineName='grant-guest';
+        flyOrganization='other';assert.equal((await guest()).status,401);flyOrganization='fixture';
+        await db.query("UPDATE app.vm_grants SET expires_at=now()+interval '5 minutes' WHERE id=$1",[grantId]);
+        const beforeRefresh=(await db.query('SELECT expires_at FROM app.vm_grants WHERE id=$1',[grantId])).rows[0].expires_at.toISOString();
+        const refreshed=await form({grant_type:'refresh_token',client_id:clientId,refresh_token:delegator.refresh_token,resource:origin+'/mcp'});
+        assert.ok(refreshed.access_token);assert.equal((await db.query('SELECT expires_at FROM app.vm_grants WHERE id=$1',[grantId])).rows[0].expires_at.toISOString(),beforeRefresh,'client refresh alone does not renew VM grants');
+        const renewed=await rpc(refreshed,'renew_vm_grant',{grantId});assert.ok(Math.abs(new Date(renewed.result.expiresAt).getTime()-Date.now()-3600000)<5000,'the same refreshed parent can explicitly renew');
+        assert.ok(!(await rpc(second,'renew_vm_grant',{grantId})).result);
+        assert.equal((await rpc(refreshed,'revoke_vm_grant',{grantId})).result.revoked,true);assert.equal((await guest()).status,401);
+        assert.ok(!(await rpc(refreshed,'renew_vm_grant',{grantId})).result);
+        await maintenance.fetch('https://maintenance/');
+        assert.ok((await db.query('SELECT cleaned_at FROM app.vm_grants WHERE id=$1',[grantId])).rows[0].cleaned_at);
+        const expiring=(await rpc(refreshed,'grant_vm',{...input,idempotencyKey:'fly-expiring'})).result;
+        await db.query("UPDATE app.vm_grants SET expires_at=now()-interval '1 second' WHERE id=$1",[expiring.grantId]);
+        assert.ok(!(await rpc(refreshed,'renew_vm_grant',{grantId:expiring.grantId})).result);
+        const expiredRequest=await json('/api/v1/agent/requests','POST',{integration:baseline.id,method:'GET',path:'/expired'},{Authorization:'Bearer '+flyGrantJwt,'X-Factorize-VM-Grant':expiring.grantId,'X-Factorize-VM-Proof':flyProof});assert.equal(expiredRequest.status,401);
+        const child=(await rpc(refreshed,'grant_vm',{...input,idempotencyKey:'fly-parent-revoked'})).result;
+        assert.equal((await json('/api/v1/access/authorizations/'+refreshed.access_token.split(':')[1],'DELETE',undefined,owner)).status,200);
+        assert.equal((await json('/api/v1/agent/requests','POST',{integration:baseline.id,method:'GET',path:'/revoked'},{Authorization:'Bearer '+flyGrantJwt,'X-Factorize-VM-Grant':child.grantId,'X-Factorize-VM-Proof':flyProof})).status,401);
+        await maintenance.fetch('https://maintenance/');
+        assert.ok(!observed.some(item=>item.target.includes('/v1/apps/external-fly')&&(item.method==='DELETE'||item.target.endsWith('/stop'))),'revocation and expiry never delete/stop the VM');
       }
       if (provider.kind==='amp' || provider.kind==='clickup') {
         const beforeEscape=observed.length;

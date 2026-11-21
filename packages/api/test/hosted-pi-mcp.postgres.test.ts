@@ -21,7 +21,7 @@ vi.mock("@cloudflare/workers-oauth-provider",()=>({OAuthProvider:class{},Authori
 
 describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("hosted Pi through the public MCP boundary",()=>{
  let f:Awaited<ReturnType<typeof loadingFixture>>,server:Server,providerUrl:string,modelId:string,bearerId:string,integrationId:string,skillId:string,run:PersistedRun,requests:any[],upstream:any[];
- const skillBody="Call get_api_reflection, request the selected API status, then discover and read this skill through MCP. Finish with the result.";
+ const skillBody="Call get_api_reflection, request the selected API status, then discover and read the built-in environment workflow through MCP. Finish with the result.";
  const nativeFetch=globalThis.fetch;
  beforeAll(async()=>{
   f=await loadingFixture(process.env.AUTH_TEST_DATABASE_URL!);modelId=crypto.randomUUID();bearerId=crypto.randomUUID();skillId=crypto.randomUUID();
@@ -31,7 +31,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("hosted Pi through the publ
    if(!results.some((m:any)=>m.tool_call_id==="reflection"))name="get_api_reflection";
    else if(!results.some((m:any)=>m.tool_call_id==="api")){name="request_api";args={integration:integrationId,method:"GET",path:"/status",execution:"sync"};}
    else if(!results.some((m:any)=>m.tool_call_id==="skills"))name="mcp_list_skills";
-   else if(!results.some((m:any)=>m.tool_call_id==="resource")){name="mcp_read_resource";const list=JSON.parse(results.find((m:any)=>m.tool_call_id==="skills").content);args={uri:list.skills.find((s:any)=>s.frontmatter.name==="shared-guide").uri};}
+   else if(!results.some((m:any)=>m.tool_call_id==="resource")){name="mcp_read_resource";const list=JSON.parse(results.find((m:any)=>m.tool_call_id==="skills").content);args={uri:list.skills.find((s:any)=>s.frontmatter.name==="manage-environments").uri};}
    const id=name==="get_api_reflection"?"reflection":name==="request_api"?"api":name==="mcp_list_skills"?"skills":"resource";
    const chunk=(delta:unknown,finish_reason:string|null=null)=>"data: "+JSON.stringify({id:"mcp-fixture",object:"chat.completion.chunk",created:1,model:"fixture",choices:[{index:0,delta,finish_reason}]})+"\n\n";
    res.writeHead(200,{"Content-Type":"text/event-stream"});res.end(chunk({role:"assistant"})+chunk(name?{tool_calls:[{index:0,id,type:"function",function:{name,arguments:JSON.stringify(args)}}]}:{content:"Skill completed."})+chunk({},name?"tool_calls":"stop")+"data: "+JSON.stringify({id:"usage",choices:[],usage:{prompt_tokens:100,completion_tokens:20,prompt_tokens_details:{cached_tokens:30},completion_tokens_details:{reasoning_tokens:5}}})+"\n\ndata: [DONE]\n\n");
@@ -73,9 +73,11 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("hosted Pi through the publ
   const provider=piProvider({providerUrl,contextWindow:32000,maxTokens:1000},"fixture");const agent=new Agent({initialState:{model:provider.model,tools:await external.tools()},streamFn:(model,context,options)=>provider.models.streamSimple(model,context,options)});
   await agent.prompt(resource.contents[0].text);expect(agent.state.messages.at(-1)).toMatchObject({role:"assistant",content:[{type:"text",text:"Skill completed."}]});expect(upstream).toHaveLength(2);
  });
- it("exposes only pinned input skills without broad library permission and denies app scopes and foreign inputs",async()=>{
+ it("discovers only built-ins while reading pinned inputs without broad library permission",async()=>{
   const lease=(await sessions().claim(f.tenantId,run.id))!,mcp=client(lease),uri=snapshotSkillUri(f.tenantId,run.id,"shared-guide");
-  const list=await mcp.request("skills/list");expect(list.skills).toHaveLength(1);expect(list.skills[0].uri).toBe(uri);
+  const list=await mcp.request("skills/list");expect(list.skills).toHaveLength(5);expect(list.skills.every((skill:any)=>skill.uri.startsWith("skill://factorize/"))).toBe(true);
+  await expect(mcp.request("skills/get",{uri})).rejects.toThrow("Unknown built-in");
+  const builtin=await mcp.request("resources/read",{uri:list.skills[0].uri});expect(builtin.contents[0].text).toContain("Manage presets");
   const file=await mcp.request("resources/read",{uri:snapshotSkillUri(f.tenantId,run.id,"shared-guide","references/input.txt")});expect(file.contents[0].text).toBe("Pinned support");
   await expect(mcp.request("resources/read",{uri:skillUri(f.tenantId,"shared-guide")})).rejects.toThrow("insufficient_scope");
   await expect(mcp.request("resources/read",{uri:snapshotSkillUri(f.otherTenant,run.id,"shared-guide")})).rejects.toThrow("Unknown skill");
@@ -100,11 +102,12 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("hosted Pi through the publ
  });
  it("keeps accepted skill files stable across library edits and deletion",async()=>{
   const lease=(await sessions().claim(f.tenantId,run.id))!,mcp=client(lease),uri=snapshotSkillUri(f.tenantId,run.id,"shared-guide");
-  const before=await mcp.request("skills/get",{uri});
+  const before=await mcp.request("resources/read",{uri});
   await f.db.pool.query("UPDATE app.skills SET key='edited-guide',encrypted_body=$3 WHERE tenant_id=$1 AND id=$2",[f.tenantId,skillId,await encrypt("Changed library instructions",f.env.CREDENTIAL_ENCRYPTION_KEY)]);
   await f.db.pool.query("DELETE FROM app.skills WHERE tenant_id=$1 AND id=$2",[f.tenantId,skillId]);
   expect((await mcp.request("resources/read",{uri})).contents[0].text).toContain(skillBody);
-  expect((await mcp.request("skills/get",{uri})).skill.resources).toEqual(before.skill.resources);
+  expect(await mcp.request("resources/read",{uri})).toEqual(before);
+  expect((await mcp.request("resources/read",{uri:snapshotSkillUri(f.tenantId,run.id,"shared-guide","references/input.txt")})).contents[0].text).toBe("Pinned support");
  });
 
  it("bounds hosted invocation destinations and preserves run provenance without permission escalation",async()=>{

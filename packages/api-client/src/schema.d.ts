@@ -2033,14 +2033,38 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Delegate selected proxy integrations to an exe.dev VM
-         * @description Requires an OAuth agent with proxy:use, vm:grant and access to the provider and each selected integration. Expires with the issuing access token.
+         * Delegate selected proxy integrations to an exe.dev VM or Fly.io Machine
+         * @description Requires an OAuth agent with proxy:use, vm:grant and access to the provider and each selected integration. Fly.io requires app plus the Machine ID as vm; exe.dev uses the VM name. Lasts one hour; explicit renewal is required to extend access.
          *
          *     Requires the vm:grant and proxy:use scopes.
          *
          *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         post: operations["post_api_v1_agent_vm_grants"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agent/vm-grants/{grantId}/renew": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Renew an active VM proxy grant for one hour
+         * @description Only the same active OAuth authorization may renew. Rechecks provider and all selected integration grants; expired or revoked VM grants require a new grant. OAuth token refresh alone does not renew VM access.
+         *
+         *     Requires the vm:grant and proxy:use scopes.
+         *
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+         */
+        post: operations["post_api_v1_agent_vm_grants_grantId_renew"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2190,7 +2214,7 @@ export interface paths {
         put?: never;
         /**
          * Make an authorized credential-injected API request
-         * @description OAuth requires proxy:use. An external VM sends its short-lived exe.dev WIF bearer token, X-Factorize-VM-Grant and X-Factorize-VM-Proof. Only server-selected origins are used. Integration-wide grants are bounded by upstream credential permissions. Missing requestable access returns HTTP 403 with WWW-Authenticate insufficient_scope, scope and resource_metadata. Upstream status is returned in the result, including non-2xx. Text is UTF-8; other bodies are base64. Responses above 32 KiB are retained for 30 minutes and read in chunks. Revocation prevents subsequent calls and reads, but cannot undo upstream side effects.
+         * @description OAuth requires proxy:use. An external VM sends its short-lived provider OIDC bearer token, X-Factorize-VM-Grant and X-Factorize-VM-Proof. Only server-selected origins are used. Integration-wide grants are bounded by upstream credential permissions. Missing requestable access returns HTTP 403 with WWW-Authenticate insufficient_scope, scope and resource_metadata. Upstream status is returned in the result, including non-2xx. Text is UTF-8; other bodies are base64. Responses above 32 KiB are retained for 30 minutes and read in chunks. Revocation prevents subsequent calls and reads, but cannot undo upstream side effects.
          *
          *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
@@ -9886,6 +9910,7 @@ export interface operations {
                 "application/json": {
                     /** Format: uuid */
                     providerIntegrationId: string;
+                    app?: string;
                     vm: string;
                     integrationIds: string[];
                     idempotencyKey: string;
@@ -9900,6 +9925,13 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
+                        /** @enum {string} */
+                        provider?: "exe.dev" | "fly.io";
+                        app?: string;
+                        audience?: string;
+                        tokenSocket?: string;
+                        /** Format: uri */
+                        readResponseUrl?: string;
                         /** Format: uuid */
                         grantId: string;
                         vm: string;
@@ -9920,6 +9952,40 @@ export interface operations {
             404: components["responses"]["Error404"];
             409: components["responses"]["Error409"];
             415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_agent_vm_grants_grantId_renew: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                grantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Renewed lease */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        grantId: string;
+                        expiresAt: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
             429: components["responses"]["Error429"];
             500: components["responses"]["Error500"];
             503: components["responses"]["Error503"];
@@ -10268,8 +10334,8 @@ export interface operations {
                                 };
                                 body?: string;
                             };
-                            /** @constant */
-                            vmGrantProvider?: "exe.dev";
+                            /** @enum {string} */
+                            vmGrantProvider?: "exe.dev" | "fly.io";
                         }[];
                     };
                 };

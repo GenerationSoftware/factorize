@@ -1,3 +1,4 @@
+import {builtinSkillDocuments,builtinSkillEntry,builtinSkill,builtinSkillResource} from "./builtin-skills";
 import { migratePresetSkills } from "./preset-migration";
 import { resolveSkillPresets, assertPresetSnapshot } from "./preset-resolution";
 import { presetInput } from "./presets";
@@ -16,7 +17,7 @@ import {WorkspaceVm} from "./workspace-vm";
 import {vmExecInput} from "./agent-api-contracts";
 import {activeHostedRunIdentity} from "./hosted-run-auth";
 import {configuredPiProvider,modelProviderConfiguration,type ModelProviderConfiguration} from "./pi-provider";
-import {parseSkillUri, skillEntry, skillResource,parseSnapshotSkillUri,snapshotSkillUri} from "./mcp-skills";
+import {parseSkillUri, skillResource,parseSnapshotSkillUri,snapshotSkillUri} from "./mcp-skills";
 import { TeamRepository, INITIAL_TEAM_DEFAULTS } from "./postgres/team-repository";
 import { vmPresetInput } from "./vm-presets";
 import { VmPresetRepository } from "./postgres/vm-preset-repository";
@@ -27,7 +28,7 @@ import { configureLibrary } from "./skill-library-contract";
 import { submitRun } from "./postgres/run-submission";
 import type { DatabaseClient } from "./postgres/database";
 import { startRunInput,projectRunDefaults,scopeSchema, teamRunDefaults } from "./flow-schemas";
-import { grantVm, revokeVmGrant } from "./vm-grants";
+import { grantVm, renewVmGrant, revokeVmGrant } from "./vm-grants";
 import { AgentApiService, listAgentPolicies } from "./agent-api";
 import {PhoenixIntegration,runPhoenixStatus} from "./phoenix";
 import {phoenixInput,phoenixRevision} from "./phoenix-contracts";
@@ -376,33 +377,17 @@ export class ApiService {
     return row.encrypted_skill_snapshot?JSON.parse(await decrypt(row.encrypted_skill_snapshot,this.env.CREDENTIAL_ENCRYPTION_KEY)) as {id:string;key:string;body:string;version?:import("./skill-files").SkillVersion}[]:[];
   }
   async mcpListSkills(cursor?:string) {
-    await this.authorizeIdentity();const pinned=await this.pinnedSkills();
-    const skills=cursor?[]:await Promise.all(pinned.map(skill=>skillEntry(this.auth.tenantId,skill,path=>snapshotSkillUri(this.auth.tenantId,this.auth.runId!,skill.key,path))));
-    if(!this.auth.scopes.includes("skills:read")){
-      if(!this.auth.runId)await this.authorize("skills:read");
-      return {resultType:"complete" as const,skills,ttlMs:0,cacheScope:"private" as const};
-    }
-    await this.authorize("skills:read");const store=this.skills(),page=await store.list("",30,cursor);
-    for(const item of page.items){if(pinned.some(skill=>skill.id===item.id))continue;const skill=await store.get(item.id);if(skill)skills.push(await skillEntry(this.auth.tenantId,skill));}
-    return {resultType:"complete" as const,skills,...(page.nextCursor?{nextCursor:page.nextCursor}:{}),ttlMs:0,cacheScope:"private" as const};
+    await this.authorizeIdentity();
+    if(cursor)throw new SkillContentError("The built-in catalog has no further pages.");
+    return {resultType:"complete" as const,skills:builtinSkillDocuments.map(builtinSkillEntry),ttlMs:3_600_000,cacheScope:"private" as const};
   }
   async mcpGetSkill(uri:string) {
     await this.authorizeIdentity();
-    if(uri.startsWith("skill://runs/")){
-      if(!this.auth.runId)throw new SkillContentError("Unknown skill resource.");
-      const {name,path}=parseSnapshotSkillUri(uri,this.auth.tenantId,this.auth.runId);
-      const skill=(await this.pinnedSkills()).find(skill=>skill.key===name);
-      if(!skill||path!=="SKILL.md")throw new SkillContentError("Unknown skill resource.");
-      return {resultType:"complete" as const,skill:await skillEntry(this.auth.tenantId,skill,path=>snapshotSkillUri(this.auth.tenantId,this.auth.runId!,skill.key,path)),ttlMs:0,cacheScope:"private" as const};
-    }
-    await this.authorize("skills:read");
-    const {name,path}=parseSkillUri(uri,this.auth.tenantId);
-    if(path!=="SKILL.md")throw new SkillContentError("Unknown skill resource.");
-    const skill=await this.skills().get(name);if(!skill)throw new SkillContentError("Unknown skill resource.");
-    return {resultType:"complete" as const,skill:await skillEntry(this.auth.tenantId,skill),ttlMs:0,cacheScope:"private" as const};
+    return {resultType:"complete" as const,skill:builtinSkillEntry(builtinSkill(uri)),ttlMs:3_600_000,cacheScope:"private" as const};
   }
   async mcpReadSkill(uri:string) {
     await this.authorizeIdentity();
+    if(uri.startsWith("skill://factorize/"))return {contents:[builtinSkillResource(uri)],ttlMs:3_600_000,cacheScope:"private" as const};
     if(uri.startsWith("skill://runs/")){
       if(!this.auth.runId)throw new SkillContentError("Unknown skill resource.");
       const {name,path}=parseSnapshotSkillUri(uri,this.auth.tenantId,this.auth.runId);
@@ -490,6 +475,7 @@ export class ApiService {
 
   agentApi() { return new AgentApiService(this.env, this.auth); }
   grantVm(input: unknown) { return grantVm(this.env,this.auth,input); }
+  renewVmGrant(id: string) { return renewVmGrant(this.env,this.auth,id); }
   revokeVmGrant(id: string) { return revokeVmGrant(this.env,this.auth,id); }
   async getApiReflection() {
     const reflection=await this.agentApi().reflection();

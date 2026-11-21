@@ -18,7 +18,9 @@
     "check:openapi": "tsx scripts/generate-openapi.ts --check",
     "test:static-slice": "vitest run --config scripts/static-slice.config.ts",
     "benchmark:migration": "vitest run --config scripts/migration-measurements.config.ts",
-    "deploy:prepared": "wrangler deploy"
+    "deploy:prepared": "wrangler deploy",
+    "predeploy": "node ../../scripts/generate-builtin-skills.mjs",
+    "predeploy:prepared": "node ../../scripts/generate-builtin-skills.mjs"
   },
   "dependencies": {
     "@arizeai/openinference-semantic-conventions": "^2.17.1",
