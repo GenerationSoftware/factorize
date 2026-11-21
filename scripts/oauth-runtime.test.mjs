@@ -29,18 +29,18 @@ test('local OAuth consent and device grants authorize REST/MCP and respect revoc
     await db.query('INSERT INTO app.auth_users(id,email,email_verified) VALUES ($1,$2,true)', [userId, email]);
     await db.query("INSERT INTO app.members(tenant_id,user_id,email,role) VALUES ($1,$2,$3,'owner')", [tenantId, userId, email]);
     const socket = createServer(); await new Promise(resolve => socket.listen(0, '127.0.0.1', resolve)); const port = socket.address().port; await new Promise(resolve => socket.close(resolve));
-    const origin = `https://localhost:${port}`, secret = randomBytes(32).toString('hex');
+    const transportOrigin = `https://localhost:${port}`, origin = "https://factorize.test", secret = randomBytes(32).toString('hex');
     const body = Buffer.from(JSON.stringify({ tenantId, userId, email, exp: Math.floor(Date.now()/1000)+600, sessionVersion: 1 })).toString('base64url');
     const cookie = 'factorize_session=' + encodeURIComponent(body + '.' + createHmac('sha256', secret).update(body).digest('base64'));
     const wranglerCli = apiWranglerCli;
-    child = spawn(process.execPath, [wranglerCli, 'dev', '--local', '--local-protocol', 'https', '--port', String(port), '--persist-to', directory, '--var', `APP_ORIGIN:${origin}`, '--var', `SESSION_SIGNING_SECRET:${secret}`, '--var', `CREDENTIAL_ENCRYPTION_KEY:${randomBytes(32).toString('base64')}`], { cwd: fileURLToPath(new URL('../packages/api/', import.meta.url)), detached: true, stdio: ['ignore','pipe','pipe'], env: { ...process.env, CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE: base.href } });
+    child = spawn(process.execPath, [wranglerCli, 'dev', '--local', '--local-protocol', 'https', '--local-upstream', 'factorize.test', '--port', String(port), '--persist-to', directory, '--var', `APP_ORIGIN:${origin}`, '--var', `SESSION_SIGNING_SECRET:${secret}`, '--var', `CREDENTIAL_ENCRYPTION_KEY:${randomBytes(32).toString('base64')}`], { cwd: fileURLToPath(new URL('../packages/api/', import.meta.url)), detached: true, stdio: ['ignore','pipe','pipe'], env: { ...process.env, CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE: base.href } });
     await new Promise((resolve, reject) => {
       let readyOutput = ''; const deadline = setTimeout(() => reject(new Error('Local protocol Worker did not start')), 30000);
       const chunk = value => { readyOutput += value; if (readyOutput.includes('Ready on')) { clearTimeout(deadline); resolve(); } };
-      child.stdout.on('data', chunk); child.stderr.on('data', chunk); child.once('exit', code => { clearTimeout(deadline); reject(new Error('Worker exited ' + code)); });
+      child.stdout.on('data', chunk); child.stderr.on('data', chunk); child.once('exit', code => { clearTimeout(deadline); reject(new Error('Worker exited ' + code + ': ' + readyOutput)); });
     });
     const send = (path, method = 'GET', data, headers = {}) => new Promise((resolve, reject) => {
-      const request = https.request(origin + path, { method, rejectUnauthorized: false, headers }, response => {
+      const request = https.request(transportOrigin + path, { method, rejectUnauthorized: false, headers }, response => {
         const chunks = []; response.on('data', chunk => chunks.push(chunk)); response.on('end', () => { const text = Buffer.concat(chunks).toString(); let json; try { json = JSON.parse(text); } catch {} resolve({ status: response.statusCode, headers: response.headers, text, json }); });
       }); request.setTimeout(15000, () => request.destroy(new Error('Protocol request timed out'))); request.on('error', reject); request.end(data);
     });

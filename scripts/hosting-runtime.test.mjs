@@ -40,8 +40,11 @@ test("actual Cloudflare local runtime enforces static/API/protocol ownership, he
   }
   const database = databaseUrl.href;
   assert.ok(["localhost", "127.0.0.1"].includes(new URL(database).hostname), "Hosting runtime requires a local database URL");
+  // Keep the application origin distinct from Wrangler's preview host: its proxy
+  // rewrites URL-valued headers that match the local listening host.
+  const appOrigin = "https://factorize.test";
   const wranglerCli = apiWranglerCli;
-  const child = spawn(process.execPath, [wranglerCli, "dev", "--local", "--local-protocol", "https", "--port", String(port), "--var", `APP_ORIGIN:https://localhost:${port}`, "--var", `SESSION_SIGNING_SECRET:${signingSecret}`, "--var", `CREDENTIAL_ENCRYPTION_KEY:${encryptionKey}`], { cwd: fileURLToPath(new URL("../packages/api/", import.meta.url)), env: { ...process.env, CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE: database }, detached: true, stdio: ["ignore", "pipe", "pipe"] });
+  const child = spawn(process.execPath, [wranglerCli, "dev", "--local", "--local-protocol", "https", "--local-upstream", "factorize.test", "--port", String(port), "--var", `APP_ORIGIN:${appOrigin}`, "--var", `SESSION_SIGNING_SECRET:${signingSecret}`, "--var", `CREDENTIAL_ENCRYPTION_KEY:${encryptionKey}`], { cwd: fileURLToPath(new URL("../packages/api/", import.meta.url)), env: { ...process.env, CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE: database }, detached: true, stdio: ["ignore", "pipe", "pipe"] });
   let output = "";
   const ready = new Promise((resolve, reject) => {
     const deadline = setTimeout(() => reject(new Error("Local Worker did not start: " + output)), 30_000);
@@ -68,7 +71,7 @@ test("actual Cloudflare local runtime enforces static/API/protocol ownership, he
     if (admin) {
       const session=Buffer.from(JSON.stringify({tenantId,userId,email:"skills@fixture.test",sessionVersion:1,exp:Math.floor(Date.now()/1000)+60})).toString("base64url");
       const signature=createHmac("sha256",signingSecret).update(session).digest("base64");
-      const headers={Cookie:"factorize_session="+encodeURIComponent(session+"."+signature),Origin:`https://localhost:${port}`,"Content-Type":"application/json"};
+      const headers={Cookie:"factorize_session="+encodeURIComponent(session+"."+signature),Origin:appOrigin,"Content-Type":"application/json"};
       const created=await read(port,"/api/v1/skills","POST",headers,JSON.stringify({key:"review",body:"Original"}));
       assert.equal(created.status,201,created.body);
       const skill=JSON.parse(created.body);
@@ -94,7 +97,7 @@ test("actual Cloudflare local runtime enforces static/API/protocol ownership, he
         assert.equal(published.revision,2);
       } finally {await rm(directory,{recursive:true,force:true});}
     }
-    const metadata = await read(port, "/.well-known/oauth-authorization-server"); assert.equal(metadata.status, 200); assert.equal(JSON.parse(metadata.body).issuer, `https://localhost:${port}`); assert.equal(JSON.parse(metadata.body).device_authorization_endpoint, `https://localhost:${port}/oauth/device_authorization`);
+    const metadata = await read(port, "/.well-known/oauth-authorization-server"); assert.equal(metadata.status, 200); assert.equal(JSON.parse(metadata.body).issuer, appOrigin); assert.equal(JSON.parse(metadata.body).device_authorization_endpoint, `${appOrigin}/oauth/device_authorization`);
   } finally {
     try { process.kill(-child.pid, "SIGTERM"); } catch (error) { if (error.code !== "ESRCH") throw error; } await new Promise(resolve => { if (child.exitCode !== null || child.signalCode !== null) resolve(); else child.once("exit", resolve); });
     if (admin) { await admin.query(`DROP DATABASE IF EXISTS "${databaseName}" WITH (FORCE)`); await admin.end(); }
