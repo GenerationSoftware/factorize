@@ -32,10 +32,12 @@ Verified with the PostgreSQL attachment and client tests (3 passed), `npm run bu
 
 ## 3. Register and manage apps
 
-- [ ] Add **Apps** to the dashboard navigation with **Connected apps** and **Registered apps** views. Use **Registered apps** for team-owned registrations. The connected view consumes sign-in grants from item 4, with empty-state and fixture coverage in this item.
-- [ ] Team owners can register, list, inspect, edit, and disable confidential server-side apps and configure exact redirect URLs. Apps are team-only by default and support an opt-in **Available to everyone** setting.
-- [ ] Add dedicated app-management authorization for MCP. Verify a scoped MCP caller can manage non-secret fields for its team and an unscoped or cross-team caller is rejected.
-- [ ] Verify client secret creation and rotation are available only to an authorized browser session. Return newly issued secrets once, store a verifier, and never expose secret material in MCP, registration reads, logs, or test output.
+- [x] Add **Apps** to the dashboard navigation with **Connected apps** and **Registered apps** views. Use **Registered apps** for team-owned registrations. The connected view consumes sign-in grants from item 4, with empty-state and fixture coverage in this item.
+- [x] Team owners can register, list, inspect, edit, and disable confidential server-side apps and configure exact redirect URLs. Apps are team-only by default and support an opt-in **Available to everyone** setting.
+- [x] Add dedicated app-management authorization for MCP. Verify a scoped MCP caller can manage non-secret fields for its team and an unscoped or cross-team caller is rejected.
+- [x] Verify client secret creation and rotation are available only to an authorized browser session. Return newly issued secrets once, store a verifier, and never expose secret material in MCP, registration reads, logs, or test output.
+
+Verified with the PostgreSQL app registration test, the backend TypeScript check, the production frontend build, and the focused Chromium Apps test.
 
 ## 4. Implement Sign in with Factorize
 

@@ -30,6 +30,8 @@ import { submitRun } from "./postgres/run-submission";
 import type { DatabaseClient } from "./postgres/database";
 import { startRunInput,projectRunDefaults,scopeSchema, teamRunDefaults } from "./flow-schemas";
 import { grantVm, renewVmGrant, revokeVmGrant } from "./vm-grants";
+import { AppsRepository } from "./postgres/apps-repository";
+import { appRegistrationInput, appRegistrationUpdate, appSecret, connectedApp, registeredApp } from "./apps-contracts";
 import { VmAttachmentRepository } from "./postgres/vm-attachment-repository";
 import { vmAttachments } from "./vm-attachment-contracts";
 import { AgentApiService, listAgentPolicies } from "./agent-api";
@@ -108,7 +110,7 @@ export function publicValue<T extends z.ZodType>(schema: T, value: unknown): z.o
   return result.data;
 }
 
-type Scope = "runs:start" | "team:read" | "team:write" | "triggers:read" | "triggers:write" | "runs:read" | "runs:invoke" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write";
+type Scope = "apps:manage" | "runs:start" | "team:read" | "team:write" | "triggers:read" | "triggers:write" | "runs:read" | "runs:invoke" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write";
 
 export class ApiService {
   authorizationDuration = 0;
@@ -1703,6 +1705,43 @@ export class ApiService {
   async githubIssueOptions(installationId: number, repositoryId: number) { await this.authorize("integrations:read"); return publicValue(providerOptions, await this.providers().githubIssueOptions(installationId, repositoryId)); }
   async removeGitHubInstallation(id: number) { await this.authorize("integrations:write"); if (!await new GitHubRepository(databaseFor(this.env), this.auth.tenantId).delete(id)) throw new ServiceError(404, "not_found", "Installation not found"); return { id, deleted: true }; }
 
+  private apps() { return new AppsRepository(databaseFor(this.env), this.auth.tenantId); }
+  async listApps() {
+    await this.authorize("apps:manage");
+    return publicValue(z.array(registeredApp), await this.apps().list());
+  }
+  async getApp(id: string) {
+    await this.authorize("apps:manage");
+    const value = await this.apps().find(id);
+    if (!value) throw new ServiceError(404, "not_found", "App not found.");
+    return publicValue(registeredApp, value);
+  }
+  async createApp(body: unknown) {
+    await this.authorize("apps:manage");
+    return publicValue(registeredApp, await this.apps().create(appRegistrationInput.parse(body)));
+  }
+  async updateApp(id: string, body: unknown) {
+    await this.authorize("apps:manage");
+    const value = await this.apps().update(id, appRegistrationUpdate.parse(body));
+    if (!value) throw new ServiceError(404, "not_found", "App not found.");
+    return publicValue(registeredApp, value);
+  }
+  async rotateAppSecret(id: string) {
+    await this.authorizeOwnerSession("apps:manage");
+    const secret = await this.apps().rotateSecret(id);
+    if (!secret) throw new ServiceError(404, "not_found", "App not found.");
+    return publicValue(appSecret, secret);
+  }
+  async listConnectedApps() {
+    await this.authorizeOwnerSession("team:read");
+    return publicValue(z.array(connectedApp), await this.apps().connected(this.auth.userId));
+  }
+  async revokeConnectedApp(id: string) {
+    await this.authorizeOwnerSession("team:write");
+    if (!await this.apps().revoke(this.auth.userId, id)) throw new ServiceError(404, "not_found", "App connection not found.");
+    return { ok: true };
+  }
+
   async renameMcpClient(input: unknown) {
     const { name } = clientNameInput.parse(input);
     if (this.auth.authMethod !== "oauth") throw new ServiceError(403, "forbidden", "An OAuth connection is required.");
@@ -1715,7 +1754,7 @@ export class ApiService {
     const edit = clientPermissionsUpdate.parse(input);
     const client = (await this.listAuthorizedClients()).find(client => client.grantId === grantId);
     if (!client) throw new ServiceError(404, "not_found", "Authorization not found.");
-    let disabledScopes: string[];
+    let disabledScopes: typeof client.availableScopes;
     let integrationOverrides: Record<string, string | false>;
     if ("preset" in edit) {
       await migratePresetSkills(this.env, this.auth.tenantId);

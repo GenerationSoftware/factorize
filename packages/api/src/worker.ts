@@ -21,7 +21,7 @@ import { IdentityRepository } from "./postgres/identity-repository";
 import { runOutboundProxyFetch } from "./run-outbound-proxy";
 import { xOAuthCallback } from "./x-oauth-callback";
 
-const scopes = [...ACCESS_SCOPES];
+const scopes = [...ACCESS_SCOPES, "apps:manage"];
 // Keep accepting grants issued by the pre-resource-scope protocol. New
 // consent screens and metadata advertise only the canonical scopes above.
 const oauthScopes = [...AGENT_SCOPES];

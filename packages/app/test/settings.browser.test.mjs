@@ -238,6 +238,26 @@ test("dashboard VM presets use dedicated editors and confirmed deletion", async 
   }finally{await context.close();}
 });
 
+test("Apps separates connected accounts and team registrations", async () => {
+  const {context, page} = await setup();
+  const app = {id:"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",name:"Reports",enabled:true,public:false,redirectUris:["https://reports.example/callback"],secretConfigured:false};
+  await page.route("**/api/v1/apps", route => route.fulfill({json:[app]}));
+  await page.route("**/api/v1/app-connections", route => route.fulfill({json:[]}));
+  await page.route(`**/api/v1/apps/${app.id}/secret`, route => route.fulfill({json:{clientId:app.id,clientSecret:"fixture-value"}}));
+  try {
+    await page.goto(origin + "/apps");
+    await page.getByText("No connected apps.").waitFor();
+    await page.getByRole("link", {name:"Registered apps"}).click();
+    await page.getByText("Team only").waitFor();
+    await page.getByRole("button", {name:"Create client secret"}).click();
+    const dialog = page.getByRole("dialog", {name:"Client secret"});
+    await dialog.waitFor();
+    assert.equal(await dialog.getByLabel("Client secret", {exact:true}).inputValue(),"fixture-value");
+    await dialog.getByRole("button",{name:"Done"}).click();
+    await dialog.waitFor({state:"hidden"});
+  } finally { await context.close(); }
+});
+
 test("owner edits an MCP connection with the team permission preset", async () => {
   const {context, page} = await setup();
   const client = {grantId:"first", clientId:"shared", clientName:"Release assistant", appName:"Shared MCP app", availableScopes:["triggers:read", "triggers:write"], scopes:["triggers:read", "triggers:write"], integrationOverrides:{}, revision:0, authorizationDate:"2026-11-19", expiresAt:null, lastUsedAt:null};

@@ -1,3 +1,4 @@
+import { appRegistrationInput, appRegistrationUpdate } from "./apps-contracts";
 import { presetInput } from "./presets";
 import { skillTriggerInput } from "./skill-trigger";
 import { skillInput,skillUpdateInput } from "./skills";
@@ -202,6 +203,10 @@ function createMcpServer(service: ApiService, subscriptions = true): McpServer {
     tool("renew_vm_grant", "Explicitly renew an active VM proxy grant for one hour. Only the same OAuth authorization with continuing provider and selected integration access may renew. Expired or revoked grants require a new grant.", revokeVmInput, ({grantId}: any) => service.renewVmGrant(grantId));
     tool("revoke_vm_grant", "Revoke proxy access for an externally managed VM.", revokeVmInput, ({grantId}: any) => service.revokeVmGrant(grantId));
     tool("list_exe_connections", "List safe metadata for saved exe.dev connections. API tokens are never returned.", z.object({}), () => service.listExeConnections());
+    tool("list_apps", "List the team's registered server-side apps. Requires apps:manage.", z.object({}), () => service.listApps());
+    tool("get_app", "Read a registered app's non-secret metadata.", z.object({appId:z.uuid()}), ({appId}: any) => service.getApp(appId));
+    tool("create_app", "Register a server-side app. Create client secrets separately in the browser.", appRegistrationInput, input => service.createApp(input));
+    tool("update_app", "Update redirect URLs, visibility, or enabled state for a registered app.", appRegistrationUpdate.extend({appId:z.uuid()}), ({appId,...input}: any) => service.updateApp(appId,input));
     tool("get_runtime_context", "Inspect the verified invocation identity without exposing credentials.", z.object({}), () => service.getRuntimeContext());
     tool("list_github_installations", "List connected GitHub App installations, including the installation IDs needed by GitHub Trigger events. Credentials are never returned.", z.object({}), () => service.listGitHubInstallations());
     tool("list_runs", "List authoritative trigger runs by trigger ID, state, an optional case-insensitive literal substring of fired context, and validated sort field/direction. Sorting is applied before cursor pagination with deterministic ID tie-breaking. Automatic webhook, schedule, and lifecycle signals coalesce, so query runs and the provider API for authoritative work. Context matches include only a bounded excerpt.", listRunsSchema, (input: any) => service.listRuns(queryOf(input)));

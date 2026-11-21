@@ -5,6 +5,7 @@ import { settingsRoutes } from "./features/settings/routes";
 import { skillsRoutes } from "./features/skills/routes";
 import { triggersRoutes } from "./features/jobs/routes";
 import { runRoutes } from "./features/runs/routes";
+import { appRoutes } from "./features/apps/routes";
 import { vmRoutes } from "./features/vms/routes";
 import React from "react";
 import { createRoot } from "react-dom/client";
@@ -36,7 +37,7 @@ const router = createRouter({
     </Card></Page>
   ),
   defaultNotFoundComponent: () => <Page><Card><h1>Page not found</h1><p className="text-sm text-slate-600 dark:text-slate-400">Check the address or return to your software factory.</p><a href="/" className="mt-4 inline-block rounded-lg bg-factorize-500 px-4 py-2 text-sm font-semibold text-slate-950">Go to Factorize</a></Card></Page>,
-  routeTree: rootRoute.addChildren([indexRoute, ...authRoutes(rootRoute), ...protocolRoutes(rootRoute), ...triggersRoutes(rootRoute), ...runRoutes(rootRoute), ...vmRoutes(rootRoute), ...settingsRoutes(rootRoute), ...skillsRoutes(rootRoute)]),
+  routeTree: rootRoute.addChildren([indexRoute, ...authRoutes(rootRoute), ...protocolRoutes(rootRoute), ...triggersRoutes(rootRoute), ...runRoutes(rootRoute), ...vmRoutes(rootRoute), ...appRoutes(rootRoute), ...settingsRoutes(rootRoute), ...skillsRoutes(rootRoute)]),
 });
 declare module "@tanstack/react-router" {
   interface Register { router: typeof router }

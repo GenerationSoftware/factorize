@@ -12,7 +12,7 @@ import { databaseFor } from "./postgres/database";
 import { readSession, requestCookie, signSession, type Session } from "./session";
 import type { Env } from "./types";
 
-export const SESSION_SCOPES = ACCESS_SCOPES;
+export const SESSION_SCOPES = [...ACCESS_SCOPES, "apps:manage"] as const;
 const email = z.string().trim().toLowerCase().email().max(320);
 const password = z.string().min(12).max(200).meta({ writeOnly: true });
 const connection = z.uuid().optional();
@@ -48,7 +48,7 @@ export function safeReturnTo(value: string | undefined): string {
   try {
     const url = new URL(value, "https://local.invalid");
     if (url.origin !== "https://local.invalid") return "/integrations";
-    if (!/^\/(?:authorize|device|integrations|skills(?:\/[^/]+(?:\/(?:runs|settings(?:\/(?:general|vm|permissions|trigger))?))?)?|triggers(?:\/[^/]+(?:\/(?:edit|settings(?:\/(?:general|vm|context|permissions|events))?))?)?|runs(?:\/[^/]+(?:\/(?:trace|info))?)?|settings(?:\/(?:profile|vm|permissions|skills|vm-presets|integrations|api-keys(?:\/new)?|authorized-clients|password))?)$/.test(url.pathname)) return "/integrations";
+    if (!/^\/(?:authorize|device|integrations|vms|clients(?:\/[^/]+)?|apps(?:\/registered)?|skills(?:\/[^/]+(?:\/(?:runs|settings(?:\/(?:general|vm|permissions|trigger))?))?)?|triggers(?:\/[^/]+(?:\/(?:edit|settings(?:\/(?:general|vm|context|permissions|events))?))?)?|runs(?:\/[^/]+(?:\/(?:trace|info|vms))?)?|settings(?:\/(?:profile|vm|permissions|skills|vm-presets|integrations|api-keys(?:\/new)?|authorized-clients|password))?)$/.test(url.pathname)) return "/integrations";
     return url.pathname + url.search + url.hash;
   } catch { return "/integrations"; }
 }
