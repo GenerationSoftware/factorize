@@ -66,7 +66,7 @@ for (const width of [390, 1280]) {
 }
 
 
-test("run header shows its parent skill above RUN and links to the skill page", async ({ page }) => {
+test("run header shows its parent skill below the run name and links to the skill page", async ({ page }) => {
   await setup(page); await page.emulateMedia({ colorScheme: "dark" });
   let parent = { launch_skill_id: skillId, launch_skill_key: "review" };
   await page.route(`**/api/v1/runs/${runId}/status`, route => route.fulfill({ json: { ...run, trigger_id: null, ...parent } }));
@@ -75,7 +75,8 @@ test("run header shows its parent skill above RUN and links to the skill page", 
   await expect(link).toBeVisible(); await expect(label).toHaveCSS("font-size", "12px");
   expect(await label.evaluate(node => getComputedStyle(node).color)).toBe(await runLabel.evaluate(node => getComputedStyle(node).color));
   expect(await link.evaluate(node => getComputedStyle(node).color)).not.toBe(await label.evaluate(node => getComputedStyle(node).color));
-  expect((await label.boundingBox()).y).toBeLessThan((await runLabel.boundingBox()).y);
+  const title = await page.getByRole("heading", { name: run.run_name, exact: true }).boundingBox();
+  expect((await label.boundingBox()).y).toBeGreaterThanOrEqual(title.y + title.height);
   await link.click(); await expect(page).toHaveURL(origin + `/skills/${skillId}`); await expect(page.getByRole("heading", { name: "review", exact: true })).toBeVisible();
   parent = { launch_skill_id: null, launch_skill_key: null }; await page.goto(origin + `/runs/${runId}`); await expect(page.getByRole("heading", { name: run.run_name, exact: true })).toBeVisible(); await expect(label).toHaveCount(0);
 });
