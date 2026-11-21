@@ -50,7 +50,10 @@ export function AccountBar() {
     <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:bg-factorize-500 focus:p-3 focus:text-slate-950">Skip to content</a>
     <nav aria-label="Main navigation" className="mx-auto flex min-h-16 max-w-6xl flex-wrap items-center justify-between gap-x-5 gap-y-3 px-4 py-3 sm:px-6 lg:px-8">
       <div className="flex min-w-0 flex-1 items-center gap-2.5">
-        <Link to="/" aria-label="Factorize dashboard" className="flex shrink-0 items-center"><img src={beeMark} alt="" className="size-8 object-contain" /></Link>
+        <Link to="/" aria-label="Factorize dashboard" className="flex shrink-0 items-center">
+          <img src={beeMark} alt="" className="size-8 object-contain dark:hidden" />
+          <span aria-hidden="true" className="hidden size-8 bg-[#e5ad00] mask-contain mask-center mask-no-repeat dark:block" style={{ maskImage: `url(${beeMark})` }} />
+        </Link>
         <span aria-hidden="true" className="hidden h-8 w-px shrink-0 bg-stone-300 dark:bg-slate-700" />
         {authenticated ? <div className="flex min-w-0 flex-1 items-center gap-2 text-sm font-semibold sm:flex-initial">
           <Link to="/skills" title={session.data?.authenticated ? session.data.team.name ?? "Team" : "Team"} className="min-w-0 shrink-0 max-w-[24vw] truncate py-1 sm:max-w-56 hover:text-factorize-700 dark:hover:text-factorize-500">{session.data?.authenticated ? session.data.team.name ?? "Team" : "Team"}</Link>
