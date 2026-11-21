@@ -132,7 +132,10 @@ test("authenticated password route shows settings navigation with the active pas
   const settings = page.getByRole("navigation", { name: "Settings" });
   assert.equal(await settings.getByRole("link", { name: "Integrations", exact: true }).count(), 0);
   assert.equal(await settings.getByRole("link", { name: "Skills library", exact: true }).count(), 0);
-  assert.equal(await page.getByRole("link", { name: "Skills", exact: true }).count(), 0);
+  const dashboard = page.getByRole("navigation", { name: "Dashboard navigation" });
+  assert.equal(await dashboard.count(), 1);
+  assert.equal(await dashboard.getByRole("link", { name: "Skills", exact: true }).getAttribute("href"), "/skills");
+  assert.equal(await dashboard.getByRole("link", { name: "Settings", exact: true }).getAttribute("aria-current"), "page");
   const password = settings.getByRole("link", { name: "Change password", exact: true });
   await password.waitFor();
   assert.equal(await password.getAttribute("aria-current"), "page");

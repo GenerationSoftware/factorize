@@ -89,7 +89,15 @@ it("round trips skill directories through a real Git HTTPS-protocol backend and 
 
 it("protects skill repository operations and validates directory selection", () => {
   const routes = API_ROUTES.filter((route) => route.path.startsWith("/api/v1/skill-library"));
-  expect(routes).toHaveLength(4);
+  expect(routes.map(({method,path})=>`${method} ${path}`).sort()).toEqual([
+    "GET /api/v1/skill-library",
+    "GET /api/v1/skill-library/clone",
+    "POST /api/v1/skill-library/git-token",
+    "POST /api/v1/skill-library/sync",
+    "POST /api/v1/skill-library/token",
+    "PUT /api/v1/skill-library",
+  ]);
+  expect(routes.find(route=>route.path==="/api/v1/skill-library/git-token")?.ownerSession).toBe(true);
   for (const route of routes)
     expect(route.scope).toBe(route.method === "GET" ? "skills:read" : "skills:write");
   expect(
