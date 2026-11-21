@@ -17,8 +17,8 @@ for (const width of [390, 1280]) test(`simplified Skills, preserved integration 
   const requests = []; page.on("request", req => requests.push(new URL(req.url()).pathname));
   await page.route("**/api/v1/skills?**", route => route.fulfill({ json: { items: [{ id, key: "release-review", description: "Review releases, summarize changes, and check compatibility across all supported applications.", factorize: { disabled: false } }], nextCursor: null } }));
   await page.goto(origin + "/skills"); const table = page.getByRole("table", { name: "Skills" }); await expect(table.getByRole("link", { name: "release-review" })).toBeVisible();
-  expect(await table.getByRole("columnheader").allTextContents()).toEqual(["Skill name", "Description", "Actions"]); await expect(table.getByRole("button", { name: "Run release-review" })).toBeVisible();
-  expect(requests).not.toContain("/api/v1/presets"); if (width === 1280) { const cells = table.getByRole("row").nth(1).getByRole("cell"); expect((await cells.nth(1).boundingBox()).width).toBeGreaterThan((await cells.nth(0).boundingBox()).width * 2); }
+  expect(await table.getByRole("columnheader").allTextContents()).toEqual(["Run skill", "Skill name", "Description"]); await expect(table.getByRole("button", { name: "Run release-review" })).toBeVisible();
+  expect(requests).not.toContain("/api/v1/presets"); if (width === 1280) { const cells = table.getByRole("row").nth(1).getByRole("cell"); expect((await cells.nth(2).boundingBox()).width).toBeGreaterThan((await cells.nth(1).boundingBox()).width * 2); }
   await page.screenshot({ path: testInfo.outputPath(`skills-${width}.png`) });
   let policies = [{ id: integrationId, credentialId: "linear", kind: "linear", name: "Linear", available: true, revision: 1, policy: "requestable", requiredScope: "integrations:read" }];
   await page.route("**/api/v1/integration-api-policies", route => route.fulfill({ json: { integrations: policies } }));

@@ -34,7 +34,7 @@ for (const width of [390, 1280]) {
     await page.goto(origin + "/skills");
     const row = page.getByRole("row").filter({ has: page.getByRole("link", { name: "review", exact: true }) });
     await expect(row.getByRole("link", { name: "review", exact: true })).toHaveCSS("text-decoration-line", "none");
-    await expect(row.getByRole("cell").last().getByRole("button", { name: "Run review" })).toBeVisible();
+    await expect(row.getByRole("cell").first().getByRole("button", { name: "Run review" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Run paused" })).toBeDisabled();
     const nav = page.getByRole("navigation", { name: "Dashboard navigation" }); await expect(nav.getByRole("link", { name: "Skills", exact: true })).toHaveCSS("font-size", "16px");
     await row.getByRole("button", { name: "Run review" }).click(); await expect(row.getByRole("alert")).toHaveText("Try again");
@@ -47,6 +47,27 @@ for (const width of [390, 1280]) {
       await expect(page.getByRole("heading", { name: "Runs", exact: true })).toHaveCount(0); await expect(page.getByRole("button", { name: "Start run", exact: true })).toHaveCount(0); await expect(page.getByRole("textbox", { name: "Prompt", exact: true })).toHaveCount(0);
     }
     await expect(page.getByRole("navigation", { name: "Skill navigation" }).getByRole("link", { name: "Runs", exact: true })).toHaveCSS("font-size", "16px");
+  });
+  test(`skill play menu opens a focused prompt modal at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 }); await setup(page);
+    const submissions=[];
+    await page.route("**/api/v1/runs", route=>{submissions.push(route.request().postDataJSON());return submissions.length===1?route.fulfill({status:503,json:{error:{message:"Try again"}}}):route.fulfill({status:202,json:{runId,duplicate:false}});});
+    await page.goto(origin+"/skills");
+    const play=page.getByRole("button",{name:"Run review",exact:true}), options=page.getByRole("button",{name:"Run options for review",exact:true});
+    await expect(play).toHaveText("");expect((await options.boundingBox()).x).toBeGreaterThan((await play.boundingBox()).x);
+    await expect(page.getByRole("button",{name:"Run options for paused",exact:true})).toBeDisabled();
+    await options.click();await expect(page.getByRole("menuitem",{name:"With prompt"})).toBeFocused();
+    const menu=page.getByRole("menu");const box=await menu.boundingBox();expect(box.x).toBeGreaterThanOrEqual(0);expect(box.x+box.width).toBeLessThanOrEqual(width);
+    await page.getByRole("columnheader",{name:"Description",exact:true}).click();await expect(menu).toBeHidden();
+    await options.focus();await page.keyboard.press("ArrowDown");await page.keyboard.press("Escape");await expect(options).toBeFocused();
+    await options.click();await page.getByRole("menuitem",{name:"With prompt"}).click();
+    let dialog=page.getByRole("dialog",{name:"Run review with prompt"}), prompt=dialog.getByRole("textbox",{name:"Additional prompt"});
+    await expect(prompt).toBeFocused();await prompt.fill("Do not submit this");await page.keyboard.press("Escape");await expect(dialog).toBeHidden();expect(submissions).toHaveLength(0);
+    await options.click();await page.getByRole("menuitem",{name:"With prompt"}).click();
+    dialog=page.getByRole("dialog");prompt=dialog.getByRole("textbox",{name:"Additional prompt"});await expect(prompt).toBeFocused();await expect(prompt).toHaveValue("");
+    await prompt.fill("  Also check the changelog  ");await dialog.getByRole("button",{name:"Run",exact:true}).click();await expect(dialog.getByRole("alert")).toHaveText("Try again");
+    await dialog.getByRole("button",{name:"Run",exact:true}).click();await expect(page).toHaveURL(new RegExp(`/runs/${runId}`));
+    expect(submissions[0]).toEqual({skill:skillId,prompt:"Also check the changelog",idempotencyKey:expect.any(String)});expect(submissions[1]).toEqual(submissions[0]);
   });
   test(`settings share their subnav and installed integrations use compact columns at ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 900 }); await setup(page);
