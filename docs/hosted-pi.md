@@ -1,6 +1,6 @@
 # Hosted Pi execution
 
-Factorize bundles `@earendil-works/pi-agent-core` and `@earendil-works/pi-ai` at 1.5.2. The managed runtime runs in the Worker with Node compatibility, using the selected OpenAI Chat Completions adapter. Guest images do not install or launch managed agents. VM scripts retain their separate execution lifecycle. Worker identity, database, scheduler, and storage bindings are unchanged.
+Factorize bundles `@earendil-works/pi-agent-core` and `@earendil-works/pi-ai` at 1.5.2. The managed runtime runs in the Worker with Node compatibility. Integrations configured with `https://api.openai.com/v1` use Pi's built-in OpenAI provider and the Responses API. Other OpenAI-compatible base URLs use Pi's Chat Completions adapter. Guest images do not install or launch managed agents. VM scripts retain their separate execution lifecycle. Worker identity, database, scheduler, and storage bindings are unchanged.
 
 A model integration stores an OpenAI-compatible provider base URL and optional API key, encrypted by the existing managed credential repository. The model ID belongs to Team defaults or the Trigger/run override. Model and VM catalogs are independent. Optional context/output limits control the framework request and compaction threshold. A keyless integration sends no Authorization header. Credentials are resolved anew for each scheduler turn; they never enter agent messages.
 
