@@ -1,5 +1,6 @@
 import { beginTotpEnrollment, beginTotpLogin, clearTotpEnrollCookie, clearTotpLoginCookie, disableTotp, enableTotp, finishTotpLogin, totpStatus } from "./totp";
 import { clearGoogleCookie, finishGooglePassword, finishGoogleSignIn, googleEnabled, googlePending, googleUsernameAvailable, redeemGoogleCallback, requestGoogleEmail, startGoogleSignIn, verifyGoogleEmail, type GoogleIdentity } from "./google-sign-in";
+import { GoogleCallbackFailure, reportGoogleCallbackFailure } from "./google-callback-diagnostics";
 import { usernameSchema } from "./usernames";
 import { integrationConsentLabels } from "./agent-api";
 import { ACCESS_SCOPES } from "./access-tokens";
@@ -362,20 +363,27 @@ export async function googleSignInCallback(request: Request, env: Env) {
   const redirect = (target: string) => new Response(null, { status: 303, headers: {
     Location: new URL(target, env.APP_ORIGIN).href, "Cache-Control": "no-store", "Referrer-Policy": "no-referrer",
   } });
-  if (request.headers.has("Authorization")) return redirect("/auth/login?google=failed");
+  if (request.headers.has("Authorization")) {
+    reportGoogleCallbackFailure(request, "authorization_header");
+    return redirect("/auth/login?google=failed");
+  }
   try {
     const result = await redeemGoogleCallback(request, env);
     if ("status" in result) return redirect(result.status === 409 ? "/auth/login?google=collision" : result.status === 403 ? "/auth/login?google=account" : "/auth/login?google=failed");
     if ("totpSettings" in result) return redirect("/settings/two-factor");
     if ("pending" in result) return redirect("/auth/google");
     const signed = await completeInteractiveSignIn(request, env, result.identity, result.returnTo, result.connection);
-    if (!signed.ok) return redirect("/auth/login?google=connection");
+    if (!signed.ok) {
+      reportGoogleCallbackFailure(request, "connection_unavailable");
+      return redirect("/auth/login?google=connection");
+    }
     const { returnTo } = loginSuccess.parse(await signed.json());
     const response = redirect(returnTo);
     for (const value of signed.headers.getSetCookie()) response.headers.append("Set-Cookie", value);
     response.headers.append("Set-Cookie", clearGoogleCookie(env));
     return response;
-  } catch {
+  } catch (error) {
+    reportGoogleCallbackFailure(request, error instanceof GoogleCallbackFailure ? error.code : "session_completion");
     // Never reflect provider errors, authorization codes, or token data.
     return redirect("/auth/login?google=failed");
   }
