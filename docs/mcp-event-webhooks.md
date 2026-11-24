@@ -4,11 +4,7 @@ Factorize exposes Event definitions over the authenticated `/mcp` endpoint. A de
 
 ## Webhook egress
 
-Deploy the image built from `services/mcp-webhook-egress` behind HTTPS. Set `MCP_EVENT_EGRESS_TOKEN` to the same randomly generated secret of at least 32 characters on the egress service and the Factorize Worker. Set the Worker's `MCP_EVENT_EGRESS_URL` to the service's HTTPS origin. Apply the repository's normal database migration before serving the new Worker code.
-
-The Worker signs each serialized webhook body and calls the egress service's authenticated `POST /send`. The service validates all DNS answers on every outbound connection, dials a validated public address, and uses the original hostname for SNI and certificate verification. It returns only the HTTP status or a failure category, and a bounded challenge echo for verification. The service does not follow redirects or log request or response data. Subscription verification fails closed when egress is unconfigured. [MCP Events callback requirements](https://developers.openai.com/plugins/build/mcp-events), [Cloudflare production socket limitation](https://github.com/cloudflare/workerd/issues/6903)
-
-Run `go test ./...` from `services/mcp-webhook-egress` to check TLS name verification using the pinned connection, redirect handling, and rejection of private destinations.
+The Factorize Worker sends callbacks directly over HTTPS. It rejects private IP literals and local-only hostnames, prevents redirects, and limits the time and bytes used to read a verification echo. Cloudflare's public fetch path resolves each hostname and restricts the address used for the actual connection. TLS verifies the hostname from the original URL. Keep `global_fetch_strictly_public` enabled in the existing Worker configuration to avoid private zone-origin routing. [Cloudflare public fetch routing](https://github.com/cloudflare/workerd/blob/main/src/workerd/io/compatibility-date.capnp), [Cloudflare's public network default](https://github.com/cloudflare/workerd/discussions/1523)
 
 ## Delivery and recovery
 
@@ -24,8 +20,8 @@ The PostgreSQL suite uses the real MCP handler, occurrence writes, and dispatche
 
 | Wake | Commit observed (UTC) | Callback accepted (UTC) | First tool read (UTC) | Summary completed (UTC) |
 | --- | --- | --- | --- | --- |
-| Normal | 05:40:27.800 | 05:40:27.850 | 05:40:27.868 | 05:40:27.904 |
-| Burst of three | 05:40:27.998–05:40:28.144 | 05:40:28.183–05:40:28.226 | 05:40:28.243 | 05:40:28.412 |
-| Empty | 05:40:28.509 | 05:40:28.584 | 05:40:28.621 | 05:40:29.109 |
+| Normal | 05:48:54.849 | 05:48:54.900 | 05:48:54.921 | 05:48:55.002 |
+| Burst of three | 05:48:55.201–05:48:55.488 | 05:48:55.543–05:48:55.587 | 05:48:55.604 | 05:48:55.823 |
+| Empty | 05:48:55.928 | 05:48:55.976 | 05:48:55.996 | 05:48:56.409 |
 
 These timestamps are from the November 24, 2026 mock run. Set `FACTORIZE_MOCK_DOT_TIMELINE=1` when running `test/mcp-events.postgres.test.ts` to print the per-occurrence timestamps. No live ChatGPT workspace or Dot was used.

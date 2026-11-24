@@ -97,7 +97,7 @@ export async function subscribeMcpEvent(env: Env, auth: OAuthProps, input: z.inf
   let verifiedAt = cached?.verified_at;
   if (!verifiedAt) {
     const challenge = crypto.randomUUID();
-    const result = await sendMcpWebhook(env, {
+    const result = await sendMcpWebhook(env.APP_ORIGIN, {
       url, subscriptionId: id, id: `msg_verification_${crypto.randomUUID()}`,
       payload: { type: "verification", challenge }, secrets: [secret], verify: true,
     });
@@ -237,7 +237,7 @@ async function dispatchClaim(env: Env, claim: Claim, now: () => number) {
         await finish(sql, "cancelled", claim.attempts - 1, "authorization_inactive");
         return;
       }
-      result = await sendMcpWebhook(env, {
+      result = await sendMcpWebhook(env.APP_ORIGIN, {
         url: subscription.callback_url,
         subscriptionId: claim.subscription_id,
         id: claim.occurrence_id,

@@ -14,9 +14,7 @@ vi.mock("cloudflare:workers", () => ({
 }));
 vi.mock("@cloudflare/workers-oauth-provider", () => ({ OAuthProvider: class {}, AuthorizationError: class extends Error {}, getOAuthApi: vi.fn() }));
 
-const egress = "https://egress.example.test";
-const receiver = "https://receiver.example.test/inbound";
-const egressToken = "egress-test-token";
+const receiver = "https://receiver.example.com/inbound";
 const key = Buffer.alloc(32, 9), replacement = Buffer.alloc(32, 12);
 const secret = (signingKey: Buffer) => `whsec_${signingKey.toString("base64")}`;
 type Captured = {
@@ -36,6 +34,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("MCP event webhook lifecycl
   let deliveries: Captured[], verifications: string[], statuses: number[], unexpected: unknown[];
   let holdDelivery: (() => Promise<void>) | undefined;
   let acceptedAt: Map<string, Date>;
+  let verificationResponse: ((challenge: string) => Response) | undefined;
 
   beforeEach(async () => {
     f = await loadingFixture(process.env.AUTH_TEST_DATABASE_URL!);
@@ -50,6 +49,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("MCP event webhook lifecycl
     unexpected = [];
     holdDelivery = undefined;
     acceptedAt = new Map();
+    verificationResponse = undefined;
     auth = { ...f.auth, authMethod: "oauth", oauthGrantId: "grant-1", oauthClientId: "client-1", oauthExpiresAt: Date.now() / 1000 + 3600 };
     f.env.OAUTH_PROVIDER = {
       listUserGrants: async () => ({
@@ -58,36 +58,38 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("MCP event webhook lifecycl
         }] : [],
       }),
     } as unknown as NonNullable<typeof f.env.OAUTH_PROVIDER>;
-    f.env.MCP_EVENT_EGRESS_URL = egress;
-    f.env.MCP_EVENT_EGRESS_TOKEN = egressToken;
     request = mcpRequest(f.env, auth);
-    vi.stubGlobal("fetch", async (url: URL, init?: RequestInit) => {
+    vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
       try {
-        expect(String(url)).toBe(egress + "/send");
+        expect(url).toBe(receiver);
         expect(init?.method).toBe("POST");
-        expect(init?.redirect).toBe("error");
-        expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer " + egressToken);
-        const { url: target, body, id, timestamp, signature, subscriptionId, verify } = JSON.parse(String(init?.body));
-        if (target === "https://127.0.0.1/") return Response.json({ reason: "forbidden_destination" });
-        expect(target).toBe(receiver);
+        expect(init?.redirect).toBe("manual");
+        const headers = new Headers(init?.headers);
+        expect(headers.has("Authorization")).toBe(false);
+        expect(headers.get("Content-Type")).toBe("application/json");
+        const body = String(init?.body);
+        const id = headers.get("webhook-id")!;
+        const timestamp = headers.get("webhook-timestamp")!;
+        const signature = headers.get("webhook-signature")!;
+        const subscriptionId = headers.get("X-MCP-Subscription-Id")!;
         expect(Buffer.byteLength(body)).toBeLessThanOrEqual(256 * 1024);
         // Independently verify the receiver's raw bytes without reserializing.
         const digest = createHmac("sha256", signingKey).update(`${id}.${timestamp}.`).update(Buffer.from(body)).digest("base64");
         expect(signature.split(" ")[0]).toBe("v1," + digest);
         expect(Number(timestamp)).toBeGreaterThan(0);
         const event = JSON.parse(body);
-        if (verify) {
-          expect(event.type).toBe("verification");
+        if (event.type === "verification") {
           expect(id).toMatch(/^msg_verification_/);
           verifications.push(event.challenge);
-          return Response.json({ status: 200, challenge: challengeMatches ? event.challenge : "incorrect" });
+          return verificationResponse?.(event.challenge) ??
+            Response.json({ challenge: challengeMatches ? event.challenge : "incorrect" });
         }
         expect(event.eventId).toBe(id);
         deliveries.push({ id, timestamp, signature, subscriptionId, event });
         await holdDelivery?.();
         const status = statuses.shift() ?? 200;
         if (status >= 200 && status < 300) acceptedAt.set(id, new Date());
-        return Response.json({ status });
+        return new Response(null, { status });
       } catch (error) {
         unexpected.push(error);
         throw error;
@@ -278,7 +280,15 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("MCP event webhook lifecycl
     expect((await request("events/subscribe", { ...input, name: `factorize.event.${other.definitionId}` })).message.error).toMatchObject({ code: -32023 });
     expect((await request("events/list", {}, auth, { "Mcp-Method": "events/unsubscribe" })).status).toBe(400);
     expect((await subscribe("http://receiver.example.test")).message.error.code).toBe(-32602);
-    expect((await subscribe("https://127.0.0.1/")).message.error).toMatchObject({ code: -32015, data: { reason: "forbidden_destination" } });
+    for (const url of ["https://127.0.0.1/", "https://[::ffff:127.0.0.1]/", "https://internal.local./"]) {
+      expect((await subscribe(url)).message.error).toMatchObject({ code: -32015, data: { reason: "forbidden_destination" } });
+    }
+    expect(verifications).toHaveLength(0);
+    verificationResponse = () => new Response(null, { status: 307, headers: { Location: "https://127.0.0.1/" } });
+    expect((await subscribe()).message.error).toMatchObject({ code: -32015 });
+    verificationResponse = challenge => Response.json({ challenge, padding: "a".repeat(4096) });
+    expect((await subscribe()).message.error).toMatchObject({ code: -32015, data: { reason: "challenge_failed" } });
+    verificationResponse = undefined;
     challengeMatches = false;
     expect((await subscribe()).message.error).toMatchObject({ code: -32015, data: { reason: "challenge_failed" } });
     expect((await f.db.pool.query("SELECT 1 FROM app.mcp_event_subscriptions")).rowCount).toBe(0);

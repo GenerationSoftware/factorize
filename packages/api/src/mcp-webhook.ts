@@ -1,5 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
-import type { Env } from "./types";
+import { isPublicHttpsOrigin } from "./public-address";
 
 const encoder = new TextEncoder();
 const maxBody = 256 * 1024;
@@ -16,6 +16,7 @@ export function canonicalWebhookSecret(secret: string) {
 export function canonicalCallbackURL(value: string) {
   try {
     const url = new URL(value);
+    url.hostname = url.hostname.replace(/\.$/, "");
     if (url.protocol === "https:" && !url.username && !url.password && url.href.length <= 2048 && !url.href.includes("#")) return url.href;
   } catch { /* Invalid URL. */ }
   return null;
@@ -23,7 +24,7 @@ export function canonicalCallbackURL(value: string) {
 
 export type WebhookOutcome = {
   status?: number;
-  reason?: "timeout" | "connection_failed" | "forbidden_destination" | "egress_unavailable" | "tls_error";
+  reason?: "timeout" | "connection_failed" | "forbidden_destination";
   challenge?: string;
 };
 
@@ -34,7 +35,29 @@ async function sign(secret: string, message: Uint8Array<ArrayBuffer>) {
   return "v1," + btoa(String.fromCharCode(...new Uint8Array(signature)));
 }
 
-export async function sendMcpWebhook(env: Env, input: {
+async function readChallenge(response: Response): Promise<string | undefined> {
+  const reader = response.body?.getReader();
+  if (!reader) return;
+  const bytes = new Uint8Array(4096);
+  let size = 0;
+  try {
+    for (;;) {
+      const next = await reader.read();
+      if (next.done) break;
+      if (size + next.value.byteLength > bytes.length) return;
+      bytes.set(next.value, size);
+      size += next.value.byteLength;
+    }
+    let value: unknown;
+    try { value = JSON.parse(new TextDecoder().decode(bytes.subarray(0, size)))?.challenge; }
+    catch { return; }
+    if (typeof value === "string" && value.length <= 128) return value;
+  } finally {
+    void reader.cancel().catch(() => {});
+  }
+}
+
+export async function sendMcpWebhook(backendOrigin: string, input: {
   url: string;
   subscriptionId: string;
   id: string;
@@ -46,33 +69,33 @@ export async function sendMcpWebhook(env: Env, input: {
   const { url, subscriptionId, id, secrets, verify = false, now = Date.now() } = input;
   const body = JSON.stringify(input.payload);
   if (encoder.encode(body).byteLength > maxBody) return { status: 413 };
-  if (!env.MCP_EVENT_EGRESS_URL || !env.MCP_EVENT_EGRESS_TOKEN) return { reason: "egress_unavailable" };
-
-  const endpoint = canonicalCallbackURL(env.MCP_EVENT_EGRESS_URL);
-  if (!endpoint) return { reason: "egress_unavailable" };
+  const endpoint = canonicalCallbackURL(url);
+  if (!endpoint || !isPublicHttpsOrigin(new URL(endpoint).origin, backendOrigin)) {
+    return { reason: "forbidden_destination" };
+  }
   const timestamp = String(Math.floor(now / 1000));
   const message = encoder.encode(`${id}.${timestamp}.${body}`);
   const signature = (await Promise.all(secrets.map(secret => sign(secret, message)))).join(" ");
   const signal = AbortSignal.timeout(10_000);
   try {
-    const response = await fetch(new URL("/send", endpoint), {
+    // Use the Worker's public fetch path. The network checks the address it
+    // actually connects to and TLS authenticates the original URL hostname.
+    const response = await fetch(endpoint, {
       method: "POST",
-      redirect: "error",
+      redirect: "manual",
       signal,
-      headers: { Authorization: `Bearer ${env.MCP_EVENT_EGRESS_TOKEN}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ url, subscriptionId, id, timestamp, signature, body, verify }),
+      headers: {
+        "Content-Type": "application/json",
+        "webhook-id": id,
+        "webhook-timestamp": timestamp,
+        "webhook-signature": signature,
+        "X-MCP-Subscription-Id": subscriptionId,
+      },
+      body,
     });
-    if (!response.ok) {
-      await response.body?.cancel();
-      return { reason: "egress_unavailable" };
-    }
-    const result = await response.json<WebhookOutcome>();
-    return {
-      status: Number.isInteger(result.status) && result.status! >= 100 && result.status! <= 599 ? result.status : undefined,
-      reason: result.reason === "forbidden_destination" || result.reason === "timeout" ||
-        result.reason === "tls_error" || result.reason === "connection_failed" ? result.reason : undefined,
-      challenge: verify && typeof result.challenge === "string" ? result.challenge : undefined,
-    };
+    if (verify && response.ok) return { status: response.status, challenge: await readChallenge(response) };
+    void response.body?.cancel().catch(() => {});
+    return { status: response.status };
   } catch {
     return { reason: signal.aborted ? "timeout" : "connection_failed" };
   }

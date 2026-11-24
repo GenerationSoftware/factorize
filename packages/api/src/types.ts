@@ -3,8 +3,6 @@ export interface MatchRule { type: FilterType; targetId: string; }
 export interface Env {
   FLY_VM_GRANTS_ENABLED?: string;
   SCHEDULER?: DurableObjectNamespace;
-  MCP_EVENT_EGRESS_URL?: string;
-  MCP_EVENT_EGRESS_TOKEN?: string;
   ASSETS: Fetcher;
   APP_ORIGIN: string;
   MARKETING_ORIGIN?: string;
