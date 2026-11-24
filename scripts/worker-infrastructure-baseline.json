@@ -10,6 +10,7 @@
   "artifacts": [{ "binding": "SKILL_ARTIFACTS", "namespace": "factorize-skills", "remote": false }],
   "workflows": [{ "binding": "SKILL_PUSH", "name": "factorize-skill-push", "class_name": "SkillPushWorkflow" }],
   "triggers": { "crons": ["*/5 * * * *"], "events": [{ "type": "cf.artifacts.repo.pushed", "filter": { "namespace": "factorize-skills" }, "targets": [{ "type": "workflow", "workflow_name": "factorize-skill-push" }] }] },
+  "ratelimits": [{ "name": "GOOGLE_SIGN_IN_START_LIMIT", "namespace_id": "10430", "simple": { "limit": 15, "period": 60 } }],
   "r2_buckets": [{ "binding": "RUN_ARTIFACTS", "bucket_name": "factorize-run-artifacts" }],
   "durable_objects": {
     "bindings": [{ "name": "SCHEDULER", "class_name": "AlarmCoordinator" }]
