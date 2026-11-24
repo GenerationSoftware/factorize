@@ -1,15 +1,14 @@
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, type paths } from "factorize-api-client";
+import { api } from "factorize-api-client";
 import {
   Button, Card, Label, Page, PageHeader, Select, Table, Textarea,
   tableCellClasses, tableHeadClasses, tableRowClasses,
 } from "../../shared/ui";
 import { messageOf, sessionQuery } from "../auth/session";
+import { vmGrantsQuery, type WorkloadGrant as Grant } from "./queries";
 
-type Grant = paths["/api/v1/vms"]["get"]["responses"][200]["content"]["application/json"][number];
-const grantKey = ["vm-grants"];
 const presetKey = ["settings", "permission-presets"];
 const vmName = (grant: Grant) => grant.app ? `${grant.app}/${grant.vm}` : grant.vm;
 const providerName = (grant: Grant) => grant.provider === "fly.io" ? "Fly.io" : grant.provider;
@@ -19,15 +18,7 @@ function useVmGrants() {
   const session = useQuery(sessionQuery);
   const capabilities = session.data?.authenticated ? session.data.capabilities : [];
   const canRead = capabilities.includes("vms:read");
-  const grants = useQuery({
-    queryKey: grantKey,
-    enabled: canRead,
-    queryFn: async ({ signal }) => {
-      const { data, error } = await api.GET("/api/v1/vms", { signal });
-      if (!data || error) throw new Error(messageOf(error));
-      return data;
-    },
-  });
+  const grants = useQuery({ ...vmGrantsQuery, enabled: canRead });
   return { session, grants, canRead, canEdit: capabilities.includes("vms:edit") };
 }
 
@@ -92,7 +83,7 @@ function VmGrantActions({ grant }: { grant: Grant }) {
       return data;
     },
   });
-  const refresh = () => cache.invalidateQueries({ queryKey: grantKey });
+  const refresh = () => cache.invalidateQueries({ queryKey: vmGrantsQuery.queryKey });
   const save = useMutation({
     mutationFn: async (expectedRevision: number) => {
       const scopes = [...new Set(scopeText.split(/\s+/).filter(Boolean))];

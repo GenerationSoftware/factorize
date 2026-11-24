@@ -1,6 +1,7 @@
 import { createRoute, lazyRouteComponent, redirect, type AnyRootRoute } from "@tanstack/react-router";
 import { sessionQuery } from "../auth/session";
 import { queryClient } from "../../shared/query-client";
+import { eventsQuery } from "./queries";
 
 export function eventRoutes(root: AnyRootRoute) {
   const guard = async ({ location }: { location: { href: string } }) => {
@@ -8,14 +9,17 @@ export function eventRoutes(root: AnyRootRoute) {
       throw redirect({ to: "/auth/login", search: { returnTo: location.href, token: undefined } });
     }
   };
+  const loadEvents = ({ preload }: { preload: boolean }) => {
+    if (!preload) void queryClient.prefetchQuery(eventsQuery);
+  };
   return [
-    createRoute({ getParentRoute: () => root, path: "/events", beforeLoad: guard,
+    createRoute({ getParentRoute: () => root, path: "/events", beforeLoad: guard, loader: loadEvents,
       component: lazyRouteComponent(() => import("./events"), "EventsPage") }),
     createRoute({ getParentRoute: () => root, path: "/events/subscriptions", beforeLoad: guard,
       component: lazyRouteComponent(() => import("./events"), "SubscriptionsPage") }),
     createRoute({ getParentRoute: () => root, path: "/events/subscriptions/$subscriptionId", beforeLoad: guard,
       component: lazyRouteComponent(() => import("./events"), "SubscriptionPage") }),
-    createRoute({ getParentRoute: () => root, path: "/events/$eventId", beforeLoad: guard,
+    createRoute({ getParentRoute: () => root, path: "/events/$eventId", beforeLoad: guard, loader: loadEvents,
       component: lazyRouteComponent(() => import("./events"), "EventPage") }),
   ];
 }

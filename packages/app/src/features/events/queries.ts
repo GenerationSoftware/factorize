@@ -10,6 +10,8 @@ export const eventsQuery = queryOptions({
     if (!data || error) throw new Error(error?.error?.message ?? "Could not load Events");
     return data;
   },
+  // A route-started request already uses the normal retry policy.
+  retryOnMount: false,
 });
 
 export const subscriptionsQuery = queryOptions({
