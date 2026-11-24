@@ -4,6 +4,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { dispatchMcpEvents } from "../src/mcp-event-subscriptions";
 import { EventMatchRepository } from "../src/postgres/event-match-repository";
 import { IdentityRepository } from "../src/postgres/identity-repository";
+import worker from "../src/worker";
+import app from "../src/index";
+import { signSession } from "../src/session";
 import type { OAuthProps } from "../src/types";
 import { loadingFixture } from "./helpers/loading-fixture";
 import { mcpRequest } from "./helpers/mcp-request";
@@ -53,6 +56,10 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("MCP event webhook lifecycl
     verificationResponse = undefined;
     auth = { ...f.auth, authMethod: "oauth", oauthGrantId: "grant-1", oauthClientId: "client-1", oauthExpiresAt: Date.now() / 1000 + 3600 };
     f.env.OAUTH_PROVIDER = {
+      revokeGrant: async (id: string, userId: string) => {
+        expect([id, userId]).toEqual([auth.oauthGrantId, f.userId]);
+        grantActive = false;
+      },
       listUserGrants: async () => ({
         items: grantActive ? [{
           id: auth.oauthGrantId, clientId: auth.oauthClientId, metadata: { tenantId: f.tenantId }, scope: auth.scopes,
@@ -119,6 +126,45 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("MCP event webhook lifecycl
   const outbox = async () => (await f.db.pool.query(
     "SELECT occurrence_id,status,attempts,http_status FROM app.mcp_event_deliveries ORDER BY updated_at,occurrence_id",
   )).rows;
+
+  it.each(["/api/v1/auth/logout", "/auth/logout"])("keeps existing MCP webhook deliveries active after browser sign-out via %s", async logoutPath => {
+    const cookie2 = "factorize_session=" + encodeURIComponent(await signSession({
+      ...f.auth, email: "owner@example.test", exp: Math.floor(Date.now() / 1000) + 3600, browserNonce: crypto.randomUUID(),
+    }, f.env.SESSION_SIGNING_SECRET));
+    const call = (path: string, cookie: string, method = "GET") => (path === "/auth/logout" ? app : worker).fetch(new Request(f.env.APP_ORIGIN + path, {
+      method, headers: { Cookie: cookie, Origin: f.env.APP_ORIGIN, "Content-Type": "application/json" },
+      body: method === "POST" ? "{}" : undefined,
+    }), f.env, {} as ExecutionContext);
+
+    expect(await (await call("/api/v1/session", f.cookie)).json()).toMatchObject({ authenticated: true });
+    expect(await (await call("/api/v1/session", cookie2)).json()).toMatchObject({ authenticated: true });
+    const subscriptionId = (await subscribe()).message.result.id;
+    expect(subscriptionId).toMatch(/^sub_/);
+    const logout = await call(logoutPath, f.cookie, "POST");
+    expect(logout.status).toBe(logoutPath === "/auth/logout" ? 302 : 200);
+    expect(logout.headers.getSetCookie()).toEqual(expect.arrayContaining([
+      expect.stringMatching(/^factorize_session=;.*Max-Age=0/),
+    ]));
+    expect(await (await call("/api/v1/session", f.cookie)).json()).toEqual({ authenticated: false });
+    expect((await call("/api/v1/triggers", f.cookie)).status).toBe(401);
+    expect(await (await call("/api/v1/session", cookie2)).json()).toMatchObject({ authenticated: true });
+    expect((await new IdentityRepository(f.db, f.tenantId).member(f.userId))?.sessionVersion).toBe(auth.sessionVersion);
+    const occurrence = await fire("after-browser-sign-out");
+    await dispatchMcpEvents(f.env);
+    expect(deliveries).toEqual([expect.objectContaining({
+      subscriptionId, event: expect.objectContaining({ data: expect.objectContaining({ occurrenceId: occurrence.occurrenceId }) }),
+    })]);
+
+    const revocation = await call("/api/v1/access/authorizations/grant-1", cookie2, "DELETE");
+    expect(revocation.status).toBe(200);
+    expect(await revocation.json()).toEqual({ revoked: 1 });
+    expect(grantActive).toBe(false);
+    expect((await f.db.pool.query("SELECT status FROM app.mcp_event_subscriptions WHERE id=$1", [subscriptionId])).rows).toEqual([{ status: "stopped" }]);
+    const afterRevoke = await tool("fire_trigger", { triggerId: source.triggerId, idempotencyKey: "after-explicit-revoke", data: {} }, f.auth);
+    expect(afterRevoke.isError).not.toBe(true);
+    await dispatchMcpEvents(f.env);
+    expect(deliveries).toHaveLength(1);
+  });
 
   it("requires canonical MCP sources and persists the configured Linear webhook", async () => {
     const catalog = (await request("tools/list")).message.result.tools;

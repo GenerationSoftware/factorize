@@ -1,7 +1,7 @@
 import { parse } from "hono/utils/cookie";
 import { hmac } from "./crypto";
 
-export type Session = { tenantId: string; userId: string; email: string; exp: number; sessionVersion: number };
+export type Session = { tenantId: string; userId: string; email: string; exp: number; sessionVersion: number; browserNonce?: string };
 const textEncoder = new TextEncoder();
 
 function b64(value: string): string { return btoa(String.fromCharCode(...textEncoder.encode(value))).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", ""); }

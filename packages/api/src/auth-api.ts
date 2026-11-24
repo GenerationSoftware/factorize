@@ -12,7 +12,8 @@ import { z } from "zod";
 import { AuthRepository } from "./postgres/auth-repository";
 import { IdentityRepository } from "./postgres/identity-repository";
 import { databaseFor } from "./postgres/database";
-import { readSession, requestCookie, signSession, type Session } from "./session";
+import { requestCookie, signSession, type Session } from "./session";
+import { readBrowserSession, revokeBrowserSession } from "./browser-session";
 import type { Env } from "./types";
 
 export const SESSION_SCOPES = [...ACCESS_SCOPES, "apps:manage"] as const;
@@ -93,7 +94,7 @@ async function limitGoogleStart(request: Request, env: Env) {
   return response;
 }
 async function currentSession(request: Request, env: Env): Promise<Session | null> {
-  const session = await readSession(requestCookie(request, "factorize_session"), env.SESSION_SIGNING_SECRET);
+  const session = await readBrowserSession(request, env);
   if (!session) return null;
   const member = await new IdentityRepository(databaseFor(env), session.tenantId).member(session.userId);
   return member?.role === "owner" && member.sessionVersion === session.sessionVersion ? { ...session, email: member.email } : null;
@@ -249,7 +250,14 @@ export async function executeAuth(action: AuthAction, request: Request, env: Env
     const pending = await connectionFor(env, String(input.connection));
     if (!pending || !await originalBrowser(request, env, pending)) return failure(400, "Invalid or expired connection. Restart connecting from your MCP client.");
   }
-  if (action === "profile" || action === "profile-update" || action === "session" || action === "logout" || action === "password" || action === "consent-preview" || action === "consent-decision" || action === "device-preview" || action === "device-decision") {
+  if (action === "logout") {
+    await revokeBrowserSession(request, env);
+    const response = authJson({ ok: true });
+    response.headers.append("Set-Cookie", clearTotpLoginCookie(env));
+    response.headers.append("Set-Cookie", sessionCookie(env, "", 0));
+    return response;
+  }
+  if (action === "profile" || action === "profile-update" || action === "session" || action === "password" || action === "consent-preview" || action === "consent-decision" || action === "device-preview" || action === "device-decision") {
     const session = await currentSession(request, env);
     if (action === "profile" || action === "profile-update") {
       if (!session) return failure(401, "Sign in to manage your profile.");
@@ -289,13 +297,6 @@ export async function executeAuth(action: AuthAction, request: Request, env: Env
         if (error instanceof ConsentPreviewError) return failure(400, error.message);
         return failure(400, "Factorize couldn't validate this connection. Start Reconnect in your MCP client and use the fresh authorization link.");
       }
-    }
-    if (action === "logout") {
-      if (session) await new IdentityRepository(databaseFor(env), session.tenantId).revoke(session.userId);
-      const response = authJson({ ok: true });
-      response.headers.append("Set-Cookie", clearTotpLoginCookie(env));
-      response.headers.append("Set-Cookie", sessionCookie(env, "", 0));
-      return response;
     }
     if (!session) return failure(401, "The request is not authorized.");
     const result = await new AuthRepository(databaseFor(env), env).changePassword(session.userId, input);
@@ -406,6 +407,6 @@ async function signedIn(env: Env, identity: GoogleIdentity, body: { ok?: boolean
 async function issueSession(env: Env, identity: GoogleIdentity, body: unknown) {
   const lifetime = 7 * 24 * 60 * 60;
   const response = authJson(body);
-  response.headers.append("Set-Cookie", sessionCookie(env, await signSession({ tenantId: identity.tenantId, userId: identity.userId, email: identity.email, sessionVersion: identity.sessionVersion, exp: Math.floor(Date.now() / 1000) + lifetime }, env.SESSION_SIGNING_SECRET), lifetime));
+  response.headers.append("Set-Cookie", sessionCookie(env, await signSession({ tenantId: identity.tenantId, userId: identity.userId, email: identity.email, sessionVersion: identity.sessionVersion, browserNonce: crypto.randomUUID(), exp: Math.floor(Date.now() / 1000) + lifetime }, env.SESSION_SIGNING_SECRET), lifetime));
   return response;
 }
