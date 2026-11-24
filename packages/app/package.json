@@ -5,16 +5,16 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
+    "bundle": "vite build",
     "build": "tsc --noEmit && vite build",
-    "check": "npm run build && npm test && npm run test:functional",
-    "test": "node --test --test-concurrency=2 test/*.test.mjs",
-    "test:functional": "playwright test --config=playwright.functional.config.mjs"
+    "check": "npm run build && npm test",
+    "test": "playwright test --config=playwright.functional.config.mjs",
+    "test:functional": "playwright test --config=playwright.functional.config.mjs critical.spec.mjs"
   },
   "dependencies": {
     "@tanstack/react-query": "5.104.1",
     "@tanstack/react-router": "1.170.41",
     "@tanstack/react-virtual": "^3.14.14",
-    "@xyflow/react": "^12.12.1",
     "factorize-api-client": "0.1.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",

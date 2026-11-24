@@ -1,27 +1,6 @@
-import { test, expect } from "@playwright/test";
-import { createServer } from "node:http";
-import { readFile } from "node:fs/promises";
+import { test, expect } from "./fixtures.mjs";
 
-let server;
-let origin;
-
-test.beforeAll(async () => {
-  server = createServer(async (req, res) => {
-    const path = new URL(req.url, "http://fixture").pathname;
-    const file = /^(\/assets\/|\/theme-init\.js$|\/bee-mark-monochrome\.png$|\/favicon\.ico$)/.test(path) ? path : "/index.html";
-    try {
-      const body = await readFile(new URL("../../dist" + file, import.meta.url));
-      res.setHeader("Content-Type", file.endsWith(".js") ? "application/javascript" : file.endsWith(".css") ? "text/css" : file.endsWith(".png") ? "image/png" : "text/html");
-      res.end(body);
-    } catch { res.statusCode = 404; res.end(); }
-  });
-  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
-  origin = `http://127.0.0.1:${server.address().port}`;
-});
-
-test.afterAll(async () => { if (server) await new Promise(resolve => server.close(resolve)); });
-
-test("select an existing Event and inspect its durable occurrence through the shared API", async ({ page }) => {
+test("select an existing Event and inspect its durable occurrence through the shared API", async ({ page, origin }) => {
   const definitionId = "30000000-0000-4000-8000-000000000001";
   const occurrenceId = "40000000-0000-4000-8000-000000000001";
   const definition = { id: definitionId, name: "orders.created", description: "New orders", revision: 1, payloadSchema: { type: "object" }, createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z", triggerCount: 1, occurrenceCount: 1 };

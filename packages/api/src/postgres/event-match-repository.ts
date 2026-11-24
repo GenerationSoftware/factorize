@@ -1,4 +1,5 @@
-import Ajv from "ajv";
+import draft7 from "ajv/dist/refs/json-schema-draft-07.json";
+import { validate } from "jsonschema";
 import type { Database, DatabaseClient } from "./database";
 
 export type MatchDecision = "matched" | "pending" | "excluded" | "failed";
@@ -21,14 +22,20 @@ export interface MatchResult {
   pendingReason?: string;
   occurrence: null | { id: string; definitionId: string; definitionRevision: number; occurredAt: string; payload: Record<string, unknown> };
 }
-const eventPayloadValidator = new Ajv({ allErrors: true, strict: false });
+// Event schemas are supplied at runtime. Workers cannot compile validators with eval.
+const schemaOptions = { skipAttributes: ["format", "disallow", "extends"] };
 
 export function validAgainstSchema(value: unknown, schema: object, path = "payload"): void {
-  const validate = eventPayloadValidator.compile(schema);
-  if (validate(value)) return;
-  const error = validate.errors?.[0];
-  const location = `${path}${error?.instancePath ?? ""}`;
-  throw new Error(`${location} ${error?.message ?? "does not match the Event payload schema"}`);
+  const schemaError = validate(schema, draft7, schemaOptions).errors[0];
+  if (schemaError) throw new Error(`Invalid Event payload schema: ${schemaError.stack}`);
+
+  const error = validate(value, schema, schemaOptions).errors[0];
+  if (!error) return;
+  const location = error.path.map(key => "/" + String(key).replaceAll("~", "~0").replaceAll("/", "~1")).join("");
+  const message = error.name === "type" && Array.isArray(error.argument) && error.argument.length === 1
+    ? `must be ${error.argument[0]}`
+    : error.message;
+  throw new Error(`${path}${location} ${message}`);
 }
 
 /**

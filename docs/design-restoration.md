@@ -1,5 +1,9 @@
 # GEN-2159 design restoration
 
+Historical record of the jobs and runs UI. See [CI test lanes](ci-testing.md)
+for the current browser tests. The commands and screenshots below refer to the
+checkout used for the restoration.
+
 The static React app ports the established honey/charcoal identity without changing
 API operations, public contracts, routing loaders, cache keys, mutation retry policies,
 session handling, or trace virtualization.

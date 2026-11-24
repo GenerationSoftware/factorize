@@ -1,11 +1,12 @@
-import {before,after,test} from 'node:test';
-import assert from 'node:assert/strict';
-import {createServer} from 'node:http';
-import {readFile} from 'node:fs/promises';
-import {chromium} from 'playwright';
-let server,origin,browser;
-before(async()=>{server=createServer(async(req,res)=>{const path=new URL(req.url,'http://fixture').pathname,file=/^\/assets\//.test(path)?path:'/index.html';try{res.setHeader('Content-Type',file.endsWith('.js')?'application/javascript':file.endsWith('.css')?'text/css':'text/html');res.end(await readFile(new URL('../dist'+file,import.meta.url)));}catch{res.statusCode=404;res.end();}});await new Promise(r=>server.listen(0,'127.0.0.1',r));origin='http://127.0.0.1:'+server.address().port;browser=await chromium.launch({headless:true});});
-after(async()=>{await browser?.close();await new Promise(r=>server.close(r));});
+import assert from "node:assert/strict";
+import { test } from "./fixtures.mjs";
+
+let origin, browser;
+test.beforeAll(async ({ origin: appOrigin, browser: chromium }) => {
+  origin = appOrigin;
+  browser = chromium;
+});
+
 const handle='11111111-1111-4111-8111-111111111111';
 for(const width of [390,1280])test(`authenticated generic upload fallback at ${width}px`,async()=>{
  const context=await browser.newContext({viewport:{width,height:850}}),page=await context.newPage();let state='pending',received;

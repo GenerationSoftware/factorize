@@ -16,7 +16,7 @@
     "check": "npm test",
     "bootstrap:test": "node scripts/bootstrap-test.mjs",
     "test:local": "node scripts/bootstrap-test.mjs --test",
-    "check:backend": "npm run check:skills && npm run check:hosting && npm run check:boundaries && npm run check:client && npm run validate --workspace=factorize-docs && npm run check --workspace=factorize && npm run test:conditions-runtime && npm run test:hosting-runtime && npm run test:oauth-runtime && npm run check --workspace=factorize-tail-relay",
+    "check:backend": "npm run test:backend",
     "check:frontend": "npm run check --workspace=factorize-app",
     "deploy": "npm run deploy:app && npm run deploy:tail-relay",
     "deploy:app": "npm run deploy --workspace=factorize",
@@ -32,11 +32,15 @@
     "generate": "npm run generate:skills && npm run generate:openapi && npm run generate:client",
     "build": "npm run build:app",
     "check:hosting": "node --test scripts/hosting-invariants.test.mjs scripts/deployment-gate.test.mjs scripts/trusted-app-release.test.mjs && python3 scripts/test-retain-app-assets.py",
-    "test:hosting-runtime": "node --test scripts/hosting-runtime.test.mjs scripts/vendor-identity-runtime.test.mjs",
-    "test:oauth-runtime": "node --test scripts/oauth-runtime.test.mjs",
+    "test:hosting-runtime": "node --test --test-name-pattern=hosting scripts/worker-runtime.test.mjs",
+    "test:oauth-runtime": "node --test --test-name-pattern=OAuth scripts/worker-runtime.test.mjs",
     "test:conditions-runtime": "node --test scripts/webhook-conditions-runtime.test.mjs",
     "generate:skills": "node scripts/generate-builtin-skills.mjs",
-    "check:skills": "node scripts/generate-builtin-skills.mjs --check"
+    "check:skills": "node scripts/generate-builtin-skills.mjs --check",
+    "test:api": "node scripts/validation.mjs api",
+    "test:worker": "node scripts/validation.mjs worker",
+    "test:static": "node scripts/validation.mjs static",
+    "test:worker-runtime": "node --test scripts/worker-runtime.test.mjs"
   },
   "engines": {
     "node": ">=24.21.0",
@@ -51,6 +55,10 @@
     "sharp@0.33.5": true,
     "workerd@1.20251118.0": true,
     "workerd@1.20260910.1": true,
-    "workerd@1.20261116.1": true
+    "workerd@1.20261116.1": true,
+    "bun@1.4.5": true
+  },
+  "devDependencies": {
+    "bun": "1.4.5"
   }
 }

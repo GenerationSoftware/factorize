@@ -14,7 +14,7 @@ to create or change Events and Triggers.
 An Event defines the payload shape. A Trigger belongs to one Event and watches
 an input source. Multiple Triggers may publish to the same Event.
 
-Use the `create_event` MCP tool or the browser to create an Event named `review.requested`
+Use the `create_event` MCP tool or the REST API to create an Event named `review.requested`
 with a JSON object payload schema. Then call `create_trigger` to add an enabled Trigger attached to it.
 For a simple local check, create a manual Trigger and fire it with a stable
 idempotency key and a JSON payload accepted by the Event schema.
@@ -23,22 +23,21 @@ idempotency key and a JSON payload accepted by the Event schema.
 {
   "eventId": "EVENT_ID",
   "name": "manual-review",
-  "kind": "manual",
-  "config": {}
+  "sources": [{ "kind": "manual", "config": {} }]
 }
 ```
 
-Fire the Trigger with `fire_trigger`, supplying `idempotencyKey` and `payload`.
-The response includes the durable occurrence ID. Reusing the same key is safe
-and reports a duplicate rather than creating a second occurrence.
+## Subscribe, fire, and read
 
-## Subscribe and read
+Call `list_events` or `get_event` to find the Event ID. Subscribe to
+`factorize://events/{eventId}/occurrences` before firing the Trigger.
 
-Call `list_events` and `get_event` to discover the Event and its resource URI.
-Subscribe through MCP resource subscription support. When a Trigger publishes an
-occurrence, the server sends a resource update notification; read the resource
-to get the stored occurrence. After reconnecting, use `list_event_occurrences`
-to recover occurrences that arrived while disconnected.
+Call `fire_trigger` with `triggerId`, `idempotencyKey`, and `data`. The response
+includes the durable occurrence ID. Reusing the same idempotency key returns
+that ID and reports a duplicate.
+
+Read the resource after the MCP update notification. After reconnecting, use
+`list_event_occurrences` to recover occurrences that arrived while disconnected.
 
 The same data is available from `GET /api/v1/events/{eventId}/occurrences`.
 Skills remain standalone instruction documents and can be managed separately.

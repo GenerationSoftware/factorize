@@ -43,7 +43,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("MCP Skills and Event resou
   const skill=await rpc("tools/call",{name:"get_skill",arguments:{skillId:id}});expect(skill.result.structuredContent.body).toContain("author: local");
   expect((await rpc("resources/read",{uri:skillUri(f.tenantId,"guide")})).result.contents[0].text).toContain("author: local");
   expect((await rpc("skills/get",{uri:skillUri(f.tenantId,"guide")})).error).toBeDefined();
-  const triggerId=f.triggerIds[0],eventId=(await f.db.pool.query("SELECT event_definition_id FROM app.triggers WHERE tenant_id=$1 AND id=$2",[f.tenantId,triggerId])).rows[0].event_definition_id as string;
+  const { triggerId, definitionId: eventId } = await f.seedEventTrigger();
   const occurrence=await new EventMatchRepository(f.db).match({tenantId:f.tenantId,triggerId,triggerRevision:1,sourceIdentity:"mcp-test",deduplicationKey:"occurrence-1",evidence:{value:"durable"},decision:"matched"});
   const eventResource=await rpc("resources/read",{uri:`factorize://events/${eventId}/occurrences`});
   expect(eventResource.result.contents[0].text).toContain(occurrence.occurrence!.id);

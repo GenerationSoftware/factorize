@@ -18,34 +18,100 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  required:
-    name: Test and validate Workers
+  bundle:
+    name: Build shared app bundle
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    env:
-      AUTH_TEST_DATABASE_URL: postgresql://postgres:local-ci-only@localhost:5432/factorize_ci
-      QUEUE_TEST_DATABASE_URL: postgresql://postgres:local-ci-only@localhost:5432/factorize_ci
-      DATABASE_URL: postgresql://postgres:local-ci-only@localhost:5432/factorize_ci
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
-        with: { fetch-depth: 0 }
       - uses: actions/setup-node@v5
         with:
           node-version-file: .node-version
           cache: npm
       - run: npm install --global npm@11.19.0
+      - run: npm ci
+      - run: npm run bundle --workspace=factorize-app
+      - uses: actions/upload-artifact@v4
+        with:
+          name: validation-app
+          path: packages/app/dist
+          if-no-files-found: error
+          retention-days: 7
+
+  static:
+    name: Contract, types, and static checks
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      FACTORIZE_COMPARE_TYPECHECK: '1'
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: npm install --global npm@11.19.0
+      - run: npm ci
+      - run: npm run test:static
+
+  suites:
+    name: ${{ matrix.suite.name }}
+    needs: bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        suite:
+          - { name: API tests 1 of 2, lane: api, shard: '1/2', database: true }
+          - { name: API tests 2 of 2, lane: api, shard: '2/2', database: true }
+          - { name: Frontend browser tests, lane: browser, shard: '', database: false }
+          - { name: Worker runtime and dry runs, lane: worker, shard: '', database: true }
+    env:
+      FACTORIZE_API_SHARD: ${{ matrix.suite.shard }}
+      AUTH_TEST_DATABASE_URL: postgresql://postgres:local-ci-only@localhost:5432/factorize_ci
+      QUEUE_TEST_DATABASE_URL: postgresql://postgres:local-ci-only@localhost:5432/factorize_ci
+      DATABASE_URL: postgresql://postgres:local-ci-only@localhost:5432/factorize_ci
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: npm install --global npm@11.19.0
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          name: validation-app
+          path: packages/app/dist
       - name: Prepare isolated PostgreSQL database
+        if: matrix.suite.database
         run: |
           sudo systemctl start postgresql
           sudo -u postgres psql -c "ALTER USER postgres WITH PASSWORD 'local-ci-only'"
           sudo -u postgres createdb factorize_ci
           pg_isready -h localhost -p 5432
-      - name: Install dependencies
-        run: npm ci
-      - name: Apply migrations
-        run: npm run db:migrate --workspace=factorize
+          npm run db:migrate --workspace=factorize
       - name: Install Chromium
+        if: matrix.suite.lane == 'browser'
         run: npm exec --workspace=factorize-app -- playwright install --with-deps chromium
-      - name: Run complete local validation
-        run: npm test
+      - name: Run shared validation lane
+        run: npm run "test:$VALIDATION_LANE" -- --prebuilt
+        env:
+          VALIDATION_LANE: ${{ matrix.suite.lane }}
+
+  required:
+    name: Test and validate Workers
+    if: always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
+    needs: [bundle, static, suites]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require the shared build and every validation lane
+        run: test "$BUILD_RESULT" = success && test "$STATIC_RESULT" = success && test "$SUITE_RESULT" = success
+        env:
+          BUILD_RESULT: ${{ needs.bundle.result }}
+          STATIC_RESULT: ${{ needs.static.result }}
+          SUITE_RESULT: ${{ needs.suites.result }}

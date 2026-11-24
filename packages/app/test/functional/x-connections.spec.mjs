@@ -1,22 +1,11 @@
-import { before, after, test } from "node:test";
 import assert from "node:assert/strict";
-import { createServer } from "node:http";
-import { readFile } from "node:fs/promises";
-import { chromium } from "playwright";
+import { test } from "./fixtures.mjs";
 
-let server, origin, browser;
-before(async () => {
-  server = createServer(async (request, response) => {
-    const path = new URL(request.url, "http://local.test").pathname;
-    const file = (/^(\/assets\/|\/theme-init.js$|\/bee-mark-monochrome.png$|\/favicon.ico$)/.test(path)) ? path : "/index.html";
-    try { const data = await readFile(new URL("../dist" + file, import.meta.url)); response.setHeader("Content-Type", file.endsWith(".js") ? "application/javascript" : file.endsWith(".css") ? "text/css" : "text/html"); response.end(data); }
-    catch { response.statusCode = 404; response.end(); }
-  });
-  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
-  origin = "http://127.0.0.1:" + server.address().port;
-  browser = await chromium.launch({ headless: true });
+let origin, browser;
+test.beforeAll(async ({ origin: appOrigin, browser: chromium }) => {
+  origin = appOrigin;
+  browser = chromium;
 });
-after(async () => { await browser?.close(); if (server) await new Promise(resolve => server.close(resolve)); });
 
 test("X settings guides app callback setup, validated permissions, and starts owner authorization", async () => {
   const context = await browser.newContext(), page = await context.newPage();

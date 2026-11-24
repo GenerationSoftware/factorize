@@ -141,9 +141,10 @@ describe.skipIf(!dbUrl)("Sign in with Factorize", () => {
     expect(response.status).toBe(200);
     const issued = await response.json() as { access_token: string; refresh_token: string };
     const apiHeaders = { Authorization: "Bearer " + issued.access_token };
+    const { definitionId } = await f.seedEventTrigger(f.otherTenant);
     const result = await request("/api/v1/events", { headers:apiHeaders });
     expect(result.status).toBe(200);
-    expect(await result.json()).toEqual(expect.arrayContaining([expect.objectContaining({ name: expect.any(String), triggerCount: expect.any(Number), occurrenceCount: expect.any(Number) })]));
+    expect(await result.json()).toEqual(expect.arrayContaining([expect.objectContaining({ id: definitionId, name: expect.any(String), triggerCount: 1, occurrenceCount: 0 })]));
     const rotated = await appApi().rotateAppSecret(id);
     expect((await refresh(id, secret, issued.refresh_token)).status).toBe(401);
     expect((await refresh(id, rotated.clientSecret, issued.refresh_token)).status).toBe(400);

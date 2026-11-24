@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev --local-protocol https --var APP_ORIGIN:https://localhost:5173",
-    "check": "npm run check:openapi && npm run check:api-boundaries && node --test scripts/validate-auth-email.check.mjs && tsc --noEmit && vitest run && wrangler deploy --dry-run",
+    "check": "npm run check:openapi && npm run check:api-boundaries && node --test scripts/validate-auth-email.check.mjs && bun check --no-script && vitest run && wrangler deploy --dry-run",
     "check:api-boundaries": "node scripts/check-api-boundaries.mjs",
     "test": "vitest run",
     "deploy": "node ../../scripts/prepare-app-deploy.mjs && wrangler deploy",
@@ -29,6 +29,7 @@
     "drizzle-orm": "^0.45.2",
     "hono": "^4.11.4",
     "isomorphic-git": "^1.44.17",
+    "jsonschema": "1.5.0",
     "json-rules-engine": "^7.3.1",
     "jsonpath-plus": "^10.3.0",
     "mustache": "^4.2.0",

@@ -29,12 +29,11 @@ describe.skipIf(!url)("durable Event occurrences", () => {
   it("deletes an Event with its Triggers, input sources, match state, and occurrence history", async () => {
     const f = await loadingFixture(url!);
     try {
-      const triggerId = f.triggerIds[0];
-      const definitionId = (await f.db.pool.query("SELECT event_definition_id FROM app.triggers WHERE tenant_id=$1 AND id=$2", [f.tenantId,triggerId])).rows[0].event_definition_id as string;
+      const { triggerId, definitionId } = await f.seedEventTrigger();
+      const { definitionId: foreignDefinitionId } = await f.seedEventTrigger(f.otherTenant, triggerId);
       const schedule = (await f.db.pool.query("SELECT id FROM app.events WHERE tenant_id=$1 AND trigger_id=$2 AND kind='schedule'", [f.tenantId,triggerId])).rows[0];
       await f.db.pool.query("INSERT INTO app.schedule_state(tenant_id,event_id,trigger_id,next_run_at) VALUES($1,$2,$3,now())", [f.tenantId,schedule.id,triggerId]);
       await new EventMatchRepository(f.db).match({tenantId:f.tenantId,triggerId,triggerRevision:1,sourceIdentity:"fixture:delete",deduplicationKey:"delete",evidence:{value:1},decision:"matched"});
-      const otherEvent = (await f.db.pool.query("SELECT id FROM app.event_definitions WHERE tenant_id=$1",[f.otherTenant])).rows[0].id;
       const service = new ApiService(f.env,f.auth);
       await expect(service.deleteEvent(definitionId)).resolves.toEqual({id:definitionId,deleted:true});
       expect((await f.db.pool.query("SELECT count(*)::int AS count FROM app.triggers WHERE tenant_id=$1 AND id=$2",[f.tenantId,triggerId])).rows[0].count).toBe(0);
@@ -44,14 +43,14 @@ describe.skipIf(!url)("durable Event occurrences", () => {
       expect((await f.db.pool.query("SELECT count(*)::int AS count FROM app.event_occurrences WHERE tenant_id=$1 AND definition_id=$2",[f.tenantId,definitionId])).rows[0].count).toBe(0);
       expect((await f.db.pool.query("SELECT count(*)::int AS count FROM app.event_definition_revisions WHERE tenant_id=$1 AND definition_id=$2",[f.tenantId,definitionId])).rows[0].count).toBe(0);
       expect((await f.db.pool.query("SELECT count(*)::int AS count FROM app.event_definitions WHERE tenant_id=$1 AND id=$2",[f.tenantId,definitionId])).rows[0].count).toBe(0);
-      expect((await f.db.pool.query("SELECT count(*)::int AS count FROM app.event_definitions WHERE tenant_id=$1 AND id=$2",[f.otherTenant,otherEvent])).rows[0].count).toBe(1);
+      expect((await f.db.pool.query("SELECT count(*)::int AS count FROM app.event_definitions WHERE tenant_id=$1 AND id=$2",[f.otherTenant,foreignDefinitionId])).rows[0].count).toBe(1);
     } finally { await f.cleanup(); }
   });
   it("validates payloads, supports multiple Triggers per Event, deduplicates deliveries, and scopes reads by tenant", async () => {
     const f = await loadingFixture(url!);
     try {
-      const triggerId = f.triggerIds[0];
-      const definitionId = (await f.db.pool.query("SELECT event_definition_id FROM app.triggers WHERE tenant_id=$1 AND id=$2", [f.tenantId, triggerId])).rows[0].event_definition_id as string;
+      const { triggerId, definitionId } = await f.seedEventTrigger();
+      const { definitionId: foreignDefinitionId } = await f.seedEventTrigger(f.otherTenant, triggerId);
       await f.db.pool.query(`UPDATE app.event_definition_revisions SET payload_schema=$3
         WHERE tenant_id=$1 AND definition_id=$2 AND revision=1`, [f.tenantId, definitionId, { type: "object", required: ["value"], properties: { value: { type: "number" } }, additionalProperties: false }]);
       expect(() => validAgainstSchema({ value: "bad" }, { type: "object", properties: { value: { type: "number" } } })).toThrow("must be number");
@@ -75,7 +74,6 @@ describe.skipIf(!url)("durable Event occurrences", () => {
       await f.db.pool.query("INSERT INTO app.triggers(tenant_id,id,event_definition_id,name,slug) VALUES($1,$2,$3,'Other Event','other-event')", [f.tenantId, otherTriggerId, otherDefinition!.id]);
       const otherEvent = await matches.match({ ...firstInput, triggerId: otherTriggerId });
       expect(otherEvent).toMatchObject({ duplicate: false, occurrence: { definitionId: otherDefinition!.id } });
-      const foreignDefinitionId = (await f.db.pool.query("SELECT event_definition_id FROM app.triggers WHERE tenant_id=$1 AND id=$2", [f.otherTenant, triggerId])).rows[0].event_definition_id as string;
       const foreignMatch = await matches.match({ ...firstInput, tenantId: f.otherTenant });
       expect(foreignMatch).toMatchObject({ duplicate: false, occurrence: { definitionId: foreignDefinitionId } });
 

@@ -14,6 +14,6 @@ Read the [first Event guide](https://docs.factorize.sh/quickstart), [Trigger gui
 
 ## Development and validation
 
-Use Node 24.12.0 and npm 11.19.0 from `.node-version` and `package.json`. Run `npm ci`, then `npm run dev`. The complete required local suite is `npm run test:local` on the documented Factorize validation runner image; it resets only an isolated local database and runs `npm test`. Never point validation at production or a shared database. See [the validation runner guide](docs/factorize-validation-runner.md).
+Use Node 24.21.0 and npm 11.19.0 from `.node-version` and `package.json`. Run `npm ci`, then `npm run dev`. The complete required local suite is `npm run test:local` on the documented Factorize validation runner image; it resets only an isolated local database and runs `npm test`. Never point validation at production or a shared database. See [the validation runner guide](docs/factorize-validation-runner.md).
 
 The Worker is in `packages/api`, the static frontend in `packages/app`, and the generated public API contract in `packages/api-client`. Frontend code uses the same documented `/api/v1` routes as external clients. Run `npm run check:boundaries` to verify package imports.

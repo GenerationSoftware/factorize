@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import process from "node:process";
+import { scheduleValidation } from "./validation-scheduler.mjs";
 import { createEphemeralHttpServer, runProcess } from "./portable-proxy-test-helpers.mjs";
 
 const runNode = (source, options) => runProcess(process.execPath, ["--input-type=module", "-e", source], options);
@@ -81,4 +82,37 @@ test("ephemeral HTTP helper binds a reachable OS-selected local port", async () 
   } finally {
     await server.close();
   }
+});
+
+test("parallel validation overlaps independent checks and waits for build consumers", async () => {
+  const started = [];
+  const release = new Map();
+  const steps = [{ id: "build" }, { id: "browser", after: ["build"] }, { id: "api" }];
+  const run = step => {
+    started.push(step.id);
+    return new Promise(resolve => release.set(step.id, resolve));
+  };
+  const done = scheduleValidation(steps, { run, concurrency: 2, signal: new AbortController().signal });
+  assert.deepEqual(started, ["build", "api"]);
+  release.get("build")(0);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(started, ["build", "api", "browser"]);
+  release.get("browser")(0);
+  release.get("api")(0);
+  assert.deepEqual((await done).map(result => result.status), ["passed", "passed", "passed"]);
+});
+
+test("validation blocks failed prerequisites and still reports independent checks", async () => {
+  const steps = [{ id: "browser", after: ["build"] }, { id: "build" }, { id: "api" }];
+  const started = [];
+  const results = await scheduleValidation(steps, {
+    concurrency: 2,
+    signal: new AbortController().signal,
+    async run(step) {
+      started.push(step.id);
+      return step.id === "build" ? 1 : 0;
+    },
+  });
+  assert.deepEqual(started, ["build", "api"]);
+  assert.deepEqual(results.map(result => result.status), ["not run", "failed", "passed"]);
 });
