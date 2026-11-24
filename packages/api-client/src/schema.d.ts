@@ -4484,7 +4484,7 @@ export interface operations {
                     /** @description Complete owner-selected effective scope set for this connection. */
                     scopes?: string[];
                     disabledScopes?: ("team:read" | "team:write" | "triggers:read" | "triggers:write" | "integrations:read" | "integrations:write" | "vms:read" | "vms:edit" | "proxy:use" | "apps:manage")[];
-                    /** @description Integration ID to approved epoch-bound scope, or false to block. */
+                    /** @description Integration ID to approved epoch-bound scope, or false to block. Explicit approval is required to re-enable a blocked integration, including when scopes are supplied. */
                     integrationOverrides?: {
                         [key: string]: string | false;
                     };
