@@ -12,10 +12,10 @@ describe.skipIf(!url)("cookie protocol APIs against PostgreSQL", { timeout: 30_0
     try {
       const parsed = { responseType: "code", clientId: "client", redirectUri: "https://external.test/callback", scope: ["team:read", "triggers:read", "integrations:read"], state: "state", codeChallenge: "challenge", codeChallengeMethod: "S256", resource: f.env.APP_ORIGIN + "/mcp", issuer: f.env.APP_ORIGIN };
       await f.db.pool.query("INSERT INTO app.permission_presets(tenant_id,id,name,scopes,is_default) VALUES($1,$2,'Read only',ARRAY['triggers:read'],true)",[f.tenantId,crypto.randomUUID()]);
-      const oauth = { parseAuthRequest: async () => parsed, lookupClient: async () => ({ clientId: "client", clientName: "CLI", redirectUris: [parsed.redirectUri] }), completeAuthorization: vi.fn(async (_input: unknown) => ({ redirectTo: parsed.redirectUri + "?code=issued" })) };
+      const oauth = { listUserGrants: async () => ({ items: [] }), parseAuthRequest: async () => parsed, lookupClient: async () => ({ clientId: "client", clientName: "CLI", redirectUris: [parsed.redirectUri] }), completeAuthorization: vi.fn(async (_input: unknown) => ({ redirectTo: parsed.redirectUri + "?code=issued" })) };
       f.env.OAUTH_PROVIDER = oauth as any;
       const request = (path: string, body: unknown, cookie = f.cookie) => protectedApiFetch(new Request(f.env.APP_ORIGIN + path, { method: "POST", headers: { Cookie: cookie, Origin: f.env.APP_ORIGIN, "Content-Type": "application/json" }, body: JSON.stringify(body) }), f.env, null, {} as ExecutionContext);
-      const previewResponse = await request("/api/v1/oauth/consent/preview", { authorizationQuery: "client_id=client" }); expect(previewResponse.status).toBe(200); const preview = await previewResponse.json() as any;
+      const previewResponse = await request("/api/v1/oauth/consent/preview", { authorizationQuery: "client_id=client&scope=team%3Aread+triggers%3Aread+integrations%3Aread" }); expect(previewResponse.status).toBe(200); const preview = await previewResponse.json() as any;
       expect(preview.selectedScopes).toEqual(["triggers:read"]); expect(preview.scopes).toEqual(parsed.scope);
       const input = { request: preview.request, signature: preview.signature, scopes: ["team:read", "triggers:read", "integrations:read"], decision: "allow" };
       expect((await request("/api/v1/oauth/consent/decision", input)).status).toBe(200); expect(oauth.completeAuthorization).toHaveBeenCalledTimes(1);

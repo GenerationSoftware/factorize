@@ -103,6 +103,10 @@ describe.skipIf(!url)("VM grant persistence and delegation", () => {
       await expect(resolveVmPermissions(f.db.pool, auth, { scopes: ["triggers:read", "triggers:write"] })).rejects.toMatchObject({ status: 403 });
       expect(await resolveVmPermissions(f.db.pool, auth, { scopes: [scope, "triggers:read"] })).toEqual({ scopes: [scope, "triggers:read"], presetId: null });
 
+      const freshGrant = { ...auth, oauthGrantId: "fresh-client", initialIntegrationDenials: [integrationId] };
+      await expect(resolveVmPermissions(f.db.pool, freshGrant, { scopes: [scope] })).rejects.toMatchObject({ status: 403 });
+      await expect(resolveVmPermissions(f.db.pool, freshGrant, { scopes: ["triggers:read"] })).resolves.toMatchObject({ scopes: ["triggers:read"] });
+
       const repository = new VmGrantRepository(f.db.pool, f.tenantId);
       const vmScopes = ["vms:edit", "proxy:use", "triggers:read"];
       const target = { provider_id: integrationId, provider_kind: "fly" as const, provider_epoch: 1, vm: "machine", vm_app: "app" };

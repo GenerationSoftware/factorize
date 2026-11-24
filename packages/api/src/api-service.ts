@@ -1,3 +1,4 @@
+import { initialIntegrationOverrides, lockOAuthPolicy } from "./oauth-reconnect";
 import { lockMcpEventGrant } from "./postgres/mcp-event-outbox";
 import { eventPayloadSchema, eventProtocolName, type ReadEventOccurrencesInput, type subscribeEventInput, type unsubscribeEventInput } from "./mcp-event-contracts";
 import { subscribeMcpEvent, unsubscribeMcpEvent } from "./mcp-event-subscriptions";
@@ -620,7 +621,9 @@ export class ApiService {
       if (scopes.includes(integration.requiredScope)) delete integrationOverrides[integration.id];
       else if (edit.integrationOverrides?.[integration.id] === false || (integration.available && integration.policy !== "disabled")) integrationOverrides[integration.id] = false;
     }
-    const result = await databaseFor(this.env).pool.query(`
+    const result = await databaseFor(this.env).transaction(async sql => {
+      await lockOAuthPolicy(sql, this.auth);
+      return sql.query(`
       INSERT INTO app.agent_identities AS i(tenant_id,kind,subject,user_id,session_version,disabled_scopes,scope_overrides,integration_overrides,permissions_revision)
       SELECT $1,'oauth',$2,$3,$4,'{}',$5,$6,1 WHERE coalesce($7::integer,0)=0 OR EXISTS
         (SELECT 1 FROM app.agent_identities WHERE tenant_id=$1 AND kind='oauth' AND subject=$2)
@@ -628,6 +631,7 @@ export class ApiService {
         integration_overrides=excluded.integration_overrides,permissions_revision=i.permissions_revision+1
       WHERE i.revoked_at IS NULL AND i.user_id=excluded.user_id AND ($7 IS NULL OR i.permissions_revision=$7)
       RETURNING permissions_revision`, [this.auth.tenantId, grantId, this.auth.userId, this.auth.sessionVersion, [...new Set(scopes)], JSON.stringify(integrationOverrides), edit.expectedRevision ?? client.revision]);
+    });
     if (!result.rowCount) throw new ServiceError(409, "conflict", "Connection permissions changed. Reload permissions.");
     return { ok: true };
   }
@@ -645,16 +649,17 @@ export class ApiService {
     const scopeLabels = Object.fromEntries(integrations.map(row => [row.requiredScope, `${row.name} integration access`]));
     return publicValue(z.array(authorizedClient), grants.map(grant => {
       const row = byGrant.get(grant.id), grantedScopes = normalizeScopes(grant.scope);
+      const integrationOverrides = row?.integration_overrides ?? initialIntegrationOverrides(grant.metadata?.initialIntegrationDenials);
       const baseScopes = row?.scope_overrides ?? grantedScopes.filter(scope => !row?.disabled_scopes.includes(scope));
       const baselineScopes = integrations.filter(integration => integration.policy === "baseline" && integration.available).map(integration => integration.requiredScope);
       const scopes = [...new Set([...baseScopes,...baselineScopes])].filter(scope => {
         const id = scope.match(integrationScopePattern)?.[1];
-        return !row?.disabled_scopes.includes(scope) && (!id || row?.integration_overrides?.[id] !== false);
+        return !row?.disabled_scopes.includes(scope) && (!id || integrationOverrides[id] !== false);
       });
       const availableScopes = [...new Set([...globallyAvailable, ...scopes])];
       return { grantId: grant.id, clientId: grant.clientId, clientName: row?.display_name ?? byId.get(grant.clientId)?.clientName ?? grant.clientId, appName: byId.get(grant.clientId)?.clientName ?? grant.clientId,
         availableScopes, scopeLabels, scopes, revision: row?.permissions_revision ?? 0,
-        integrationOverrides: row?.integration_overrides ?? {}, authorizationDate: new Date(grant.createdAt * 1000).toISOString(),
+        integrationOverrides, authorizationDate: new Date(grant.createdAt * 1000).toISOString(),
         expiresAt: grant.expiresAt ? new Date(grant.expiresAt * 1000).toISOString() : null, lastUsedAt: null };
     }));
   }
@@ -665,6 +670,7 @@ export class ApiService {
     do { const page = await this.env.OAUTH_PROVIDER.listUserGrants(this.auth.userId,{limit:100,cursor}); found ||= page.items.some(grant=>grant.id===grantId && (grant.metadata as any)?.tenantId===this.auth.tenantId); cursor=page.cursor; } while(cursor && !found);
     if(!found) throw new ServiceError(404,"not_found","Authorization not found");
     await databaseFor(this.env).transaction(async sql => {
+      await lockOAuthPolicy(sql, this.auth);
       await lockMcpEventGrant(sql, this.auth.tenantId, grantId);
       await sql.query(`UPDATE app.mcp_event_subscriptions SET status='stopped',previous_encrypted_secret=NULL,rotated_at=NULL
         WHERE tenant_id=$1 AND user_id=$2 AND grant_id=$3 AND status='active'`, [this.auth.tenantId, this.auth.userId, grantId]);

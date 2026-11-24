@@ -2479,6 +2479,12 @@ paths:
                     type: array
                     items:
                       type: string
+                  unavailableSavedScopes:
+                    type: array
+                    items:
+                      type: string
+                  reconnect:
+                    type: boolean
                   request:
                     type: string
                   signature:
@@ -2507,6 +2513,8 @@ paths:
                   - clientName
                   - scopes
                   - selectedScopes
+                  - unavailableSavedScopes
+                  - reconnect
                   - request
                   - signature
                   - expiresAt

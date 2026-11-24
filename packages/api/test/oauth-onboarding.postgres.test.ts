@@ -10,6 +10,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("MCP onboarding public boun
   let f: Awaited<ReturnType<typeof loadingFixture>>, emails: string[] = [];
   const grant = vi.fn(async ({ request }: any) => ({ redirectTo: `${request.redirectUri}?code=grant&state=${request.state}` }));
   const oauth = {
+    listUserGrants: async () => ({ items: [] }),
     lookupClient: async (id: string) => id === "client" ? { clientId: id, clientName: "MCP CLI", redirectUris: ["http://127.0.0.1/callback"], tokenEndpointAuthMethod: "none" } : null,
     parseAuthRequest: async (request: Request) => {
       const q = new URL(request.url).searchParams;

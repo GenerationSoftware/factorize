@@ -3511,6 +3511,8 @@ export interface operations {
                         clientName: string;
                         scopes: string[];
                         selectedScopes: string[];
+                        unavailableSavedScopes: string[];
+                        reconnect: boolean;
                         request: string;
                         signature: string;
                         expiresAt: string;
