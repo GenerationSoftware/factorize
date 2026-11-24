@@ -371,8 +371,8 @@ async function dispatchClaim(env: Env, claim: Claim, now: () => number) {
       `SELECT * FROM app.mcp_event_subscriptions WHERE tenant_id=$1 AND id=$2 FOR NO KEY UPDATE`, key.slice(0, 2),
     );
     if (!subscription) return;
-    const { rows: [record] } = await sql.query<{ occurred_at: Date; definition_id: string; ack_epoch: string | null; ack_state: string | null }>(
-      `SELECT o.occurred_at,o.definition_id,d.ack_epoch,d.ack_state FROM app.mcp_event_deliveries d
+    const { rows: [record] } = await sql.query<{ occurred_at: Date; definition_id: string; source_identity: string; ack_epoch: string | null; ack_state: string | null }>(
+      `SELECT o.occurred_at,o.definition_id,o.source_identity,d.ack_epoch,d.ack_state FROM app.mcp_event_deliveries d
        JOIN app.event_occurrences o ON o.tenant_id=d.tenant_id AND o.id=d.occurrence_id
        WHERE d.tenant_id=$1 AND d.subscription_id=$2 AND d.occurrence_id=$3 AND d.claim_id=$4 FOR UPDATE OF d`, key,
     );
@@ -407,6 +407,10 @@ async function dispatchClaim(env: Env, claim: Claim, now: () => number) {
     if (record.ack_state === "processed") {
       await sql.query(`UPDATE app.mcp_event_deliveries SET claim_id=NULL
         WHERE tenant_id=$1 AND subscription_id=$2 AND occurrence_id=$3 AND claim_id=$4`, key);
+      return;
+    }
+    if (record.source_identity.startsWith("cloudflareTail:")) {
+      await cancel("source_retired");
       return;
     }
     if (!subscriptionActive(subscription, claim)) {

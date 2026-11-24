@@ -7,13 +7,13 @@ export type EventAvailability = {
   cloudflareTail: boolean;
 };
 
-export const installedEventAvailability = (linearConnected: boolean, clickupConnected: boolean, githubStates: string[], tailInstallationCount: number): EventAvailability => ({
+export const installedEventAvailability = (linearConnected: boolean, clickupConnected: boolean, githubStates: string[]): EventAvailability => ({
   manual: true,
   schedule: true,
   linear: linearConnected,
   clickup: clickupConnected,
   github: githubStates.some(state => state === "active"),
-  cloudflareTail: tailInstallationCount > 0,
+  cloudflareTail: false,
 });
 
 export const sameProviderReference = (next: Record<string, any>, previous: Record<string, any>): boolean => {

@@ -5,6 +5,10 @@ export interface Env {
   SCHEDULER?: DurableObjectNamespace;
   ASSETS: Fetcher;
   APP_ORIGIN: string;
+  CLOUDFLARE_OAUTH_CLIENT_ID?: string;
+  CLOUDFLARE_OAUTH_CLIENT_SECRET?: string;
+  CLOUDFLARE_OAUTH_READ_SCOPES?: string;
+  CLOUDFLARE_OAUTH_WRITE_SCOPES?: string;
   MARKETING_ORIGIN?: string;
   TOTP_ENCRYPTION_KEY?: string;
   GOOGLE_SIGN_IN_START_LIMIT?: RateLimit;

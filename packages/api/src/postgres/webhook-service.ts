@@ -1,5 +1,4 @@
 import { clickUpJson, matchingClickUpTask } from "../clickup";
-import { verifyTailDelivery, sanitizeTailEvent, suppressTailEvent } from "../cloudflare-tail";
 import { equalHmac } from "../crypto";
 import type { Trigger } from "../trigger-domain";
 import { evaluateWebhookConditions } from "../webhook-conditions";
@@ -81,11 +80,5 @@ export class WebhookService {
     }
     if (!matched) await this.database.pool.query("UPDATE app.webhook_deliveries SET outcome='ignored',detail='Delivery was received but did not match an enabled event.' WHERE tenant_id=$1 AND id=$2", [this.tenantId, deliveryPk]);
     await this.wake();
-  }
-  async tail(triggerId: string, raw: string, headers: Headers) {
-    const candidate = (await this.candidates("cloudflareTail")).find(value => value.trigger.id === triggerId); if (!candidate?.config.integrationId) throw new Error("not_found");
-    const connection = await this.connections.get<any>(`cloudflare-tail:${candidate.config.integrationId}`), timestamp = headers.get("x-factorize-timestamp") ?? "", delivery = headers.get("x-factorize-delivery") ?? "", signature = headers.get("x-factorize-signature") ?? "";
-    if (!connection?.signingSecret || await verifyTailDelivery(connection.signingSecret, timestamp, delivery, raw, signature) !== "valid") throw new Error("invalid_signature");
-    const payload = sanitizeTailEvent(JSON.parse(raw)) as Record<string, any>; if (!suppressTailEvent(payload)) await this.invoke("cloudflareTail", delivery, payload, "tail");
   }
 }

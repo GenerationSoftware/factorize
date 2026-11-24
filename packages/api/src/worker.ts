@@ -1,3 +1,4 @@
+import { cloudflareCallback, cloudflareOAuthCallback, pruneCloudflareOAuth } from "./cloudflare-oauth";
 import { mcpOAuthChallenge, withRefreshAdmission } from "./mcp-oauth-auth";
 import { pruneTotp } from "./totp";
 import { googleSignInCallback } from "./auth-api";
@@ -97,6 +98,7 @@ export class AlarmCoordinator extends BaseAlarmCoordinator {
 }
 const backend = { async fetch(request: Request, env: Env, ctx: ExecutionContext) {
   if (new URL(request.url).hostname === "git.factorize.sh") return new Response("Not found", { status: 404 });
+  if (new URL(request.url).pathname === cloudflareCallback) return cloudflareOAuthCallback(request, env);
   if (new URL(request.url).pathname === googleCallbackPath) return googleSignInCallback(request, env);
   if (new URL(request.url).pathname === "/oauth/x/callback") return request.method === "GET" ? xOAuthCallback(request, env) : new Response("Method not allowed", { status: 405, headers: { Allow: "GET" } });
   const oidc = await oidcRequest(request, env);
@@ -176,6 +178,7 @@ export default {
     // Retire expired VM proofs and incomplete enrollments.
     const db = databaseFor(env);
     await clearExpiredGoogleSignIns(db.pool);
+    await pruneCloudflareOAuth(db.pool);
     await pruneTotp(db.pool);
     await db.pool.query(`DELETE FROM app.revoked_browser_sessions WHERE digest IN
       (SELECT digest FROM app.revoked_browser_sessions WHERE expires_at<now()-interval '1 day' ORDER BY expires_at LIMIT 5000)`);
