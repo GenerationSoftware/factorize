@@ -4,14 +4,14 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useSearch } from "@tanstack/react-router";
 import { api } from "factorize-api-client";
 import { messageOf, refreshIdentity } from "./session";
-import { SettingsLayout } from "../settings/navigation";
+import { AccountSettingsLayout } from "../settings/navigation";
 
 export type AuthMode = "login" | "signup" | "reset" | "verify" | "verify-request" | "password";
 const titles: Record<AuthMode, string> = {
   login: "Sign in to Factorize", signup: "Create your Factorize account", reset: "Reset password",
   verify: "Verify your email", "verify-request": "Resend verification email", password: "Change password",
 };
-export function AuthScreen({ mode, inSettingsLayout = false }: { mode: AuthMode; inSettingsLayout?: boolean }) {
+export function AuthScreen({ mode, inAccountSettings = false }: { mode: AuthMode; inAccountSettings?: boolean }) {
   const search = useSearch({ strict: false }) as { token?: string; returnTo?: string; connection?: string; expired?: boolean };
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
@@ -62,8 +62,8 @@ export function AuthScreen({ mode, inSettingsLayout = false }: { mode: AuthMode;
   const showEmail = mode !== "password" && mode !== "verify" && !resetCompletion;
   const showPassword = mode === "login" || mode === "signup" || mode === "password" || resetCompletion;
   const content = <>
-      {!inSettingsLayout && <p className="text-xs font-semibold uppercase tracking-widest text-factorize-700 dark:text-factorize-500">Your software factory</p>}
-      {!inSettingsLayout && <h1 className="my-6 text-2xl font-semibold">{titles[mode]}</h1>}
+      {!inAccountSettings && <p className="text-xs font-semibold uppercase tracking-widest text-factorize-700 dark:text-factorize-500">Your software factory</p>}
+      {!inAccountSettings && <h1 className="my-6 text-2xl font-semibold">{titles[mode]}</h1>}
       {search.connection && <p>Connecting {continuation.data?.clientName ?? "your MCP client"}. After verification, review its permissions and choose Allow or Deny.</p>}
       {(continuation.error || search.expired) && <p role="alert">{continuation.error?.message ?? "Your MCP request has expired. Start a new connection from your client."}</p>}
       {mode === "login" && <p className="my-4">New to Factorize? <Link className="font-semibold text-factorize-700 underline dark:text-factorize-500" to="/auth/signup" search={{ connection: search.connection, returnTo: search.returnTo }}>Create an account to connect your client</Link>.</p>}
@@ -82,5 +82,5 @@ export function AuthScreen({ mode, inSettingsLayout = false }: { mode: AuthMode;
         <Link to="/auth/verify/request" search={{ connection: search.connection, returnTo: search.returnTo }}>Resend verification</Link>
       </nav>}
     </>;
-  return inSettingsLayout ? <SettingsLayout title={titles[mode]}>{content}</SettingsLayout> : <Page className="my-8 flex-none max-w-md rounded-2xl border border-stone-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:p-8">{content}</Page>;
+  return inAccountSettings ? <AccountSettingsLayout title={titles[mode]}>{content}</AccountSettingsLayout> : <Page className="my-8 flex-none max-w-md rounded-2xl border border-stone-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:p-8">{content}</Page>;
 }

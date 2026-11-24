@@ -121,29 +121,41 @@ test("password route redirects an unauthenticated viewer to login with a local r
   await context.close();
 });
 
-test("authenticated password route shows settings navigation with the active password link", async () => {
+test("Account settings opens from the account menu and keeps account pages together", async () => {
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const page = await context.newPage();
   await page.route("**/api/v1/session", route => route.fulfill({ json: {
     authenticated: true, user: { id: "owner-a", email: "owner@example.test" },
     team: { id: "workspace-a", name: "Workspace", role: "owner" }, capabilities: [],
   } }));
+  await page.route("**/api/v1/profile", route => route.fulfill({ json: { username: "owner", email: "owner@example.test" } }));
+  await page.route("**/api/v1/access-tokens", route => route.fulfill({ json: [] }));
   await page.goto(origin + "/settings/password");
-  const settings = page.getByRole("navigation", { name: "Settings" });
-  assert.equal(await settings.getByRole("link", { name: "Integrations", exact: true }).count(), 1);
-  assert.equal(await settings.getByRole("link", { name: "Skills library", exact: true }).count(), 0);
+  await page.getByRole("button", { name: "Your account", exact: true }).click();
+  await page.getByRole("link", { name: "Account settings", exact: true }).click();
+  await page.getByRole("heading", { name: "Profile", exact: true }).waitFor();
+
+  const settings = page.getByRole("navigation", { name: "Account settings", exact: true });
+  assert.deepEqual(await settings.getByRole("link").allTextContents(), ["Profile", "API keys", "Change password"]);
   const dashboard = page.getByRole("navigation", { name: "Dashboard navigation" });
-  assert.equal(await dashboard.count(), 1);
-  assert.equal(await dashboard.getByRole("link", { name: "Skills", exact: true }).getAttribute("href"), "/skills");
-  assert.equal(await dashboard.getByRole("link", { name: "Settings", exact: true }).getAttribute("aria-current"), "page");
+  assert.equal(await dashboard.locator('[aria-current="page"]').count(), 0);
+  assert.equal(await dashboard.locator(".border-factorize-500").count(), 0);
+
+  const keys = settings.getByRole("link", { name: "API keys", exact: true });
+  await keys.click();
+  await page.getByRole("button", { name: "Create API Key", exact: true }).click();
+  await page.getByRole("heading", { name: "Create API key", exact: true }).waitFor();
+  assert.equal(await keys.getAttribute("aria-current"), "page");
+
   const password = settings.getByRole("link", { name: "Change password", exact: true });
-  await password.waitFor();
+  await password.click();
+  await page.getByRole("heading", { name: "Change password", exact: true }).waitFor();
   assert.equal(await password.getAttribute("aria-current"), "page");
   assert.match(await password.getAttribute("class"), /bg-factorize-50/);
   await context.close();
 });
 
-test("Settings navigation opens permission presets and Apps from the sidebar", async () => {
+test("Settings navigation keeps the Settings tab active and shares integration policies across pages", async () => {
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const page = await context.newPage();
   await page.route("**/api/v1/session", route => route.fulfill({ json: {
@@ -151,17 +163,47 @@ test("Settings navigation opens permission presets and Apps from the sidebar", a
     team: { id: "workspace-a", name: "Workspace", role: "owner" }, capabilities: [],
   } }));
   await page.route("**/api/v1/permission-presets", route => route.fulfill({ json: [] }));
-  await page.route("**/api/v1/integration-api-policies", route => route.fulfill({ json: { integrations: [] } }));
+  const policyId = "18a2410e-ea09-4fe0-af8a-719c0c91e6e2";
+  await page.route("**/api/v1/integration-api-policies", route => route.fulfill({ json: { integrations: [{
+    id: policyId, credentialId: "linear", name: "Linear", description: null, kind: "linear",
+    policy: "baseline", available: true, revision: 1, requiredScope: `integration:${policyId}:1`,
+  }] } }));
   await page.route("**/api/v1/app-connections", route => route.fulfill({ json: [] }));
+  await page.route("**/api/v1/integrations", route => route.fulfill({ json: {
+    exeConnections: [], ampConnections: [], cloudflareTail: { installations: [] }, linear: { organizationName: "Workspace" }, clickup: null,
+  } }));
+  await page.route("**/api/v1/providers/github/installations", route => route.fulfill({ json: [] }));
+  await page.route("**/api/v1/fly/connection", route => route.fulfill({ json: { connection: null } }));
+  await page.route("**/api/v1/integrations/bearer", route => route.fulfill({ json: { integrations: [], revision: 0 } }));
+  await page.route("**/api/v1/x/connections", route => route.fulfill({ json: { connections: [] } }));
   await page.goto(origin + "/settings");
   await page.getByRole("heading", { name: "Permissions", exact: true }).waitFor();
   assert.equal(new URL(page.url()).pathname, "/settings/permissions");
-  const settings = page.getByRole("navigation", { name: "Settings" });
+  const dashboard = page.getByRole("navigation", { name: "Dashboard navigation" });
+  const settings = page.getByRole("navigation", { name: "Settings", exact: true });
+  assert.deepEqual(await settings.getByRole("link").allTextContents(), ["Permissions", "Apps", "Integrations"]);
+  assert.deepEqual(await dashboard.locator('[aria-current="page"]').allTextContents(), ["Settings"]);
+  assert.deepEqual(await dashboard.locator(".border-factorize-500").allTextContents(), ["Settings"]);
   await settings.getByRole("link", { name: "Apps", exact: true }).click();
   await page.getByText("No connected apps.").waitFor();
   assert.equal(new URL(page.url()).pathname, "/apps");
+  assert.deepEqual(await dashboard.locator('[aria-current="page"]').allTextContents(), ["Settings"]);
+  assert.deepEqual(await dashboard.locator(".border-factorize-500").allTextContents(), ["Settings"]);
   await settings.getByRole("link", { name: "Permissions", exact: true }).click();
   await page.getByRole("heading", { name: "Permissions", exact: true }).waitFor();
+  await page.getByRole("button", { name: "Create permission preset", exact: true }).click();
+  await page.getByRole("checkbox", { name: "Linear integration access", exact: true }).waitFor();
+
+  await settings.getByRole("link", { name: "Integrations", exact: true }).click();
+  const linearPolicy = page.getByRole("checkbox", { name: "Linear available by default", exact: true });
+  await linearPolicy.waitFor();
+  assert.equal(await linearPolicy.isChecked(), true);
+  assert.deepEqual(await dashboard.locator('[aria-current="page"]').allTextContents(), ["Settings"]);
+  assert.deepEqual(await dashboard.locator(".border-factorize-500").allTextContents(), ["Settings"]);
+
+  await settings.getByRole("link", { name: "Permissions", exact: true }).click();
+  await page.getByRole("button", { name: "Create permission preset", exact: true }).click();
+  await page.getByRole("checkbox", { name: "Linear integration access", exact: true }).waitFor();
   await context.close();
 });
 
@@ -179,12 +221,12 @@ test("authenticated password change is isolated from global auth navigation and 
     await route.fulfill({ json: { ok: true }, headers: { "Set-Cookie": "factorize_session=; Max-Age=0; Path=/" } });
   });
   await page.goto(origin + "/settings/password");
-  assert.equal(await page.getByRole("navigation", { name: "Account" }).count(), 0);
+  assert.equal(await page.getByRole("navigation", { name: "Account", exact: true }).count(), 0);
   await page.getByLabel("Current password", { exact: true }).fill("old-test-password");
   await page.getByLabel("New password", { exact: true }).fill("new-test-password");
   await page.getByRole("button", { name: "Continue", exact: true }).click();
   await waitText(page, "status", "Password updated. Sign in with your new password.");
-  assert.equal(await page.getByRole("navigation", { name: "Account" }).count(), 0);
+  assert.equal(await page.getByRole("navigation", { name: "Account", exact: true }).count(), 0);
   await context.close();
 });
 

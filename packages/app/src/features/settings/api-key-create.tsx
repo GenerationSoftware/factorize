@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type paths } from "factorize-api-client";
 import { tokensQuery } from "./queries";
-import { SettingsLayout } from "./navigation";
+import { AccountSettingsLayout } from "./navigation";
 import { messageOf } from "../auth/session";
 
 type AccessScope = paths["/api/v1/access-tokens"]["get"]["responses"][200]["content"]["application/json"][number]["scopes"][number];
@@ -38,7 +38,7 @@ export function ApiKeyCreate() {
     },
     onSuccess: async () => { setName(""); await cache.invalidateQueries({ queryKey: tokensQuery.queryKey }); },
   });
-  return <SettingsLayout title="Create API key">
+  return <AccountSettingsLayout title="Create API key">
     <Link to="/settings/api-keys" className="text-sm font-semibold">← API keys</Link>
     {secret ? <Card role="status" className="mt-5 border p-4">
       <p>Copy this key now. It will only be displayed once.</p>
@@ -52,5 +52,5 @@ export function ApiKeyCreate() {
       {create.error && <p role="alert">{create.error.message}</p>}
       <Button variant="primary" disabled={create.isPending || !scopes.length}>{create.isPending ? "Creating…" : "Create key"}</Button>
     </form>}
-  </SettingsLayout>;
+  </AccountSettingsLayout>;
 }

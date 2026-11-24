@@ -4,20 +4,16 @@ import { api } from "factorize-api-client";
 import { Input, Label, Select } from "../../shared/ui";
 import { Dialog } from "../../shared/dialog";
 import { messageOf } from "../auth/session";
+import { integrationPoliciesQuery, requireIntegrationPolicies, type IntegrationPolicyRow } from "./queries";
 
-type Policy = {id: string; credentialId: string; kind: string; name: string; available: boolean; revision: number; policy: "baseline" | "requestable" | "disabled"};
-const queryKey = ["settings", "api-policies"];
 function usePolicies() {
   const cache = useQueryClient();
-  const query = useQuery({queryKey, queryFn: async ({signal}) => {
-    const {data,error} = await api.GET("/api/v1/integration-api-policies", {signal});
-    if (!data || error) throw new Error(messageOf(error));
-    if (!Array.isArray(data.integrations)) throw new Error("API access settings could not be loaded. Reload the page to try again.");
-    return data;
-  }});
-  const change = useMutation({retry: false, mutationFn: async (input: {row: Policy; policy: Policy["policy"]}) => {
+  const query = useQuery(integrationPoliciesQuery);
+  const { queryKey } = integrationPoliciesQuery;
+  const change = useMutation({retry: false, mutationFn: async (input: {row: IntegrationPolicyRow; policy: IntegrationPolicyRow["policy"]}) => {
     const {data,error} = await api.PUT("/api/v1/integration-api-policies/{integrationId}", {params: {path: {integrationId: input.row.id}}, body: {policy: input.policy, expectedRevision: input.row.revision}});
-    if (!data || error) throw new Error(messageOf(error)); return data;
+    if (!data || error) throw new Error(messageOf(error));
+    return requireIntegrationPolicies(data);
   }, onSuccess: data => cache.setQueryData(queryKey, data), onSettled: () => cache.invalidateQueries({queryKey})});
   // Read these fields in the subscribing component so context consumers receive query updates.
   return {query: {data: query.data, isPending: query.isPending, error: query.error}, change};
@@ -45,5 +41,5 @@ export function IntegrationPolicy({kind, credentialId, name}: {kind: string; cre
 export function PolicyDialog({kind, credentialId, close}: {kind: string; credentialId: string; close: () => void}) {
   const {context, row} = useIntegrationPolicy(kind, credentialId);
   if (!context || !row) return null;
-  return <Dialog title={`${row.name} MCP access`} close={close}><p className="mb-4 text-sm">Default access applies to connected MCP clients. Requiring approval keeps existing approvals. Disabling access revokes approvals; enabling it again requires fresh consent. Trigger selections are independent.</p><Label>MCP access<Select disabled={context.change.isPending} value={row.policy} onChange={event => context.change.mutate({row, policy: event.target.value as Policy["policy"]})}><option value="baseline">Available by default</option><option value="requestable">Requires approval</option><option value="disabled">Disabled</option></Select></Label>{context.change.variables?.row.id === row.id && context.change.error && <p role="alert">{context.change.error.message}</p>}</Dialog>;
+  return <Dialog title={`${row.name} MCP access`} close={close}><p className="mb-4 text-sm">Default access applies to connected MCP clients. Requiring approval keeps existing approvals. Disabling access revokes approvals; enabling it again requires fresh consent. Trigger selections are independent.</p><Label>MCP access<Select disabled={context.change.isPending} value={row.policy} onChange={event => context.change.mutate({row, policy: event.target.value as IntegrationPolicyRow["policy"]})}><option value="baseline">Available by default</option><option value="requestable">Requires approval</option><option value="disabled">Disabled</option></Select></Label>{context.change.variables?.row.id === row.id && context.change.error && <p role="alert">{context.change.error.message}</p>}</Dialog>;
 }

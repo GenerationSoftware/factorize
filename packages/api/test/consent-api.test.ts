@@ -7,9 +7,15 @@ const parsed = { responseType: "code", clientId: "client", redirectUri: "https:/
 function fixture() {
   const values = new Map<string, string>();
   const used = new Set<string>();
-  const query = vi.fn(async (_sql: string, args: unknown[]) => {
-    if (_sql.startsWith("INSERT") || _sql.startsWith("DELETE")) return { rows: [] };
-    const id = String(args[0]); if (used.has(id)) return { rows: [] }; used.add(id); return { rows: [{ id }] };
+  const query = vi.fn(async (sql: string, args: unknown[]) => {
+    if (sql.startsWith("INSERT INTO app.oauth_consent_previews") ||
+        sql.startsWith("DELETE FROM app.oauth_consent_previews") ||
+        sql.startsWith("SELECT scopes FROM app.permission_presets")) return { rows: [] };
+    if (!sql.startsWith("UPDATE app.oauth_consent_previews")) throw new Error(`Unexpected consent query: ${sql}`);
+    const id = String(args[0]);
+    if (used.has(id)) return { rows: [] };
+    used.add(id);
+    return { rows: [{ id }] };
   });
   const oauth = { parseAuthRequest: vi.fn(async () => parsed), lookupClient: vi.fn(async () => ({ clientId: "client", clientName: "External client", redirectUris: [parsed.redirectUri], tokenEndpointAuthMethod: "none" })), completeAuthorization: vi.fn(async (_options: unknown) => ({ redirectTo: parsed.redirectUri + "?code=authorized&state=state" })) };
   const env = { DATABASE: { pool: { query }, transaction: async (work: any) => work({ query }) }, APP_ORIGIN: "https://factorize.test", SESSION_SIGNING_SECRET: "test-signing", OAUTH_PROVIDER: oauth, OAUTH_KV: { get: async (key: string, type?: string) => { const value = values.get(key); return value ? type === "json" ? JSON.parse(value) : value : null; }, put: async (key: string, value: string) => { values.set(key, value); }, delete: async (key: string) => { values.delete(key); } } } as unknown as Env;
@@ -19,6 +25,7 @@ describe("static consent support", () => {
   it("binds expiring decisions to owner, tenant and session version; enforces requested scopes and current registered redirects", async () => {
     const { env, oauth } = fixture(), preview = (await consentPreview(env, session, { authorizationQuery: "client_id=client&redirect_uri=https%3A%2F%2Fclient.test%2Fcallback" }))!;
     expect(preview.clientName).toBe("External client");
+    expect(preview.selectedScopes).toEqual(preview.scopes);
     const input = { request: preview.request, signature: preview.signature, decision: "allow" as const, scopes: ["team:read", "triggers:read", "integrations:read"] };
     for (const modified of [{ ...session, tenantId: "other" }, { ...session, userId: "other" }, { ...session, sessionVersion: 3 }]) expect(await consentDecision(env, modified, input)).toBeNull();
     expect(await consentDecision(env, session, { ...input, scopes: ["team:write", "triggers:write", "integrations:write"] })).toBeNull();

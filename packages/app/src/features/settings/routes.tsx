@@ -17,5 +17,5 @@ export function settingsRoutes(root: AnyRootRoute) {
     createRoute({ getParentRoute: () => root, path: "/settings/api-keys", beforeLoad: guard, component: lazyRouteComponent(() => import("./api-keys"), "ApiKeys") }),
     createRoute({ getParentRoute: () => root, path: "/settings/api-keys/new", beforeLoad: guard, component: lazyRouteComponent(() => import("./api-key-create"), "ApiKeyCreate") }),
     createRoute({ getParentRoute: () => root, path: "/settings/authorized-clients", beforeLoad: () => { throw redirect({ to: "/clients", replace: true }); } }),
-    createRoute({ getParentRoute: () => root, path: "/settings/password", beforeLoad: guard, component: () => <AuthScreen mode="password" inSettingsLayout /> })];
+    createRoute({ getParentRoute: () => root, path: "/settings/password", beforeLoad: guard, component: () => <AuthScreen mode="password" inAccountSettings /> })];
 }

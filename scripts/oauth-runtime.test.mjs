@@ -61,7 +61,8 @@ test('local OAuth consent and device grants authorize REST/MCP and respect revoc
     const connectionCookie = screen.headers['set-cookie'][0].split(';')[0];
     const connectedScreen = await send(new URL(screen.headers.location).pathname + new URL(screen.headers.location).search, 'GET', undefined, { ...owner, Cookie: cookie + '; ' + connectionCookie }); assert.equal(connectedScreen.status, 200); assert.match(connectedScreen.text, /\/assets\//);
     const preview = await json('/api/v1/oauth/consent/preview', { authorizationQuery }, owner); assert.equal(preview.status, 200, preview.text);
-    const decision = { request: preview.json.request, signature: preview.json.signature, decision: 'allow', scopes: ["team:read", "triggers:read", "integrations:read"] };
+    const originalScopes = ['team:read', 'triggers:read', 'integrations:read'];
+    const decision = { request: preview.json.request, signature: preview.json.signature, decision: 'allow', scopes: originalScopes };
     assert.equal((await json('/api/v1/oauth/consent/decision', decision, { ...owner, Origin: 'https://evil.test' })).status, 403);
     const consent = await json('/api/v1/oauth/consent/decision', decision, owner); assert.equal(consent.status, 200, consent.text);
     const destination = new URL(consent.json.redirectTo); assert.equal(destination.searchParams.get('state'), 'fixture-state');
@@ -69,7 +70,7 @@ test('local OAuth consent and device grants authorize REST/MCP and respect revoc
     const bearer = { Authorization: 'Bearer '+exchange.json.access_token };
     // OAuth resource remains /mcp; do not broaden its audience during migration.
     assert.equal((await send('/api/v1/triggers', 'GET', undefined, bearer)).status, 401);
-    const key = await json('/api/v1/access-tokens', { name: 'Protocol fixture', scopes: ["team:read", "triggers:read", "integrations:read"], expiryDays: 7 }, owner); assert.equal(key.status, 201, key.text);
+    const key = await json('/api/v1/access-tokens', { name: 'Protocol fixture', scopes: [...originalScopes, 'triggers:write'], expiryDays: 7 }, owner); assert.equal(key.status, 201, key.text);
     const restBearer = { Authorization: 'Bearer '+key.json.token };
     assert.equal((await send('/api/v1/triggers', 'GET', undefined, restBearer)).status, 200);
     assert.equal((await send('/api/v1/access-tokens', 'GET', undefined, restBearer)).status, 403);
@@ -83,6 +84,28 @@ test('local OAuth consent and device grants authorize REST/MCP and respect revoc
     assert.ok((await rpc('tools/list', {}, 2)).result.tools.some(tool => tool.name === 'list_triggers'));
     assert.deepEqual((await rpc('tools/call', { name: 'list_triggers', arguments: {} }, 3)).result.structuredContent.items, []);
     assert.deepEqual((await rpc('tools/call', { name: 'list_triggers', arguments: {} }, 5, restBearer)).result.structuredContent.items, []);
+
+    const payloadSchema = { type: 'object' };
+    const restEvent = await json('/api/v1/events', { name: 'rest.event', payloadSchema }, restBearer);
+    assert.equal(restEvent.status, 201, restEvent.text);
+    const restEventPath = `/api/v1/events/${restEvent.json.id}`;
+    const restUpdate = await send(restEventPath, 'PUT', JSON.stringify({ name: 'rest.event', description: 'Updated over REST', payloadSchema, expectedRevision: restEvent.json.revision }), { ...restBearer, 'Content-Type': 'application/json' });
+    assert.equal(restUpdate.status, 200, restUpdate.text);
+    assert.equal(restUpdate.json.revision, 2);
+    assert.equal((await send(restEventPath, 'DELETE', undefined, restBearer)).status, 200);
+    assert.equal((await send(restEventPath, 'GET', undefined, restBearer)).status, 404);
+
+    const eventTool = async (name, args, id) => {
+      const response = await rpc('tools/call', { name, arguments: args }, id, restBearer);
+      assert.ok(response.result?.structuredContent, JSON.stringify(response));
+      return response.result.structuredContent;
+    };
+    const mcpEvent = await eventTool('create_event', { name: 'mcp.event', payloadSchema }, 20);
+    const update = await eventTool('update_event', { eventId: mcpEvent.id, name: 'mcp.event', description: 'Updated over MCP', payloadSchema, expectedRevision: mcpEvent.revision }, 21);
+    assert.equal(update.revision, 2);
+    assert.equal((await eventTool('delete_event', { eventId: mcpEvent.id }, 22)).deleted, true);
+    assert.equal((await send(`/api/v1/events/${mcpEvent.id}`, 'GET', undefined, restBearer)).status, 404);
+
     const rename = name => rpc('tools/call', {name: 'rename_mcp_client', arguments: {name}}, 8);
     const invalidName = await rename('   ');
     assert.ok(invalidName.result?.isError || invalidName.error);
@@ -95,9 +118,9 @@ test('local OAuth consent and device grants authorize REST/MCP and respect revoc
     const permissionsPath = '/api/v1/access/authorizations/' + connection.grantId + '/permissions';
     const change = (edit, headers = owner) => send(permissionsPath, 'PUT', JSON.stringify(edit), {...headers, 'Content-Type':'application/json'});
     const integrationKey = 'integration:' + integrationId + ':1';
-    const edit = {disabledScopes:['triggers:read'], integrationOverrides:{[integrationId]:integrationKey}, expectedRevision:0};
+    const edit = {scopes: ['team:read', 'integrations:read', integrationKey], expectedRevision: 0};
     assert.equal((await change(edit, restBearer)).status, 403);
-    assert.equal((await change({...edit,disabledScopes:['triggers:write']})).status, 400);
+    assert.equal((await change({...edit, scopes: [...edit.scopes, 'unknown:scope']})).status, 400);
     const saved = await change(edit);
     assert.equal(saved.status, 200, saved.text);
     assert.equal((await change(edit)).status, 409);
@@ -105,7 +128,7 @@ test('local OAuth consent and device grants authorize REST/MCP and respect revoc
     assert.ok(blocked.error || blocked.result?.isError);
     const reflect = async () => (await rpc('tools/call', {name:'get_api_reflection',arguments:{}}, 10)).result.structuredContent;
     assert.equal((await reflect()).integrations.find(row => row.id === integrationId).access, 'granted');
-    assert.equal((await change({disabledScopes:[],integrationOverrides:{[integrationId]:false},expectedRevision:1})).status, 200);
+    assert.equal((await change({scopes: originalScopes, expectedRevision: 1})).status, 200);
     assert.equal((await reflect()).integrations.find(row => row.id === integrationId).access, 'unavailable');
     assert.deepEqual((await rpc('tools/call', {name:'list_triggers',arguments:{}}, 11)).result.structuredContent.items, []);
     const deviceClient = await json('/oauth/register', { client_name: 'Device fixture', token_endpoint_auth_method: 'none', grant_types: ['urn:ietf:params:oauth:grant-type:device_code','refresh_token'] }); assert.equal(deviceClient.status, 201, deviceClient.text);

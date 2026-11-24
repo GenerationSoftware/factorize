@@ -22,7 +22,7 @@ The build/publish script uses the attached GHCR integration and prints the
 immutable public image reference with its registry digest:
 
 ```sh
-scripts/build-validation-runner-image.sh
+bash scripts/build-validation-runner-image.sh
 ```
 
 The resulting package must be public because exe.dev job images are pulled by
@@ -39,7 +39,7 @@ After booting the pinned image, run the image smoke check, then check out the
 Factorize repository and run the full local validation:
 
 ```sh
-scripts/smoke-validation-runner-image.sh
+bash scripts/smoke-validation-runner-image.sh
 npm ci
 npm run test:local
 ```
@@ -54,9 +54,21 @@ publishing a new digest, followed by repeating this sequence.
 
 ## Validated image record
 
-The existing digest below records the previous Node 24.12.0 image. The current
-Dockerfile and validation scripts target Node 24.21.0; rebuild and publish a
-new image digest before using it for validation or pinning it to a Dev job.
+The current image was built from Factorize commit
+`7255cbd24e8a6904284a8f58db43375ca57f226e` and published on 2026-11-24.
+The `7255cbd24e8a` tag resolves to the digest below. A Docker pull with an
+empty config verified public access to the digest.
+
+| Field | Value |
+| --- | --- |
+| Public image digest | `ghcr.io/generationsoftware/factorize-validation-runner@sha256:def581d5231b508165c88d97daedccba6de2cb6d568440cabad3ac7913f66930` |
+| Platform | `linux/amd64` |
+| Node / npm / Playwright | 24.21.0 / 11.19.0 / 1.64.0 |
+| Container smoke | Chromium launched as `exedev` and PostgreSQL accepted password authentication after manual service startup. |
+| Full container suite | `npm ci` succeeded. Browser and proxy checks passed. Two backend tests in `consent-api.test.ts` failed because the permission-preset fixture returned a row with no `scopes` field. |
+| Fresh Dev VM and Dev job image pin | Pending fresh-VM acceptance (GEN-2889). |
+
+### Previous Node 24.12.0 checkpoint
 
 | Field | Value |
 | --- | --- |

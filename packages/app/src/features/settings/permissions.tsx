@@ -4,6 +4,7 @@ import { api } from "factorize-api-client";
 import { Button, Input, Label } from "../../shared/ui";
 import { SettingsLayout } from "./navigation";
 import { messageOf } from "../auth/session";
+import { integrationPoliciesQuery } from "./queries";
 
 const key = ["settings", "permission-presets"];
 const standardScopes = ["team:read","team:write","triggers:read","triggers:write","integrations:read","integrations:write","skills:read","skills:write","proxy:use","apps:manage"];
@@ -11,7 +12,7 @@ type Preset = {id:string;name:string;scopes:string[];isDefault:boolean;revision:
 export function Permissions() {
   const cache = useQueryClient();
   const presets = useQuery({queryKey:key,queryFn:async({signal})=>{const {data,error}=await api.GET("/api/v1/permission-presets",{signal});if(!data||error)throw new Error(messageOf(error));return data as Preset[];}});
-  const integrations = useQuery({queryKey:["settings","api-policies"],queryFn:async({signal})=>{const {data,error}=await api.GET("/api/v1/integration-api-policies",{signal});if(!data||error)throw new Error(messageOf(error));return data.integrations;}});
+  const integrations = useQuery({ ...integrationPoliciesQuery, select: data => data.integrations });
   const [editing,setEditing]=useState<Preset|null>(null),[name,setName]=useState(""),[scopes,setScopes]=useState<string[]>([]),[error,setError]=useState(""),[formOpen,setFormOpen]=useState(false);
   const refresh=()=>cache.invalidateQueries({queryKey:key});
   const save=useMutation({retry:false,mutationFn:async()=>{
