@@ -103,7 +103,7 @@ describe("local Cloudflare Worker", { concurrency: 2 }, () => {
     }
   });
 
-  test("hosting enforces static/API/protocol ownership, headers, caching and Git Artifacts", { timeout: 60_000 }, async () => {
+  test("hosting enforces static/API/protocol ownership, headers, caching and retired routes", { timeout: 60_000 }, async () => {
     await checkHosting(await owner("hosting"));
   });
 

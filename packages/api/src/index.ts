@@ -1,4 +1,3 @@
-import { SkillLibrary } from "./skill-library";
 import { executeAuth } from "./auth-api";
 import { STATIC_CSP, staticApp } from "./static-app";
 import { Hono } from "hono";
@@ -221,7 +220,6 @@ app.post("/webhooks/github", async (c) => {
     return c.body(null, 202);
   }
   if (registration.state !== "active") return c.body(null, 202);
-  if (eventName === "push") await new SkillLibrary(c.env,registration.tenant_id).sync({installationId,repositoryId:event.repository?.id,ref:event.ref});
   await new WebhookService(databaseFor(c.env), c.env, registration.tenant_id).github(event, `github:${delivery}`, eventName); return c.body(null, 202);
 });
 

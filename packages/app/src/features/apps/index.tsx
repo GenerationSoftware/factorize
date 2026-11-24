@@ -1,24 +1,14 @@
 import { useState, type FormEvent } from "react";
-import { Link, useLocation } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type paths } from "factorize-api-client";
-import { Button, Input, Label } from "../../shared/ui";
+import { Button, Input, Label, Page, PageHeader } from "../../shared/ui";
 import { SettingsLayout } from "../settings/navigation";
 import { Dialog } from "../../shared/dialog";
 import { messageOf } from "../auth/session";
-import { tabClasses } from "../auth/team-navigation";
 
 type AppRegistration = paths["/api/v1/apps"]["get"]["responses"][200]["content"]["application/json"][number];
 const registeredKey = ["apps", "registered"];
 const connectedKey = ["apps", "connected"];
-
-function AppNavigation() {
-  const registered = useLocation().pathname === "/apps/registered";
-  return <nav aria-label="Apps" className="mb-4 border-b border-stone-200 dark:border-slate-800">
-    <Link className={tabClasses(!registered)} aria-current={registered ? undefined : "page"} to="/apps">Connected apps</Link>
-    <Link className={tabClasses(registered)} aria-current={registered ? "page" : undefined} to="/apps/registered">Registered apps</Link>
-  </nav>;
-}
 
 export function ConnectedAppsPage() {
   const cache = useQueryClient();
@@ -36,7 +26,7 @@ export function ConnectedAppsPage() {
     },
     onSuccess: () => cache.invalidateQueries({ queryKey: connectedKey }),
   });
-  return <SettingsLayout title="Apps"><AppNavigation />
+  return <Page><PageHeader title="Connected apps" />
     {connected.isPending && <p role="status">Loading connected apps…</p>}
     {connected.error && <p role="alert">{connected.error.message}</p>}
     {revoke.error && <p role="alert">{revoke.error.message}</p>}
@@ -49,7 +39,7 @@ export function ConnectedAppsPage() {
         }}>Revoke connection</Button>
       </li>
     )}</ul>
-  </SettingsLayout>;
+  </Page>;
 }
 
 function RegistrationEditor({ app, close }: { app: AppRegistration | null; close: () => void }) {
@@ -105,7 +95,7 @@ export function RegisteredAppsPage() {
     },
     onSuccess: () => cache.invalidateQueries({ queryKey: registeredKey }),
   });
-  return <SettingsLayout title="Apps"><AppNavigation />
+  return <SettingsLayout title="Registered apps">
     <Button variant="primary" onClick={() => setEditing(null)}>Register app</Button>
     {registered.isPending && <p role="status">Loading registered apps…</p>}
     {registered.error && <p role="alert">{registered.error.message}</p>}

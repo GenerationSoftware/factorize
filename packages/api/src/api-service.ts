@@ -7,19 +7,10 @@ import { provisionVmGrant } from "./vm-enrollment";
 import { vmGrantAudience } from "./vm-grant-provider";
 import { writeVmPermissionSnapshot } from "./vm-permissions";
 import { activeVmAuthorization } from "./vm-auth";
-import { skillCloneInfo, issueGitCredential } from "./git-https";
-import {builtinSkillDocuments,builtinSkillEntry,builtinSkill,builtinSkillResource} from "./builtin-skills";
-import { readSkillDefinition, writeSkillDefinition, type SkillDefinition } from "./skill-definition";
-import { markdown, validPath } from "./skill-files";
-import { PostgresSkillContentCache } from "./postgres/skill-content-cache";
+import { BuiltinSkillError, builtinSkillDocuments, builtinSkillEntry, builtinSkill, builtinSkillResource } from "./builtin-skills";
 import {createHash} from "node:crypto";
 import {Buffer} from "node:buffer";
-import {parseSkillUri, skillResource} from "./mcp-skills";
 import { TeamRepository } from "./postgres/team-repository";
-import { SkillContentError } from "./skill-files";
-import { SkillContent } from "./skill-content";
-import { SkillLibrary } from "./skill-library";
-import { configureLibrary } from "./skill-library-contract";
 import type { DatabaseClient } from "./postgres/database";
 
 import { decideOidcConsent, inspectOidcConsent, oidcConsentInput, oidcConsentPreview } from "./oidc-provider";
@@ -30,7 +21,6 @@ import {ProxyPayloads,createPayloadInput,appendPayloadInput,finalizePayloadInput
 import {ProxyOperations,operationRef,operationRead} from "./proxy-operations";
 import {queryApiResponseInput} from "./agent-api-contracts";
 import { apiPolicyInput, integrationRef, requestApiInput, readApiResponseInput } from "./agent-api-contracts";
-import { searchResponse } from "./search-contracts";
 import { integrationStatus, exeConnection, accessToken, createdAccessToken, clientPermissionsUpdate, clientNameInput, authorizedClient } from "./settings-contracts";
 import { namedOption, providerOptions, githubRepository, githubInstallation, tailIntegration } from "./editor-contracts";
 import { z } from "zod";
@@ -59,11 +49,9 @@ import { evaluateWebhookConditions } from "./webhook-conditions";
 import { ProviderCatalog } from "./postgres/provider-catalog";
 import { ACCESS_SCOPES, AGENT_SCOPES, accessTokenDigest, issueAccessToken, normalizeScopes } from "./access-tokens";
 
-import { SkillRepository, SkillConflict } from "./postgres/skill-repository";
 import { EventMatchRepository, wakeMcpDeliveries } from "./postgres/event-match-repository";
 import { EventDefinitionRepository, EventDefinitionConflict } from "./postgres/event-definition-repository";
 import { parseOccurrenceCursor, eventDefinitionInput, eventDefinitionUpdate, eventDefinitionResponse, eventDefinitionList, eventOccurrencePage } from "./event-contracts";
-import { skillInput, skillUpdateInput, skillPage, skillResponse } from "./skills";
 import { createFlyAccountClient, FlyAccountError, flyConnectionInput } from "./fly-account-client";
 import { FlyConnectionRepository } from "./postgres/fly-connection-repository";
 
@@ -97,7 +85,6 @@ export class ApiService {
   private triggers() { return new PostgresTriggerRepository(databaseFor(this.env), this.auth.tenantId, value => encrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY), value => decrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY)); }
   private connections() { return new ConnectionRepository(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY); }
   private flyConnections() { return new FlyConnectionRepository(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY); }
-  private skills() { return new SkillRepository(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY, undefined, new SkillContent(this.env.SKILL_ARTIFACTS,new PostgresSkillContentCache(databaseFor(this.env),this.auth.tenantId,this.env.CREDENTIAL_ENCRYPTION_KEY))); }
 
   private normalizedSources(input: TriggerInput["sources"], existing: TriggerSource[] = []): TriggerSource[] {
     const sources = input.some(source => source.kind === "manual") ? input : [{ kind: "manual" as const, enabled: true, config: {} }, ...input];
@@ -119,31 +106,9 @@ export class ApiService {
   private async presentTrigger(trigger: Trigger) {
     return publicValue(triggerResponse, { ...trigger, eventId: trigger.eventId ?? null, sources: trigger.sources.map(source => ({ ...source, config: source.kind === "webhook" ? { ...source.config, ...(source.config.signingSecret || source.config.secret ? { secretConfigured: true } : {}), ...(source.config.provider === "cloudflareTail" ? { destination: this.env.APP_ORIGIN + "/webhooks/cloudflare/" + encodeURIComponent(this.auth.tenantId) + "/" + encodeURIComponent(trigger.id) } : {}) } : source.config })) });
   }
-  async skillCloneInfo() { await this.authorize("skills:read"); return skillCloneInfo(this.env,this.auth.tenantId); }
-  async issueGitCredential() { await this.authorizeOwnerSession("skills:write"); return issueGitCredential(this.env,this.auth); }
-  private library() { return new SkillLibrary(this.env,this.auth.tenantId); }
-  async skillLibraryStatus() { await this.authorize("skills:read"); return this.library().status(); }
-  async configureSkillLibrary(input: unknown) {
-    await this.authorize("skills:write");
-    const parsed = configureLibrary.parse(input);
-    if (parsed.kind === "github") await this.authorize("integrations:write");
-    try {
-      if (parsed.kind === "managed") return await this.library().configure(parsed);
-      const { confirmOverwrite, ...source } = parsed;
-      return await this.library().configure(source, confirmOverwrite);
-    }
-    catch (e) { if (e instanceof SkillConflict) throw new ServiceError(409,"skill_conflict",e.message); throw e; }
-  }
-  async skillLibraryToken() {
-    await this.authorize("skills:write");
-    try { return await this.library().token(); }
-    catch (e) { if (e instanceof SkillConflict) throw new ServiceError(409,"skill_conflict",e.message); throw e; }
-  }
-  async syncSkillLibrary() { await this.authorize("skills:write"); const library=this.library(); await library.sync(); return library.status(); }
-  async listSkills(query: { q: string; limit: number; cursor?: string }) { await this.authorize("skills:read"); return publicValue(skillPage, await this.skills().list(query.q, query.limit, query.cursor)); }
   async mcpListSkills(cursor?:string) {
     await this.authorizeIdentity();
-    if(cursor)throw new SkillContentError("The built-in catalog has no further pages.");
+    if(cursor)throw new BuiltinSkillError("The built-in catalog has no further pages.");
     return {resultType:"complete" as const,skills:builtinSkillDocuments.map(builtinSkillEntry),ttlMs:3_600_000,cacheScope:"private" as const};
   }
   async mcpGetSkill(uri:string) {
@@ -152,23 +117,8 @@ export class ApiService {
   }
   async mcpReadSkill(uri:string) {
     await this.authorizeIdentity();
-    if(uri.startsWith("skill://factorize/"))return {contents:[builtinSkillResource(uri)],ttlMs:3_600_000,cacheScope:"private" as const};
-    await this.authorize("skills:read");const {name,path}=parseSkillUri(uri,this.auth.tenantId),skill=await this.skills().get(name);
-    if(!skill)throw new SkillContentError("Unknown skill resource.");
-    return {contents:[skillResource(this.auth.tenantId,skill,path)],ttlMs:0,cacheScope:"private" as const};
+    return {contents:[builtinSkillResource(uri)],ttlMs:3_600_000,cacheScope:"private" as const};
   }
-  async getSkill(id: string) { await this.authorize("skills:read"); const value = await this.skills().get(id); if (!value) throw new ServiceError(404, "not_found", "Skill not found"); return publicValue(skillResponse, value); }
-  async getSkillDirectory(id:string){
-    await this.authorize("skills:read");const skill=await this.skills().get(id);
-    if(!skill)throw new ServiceError(404,"not_found","Skill not found");
-    const files=skill.version?.files??[markdown(skill.body??"")];
-    if(files.some(file=>!validPath(file.path)))throw new ServiceError(409,"invalid_skill","Skill contains an invalid file path.");
-    return {revision:skill.revision,commit:skill.version?.commit??null,files};
-  }
-  async createSkill(input: unknown) { await this.authorize("skills:write"); const parsed = skillInput.parse(input); try { return publicValue(skillResponse, await this.library().edit(store => store.create(parsed.key,parsed.definition ? writeSkillDefinition(parsed.body ?? "",parsed.definition) : parsed.body ?? ""))); } catch (e) { if (e instanceof SkillConflict) throw new ServiceError(409,"skill_conflict",e.message); throw e; } }
-  async updateSkill(id: string, input: unknown) { await this.authorize("skills:write"); try { const value = await this.library().edit(async store => { const parsed=skillUpdateInput.parse(input); if(parsed.definition){const current=await store.get(id); if(!current)return null; parsed.body=writeSkillDefinition(parsed.body??current.body??"",parsed.definition);} return store.update(id,parsed); }); if (!value) throw new ServiceError(404, "not_found", "Skill not found"); return publicValue(skillResponse, value); } catch (e) { if (e instanceof SkillConflict) throw new ServiceError(409, "stale_skill", e.message); throw e; } }
-  async deleteSkill(id: string, expectedRevision: number) { await this.authorize("skills:write"); try { if (!await this.library().edit(store => store.remove(id, expectedRevision))) throw new ServiceError(404, "not_found", "Skill not found"); return { id, deleted: true }; } catch (e) { if (e instanceof SkillConflict) throw new ServiceError(409, "stale_skill", e.message); throw e; } }
-
 
   private async authorize(scope: Scope): Promise<void> {
     if (this.auth.authMethod === "vm") {
@@ -248,7 +198,6 @@ export class ApiService {
   async removeFlyConnection() { await this.authorizeOwnerSession("integrations:write"); return { deleted: await this.flyConnections().remove() }; }
   async listGitHubInstallations() { await this.authorize("integrations:read"); return publicValue(z.array(githubInstallation), JSON.parse(JSON.stringify(await new GitHubRepository(databaseFor(this.env), this.auth.tenantId).installations()))); }
   async listTailIntegrations() { await this.authorize("integrations:read"); return publicValue(z.array(tailIntegration), await new IntegrationService(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY).tails()); }
-  async search(query: string) { await this.authorize("skills:read"); return publicValue(searchResponse, await new OperationsRepository(databaseFor(this.env), this.auth.tenantId).search(query)); }
   async eventContextMetadata() { await this.authorize("triggers:read"); return eventContextCatalog; }
   private eventDefinitions() { return new EventDefinitionRepository(databaseFor(this.env), this.auth.tenantId); }
   async listEvents() { await this.authorize("triggers:read"); return publicValue(eventDefinitionList, await this.eventDefinitions().list()); }

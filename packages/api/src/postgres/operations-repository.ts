@@ -1,5 +1,4 @@
 import type { Database } from "./database";
-import { rankField, searchMatches } from "../search";
 
 export class OperationsRepository {
   constructor(private database: Database, private tenantId: string) {}
@@ -16,17 +15,5 @@ export class OperationsRepository {
     values.push(limit + 1); const rows = (await this.database.pool.query<any>(`SELECT id,provider,delivery_id "deliveryId",event_type event,event_action action,outcome,detail,received_at "receivedAt" FROM app.webhook_deliveries d WHERE ${clauses.join(" AND ")} ORDER BY received_at DESC,id DESC LIMIT $${values.length}`, values)).rows, items = rows.slice(0, limit);
     const last = items.at(-1), encoded = last ? btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify({ at: last.receivedAt, id: last.id })))).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "") : null;
     return { items, nextCursor: rows.length > limit ? encoded : null };
-  }
-  async search(query: string) {
-    const needle = query.trim(); if (!needle || !/[\p{L}\p{N}]/u.test(needle)) return { items: [] };
-    const rows = await this.database.pool.query<any>(`SELECT * FROM (
-      SELECT 'skill' kind,s.id::text id,s.key title,'' subtitle,'/skills/'||s.id url,s.id::text source_id,s.key source_label,s.key match_text,
-        GREATEST(word_similarity($2,s.key),similarity($2,s.key)) score,CASE WHEN lower(s.key)=$2 THEN 0 WHEN starts_with(lower(s.key),$2) THEN 1 ELSE 2 END category,s.id::text stable_key
-      FROM app.skills s WHERE s.tenant_id=$1 AND (strpos(lower(s.key),$2)>0 OR $2 <% s.key OR similarity($2,s.key)>0.3 OR strpos(regexp_replace(lower(s.key),'[^[:alnum:]]','','g'),regexp_replace($2,'[^[:alnum:]]','','g'))>0)
-    ) found ORDER BY category,score DESC,kind,stable_key LIMIT 100`, [this.tenantId, needle.toLowerCase()]);
-    return { items: rows.rows.map(row => {
-      const ranked=rankField(row.match_text,needle,"skill");
-      return {kind:"skill",id:row.id,title:row.title,subtitle:row.subtitle,url:row.url,source:{kind:"skill",label:row.source_label,id:row.source_id},match:{text:row.match_text,ranges:ranked?.range?[ranked.range]:searchMatches(row.match_text,needle)}};
-    }) };
   }
 }

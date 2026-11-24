@@ -123,21 +123,17 @@ describe("public auth API and cookie security", () => {
     vi.spyOn(IdentityRepository.prototype, "member").mockResolvedValue(member);
     vi.mocked(env.DATABASE!.pool.query).mockResolvedValue({ rows: [{ name: "Workspace A" }] } as never);
     const response = await call("/api/v1/session", undefined, { Cookie: "factorize_session=" + cookie });
-    expect(await contract(response, "/api/v1/session", "GET")).toMatchObject({ authenticated: true, user: { id: identity.userId, email: identity.email }, team: { id: identity.tenantId, name: "Workspace A", role: "owner" }, capabilities: expect.arrayContaining(["skills:read", "skills:write"]) });
+    expect(await contract(response, "/api/v1/session", "GET")).toMatchObject({ authenticated: true, user: { id: identity.userId, email: identity.email }, team: { id: identity.tenantId, name: "Workspace A", role: "owner" }, capabilities: expect.arrayContaining(["triggers:read", "triggers:write"]) });
     const query = vi.mocked(env.DATABASE!.pool.query).mock.calls.at(-1)!;
     expect(query[1]).toEqual([identity.tenantId]);
   });
 
-  it("allows an existing owner session to list and create skills", async () => {
+  it("returns 404 for retired team Skills API routes", async () => {
     const cookie = await signSession({ ...identity, exp: Math.floor(Date.now() / 1000) + 100 }, env.SESSION_SIGNING_SECRET);
     const headers = { Cookie: "factorize_session=" + cookie, Origin: env.APP_ORIGIN };
-    const list = vi.spyOn(ApiService.prototype, "listSkills").mockResolvedValue({ items: [], nextCursor: null });
-    const skill = { id: "00000000-0000-4000-8000-000000000001", key: "review", body: "Review carefully", revision: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
-    const create = vi.spyOn(ApiService.prototype, "createSkill").mockResolvedValue(skill);
-    expect(await contract(await call("/api/v1/skills", undefined, headers), "/api/v1/skills", "GET")).toEqual({ items: [], nextCursor: null });
-    expect(list).toHaveBeenCalledOnce();
-    expect(await contract(await call("/api/v1/skills", { key: skill.key, body: skill.body }, headers), "/api/v1/skills", "POST")).toEqual(skill);
-    expect(create).toHaveBeenCalledWith({ key: skill.key, body: skill.body });
+    for (const path of ["/api/v1/skills", "/api/v1/skill-library", "/api/v1/search?q=review"]) {
+      expect((await call(path, undefined, headers)).status).toBe(404);
+    }
   });
 
   it.each([null, { ...member, role: "member" as const }, { ...member, sessionVersion: 5 }])("treats revoked, removed and non-owner sessions as unauthenticated", async current => {
@@ -216,7 +212,7 @@ describe("public auth API and cookie security", () => {
 
 describe("safe interrupted-flow navigation", () => {
   it.each(["//evil.test", "https://evil.test", "/\\evil.test", "/device-evil", "/triggers/trigger-a/settings/extra", "/auth/logout", "/triggers\nLocation:evil", "/%2f%2fevil.test"])("rejects %s", value => expect(safeReturnTo(value)).toBe("/integrations"));
-  it.each(["/authorize?client_id=a&state=b", "/device?user_code=ABCD-EFGH", "/triggers/trigger-a/edit", "/triggers/trigger-a/settings?tab=prompt", "/skills", "/skills/review", "/settings/profile"])("preserves %s", value => expect(safeReturnTo(value)).toBe(value));
+  it.each(["/authorize?client_id=a&state=b", "/device?user_code=ABCD-EFGH", "/triggers/trigger-a/edit", "/triggers/trigger-a/settings?tab=prompt", "/workloads", "/workloads/test-id", "/settings/apps", "/settings/profile"])("preserves %s", value => expect(safeReturnTo(value)).toBe(value));
 });
 
 describe("cookie-only consent and device API boundaries", () => {

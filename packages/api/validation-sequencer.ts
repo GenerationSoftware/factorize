@@ -11,7 +11,6 @@ const costs: Record<string, number> = {
   "x-oauth-flow.postgres.test.ts": 6,
   "event-match-repository.postgres.test.ts": 5,
   "oidc.postgres.test.ts": 4,
-  "git-https.postgres.test.ts": 4,
   "mcp-skills.postgres.test.ts": 4,
 };
 

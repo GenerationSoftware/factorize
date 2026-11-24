@@ -1,6 +1,6 @@
 # Factorize
 
-Factorize stores durable Events, input Triggers, and standalone Skills. Connect an MCP client, define an Event, attach one or more Triggers, and subscribe to its occurrence resource.
+Factorize stores durable Events and input Triggers. Connect an MCP client, define an Event, attach one or more Triggers, and subscribe to its occurrence resource.
 
 Start at [app.factorize.sh](https://app.factorize.sh). Connect an MCP client to `https://app.factorize.sh/mcp`, approve `triggers:read` to discover Events and read occurrences, and approve `triggers:write` to manage Events and Triggers.
 
@@ -10,7 +10,7 @@ Ask your agent:
 
 The client uses the documented Event and Trigger API, then reads the stored occurrence after an MCP resource update notification. Retrying a manual fire with the same idempotency key does not create a duplicate.
 
-Read the [first Event guide](https://docs.factorize.sh/quickstart), [Trigger guide](https://docs.factorize.sh/work/triggers), and [MCP tool reference](https://docs.factorize.sh/mcp/tools). Skills remain standalone instruction documents.
+Read the [first Event guide](https://docs.factorize.sh/quickstart), [Trigger guide](https://docs.factorize.sh/work/triggers), and [MCP tool reference](https://docs.factorize.sh/mcp/tools).
 
 ## Development and validation
 

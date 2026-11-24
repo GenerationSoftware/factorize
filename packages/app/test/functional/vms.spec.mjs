@@ -15,16 +15,21 @@ async function session(page, capabilities) {
   } }));
 }
 
-test("a team member with read access can see VM grants beside Clients", async ({ page, origin }) => {
+test("a team member with read access can open workload details from the table", async ({ page, origin }) => {
   await session(page, ["vms:read"]);
   await page.route("**/api/v1/vms", route => route.fulfill({ json: [grant] }));
   await page.goto(origin + "/vms");
   const navigation = page.getByRole("navigation", { name: "Dashboard navigation" });
-  await expect(navigation.getByRole("link", { name: "VMs" })).toHaveAttribute("aria-current", "page");
+  await expect(navigation.getByRole("link", { name: "Workloads" })).toHaveAttribute("aria-current", "page");
   const links = await navigation.getByRole("link").allTextContents();
-  expect(links[links.indexOf("Clients") + 1]).toBe("VMs");
+  expect(links).toEqual(["Clients", "Workloads", "Apps", "Events", "Settings"]);
+  await expect(page).toHaveURL(origin + "/workloads");
+  const table = page.getByRole("table", { name: "Workloads" });
+  await expect(table.getByRole("columnheader", { name: "Provider" })).toBeVisible();
+  await expect(table.getByRole("cell", { name: "Fly.io" })).toBeVisible();
+  await table.getByRole("link", { name: "orders/machine-1" }).click();
+  await expect(page).toHaveURL(origin + "/workloads/" + id);
   await expect(page.getByRole("heading", { name: "orders/machine-1" })).toBeVisible();
-  await expect(page.getByText("fly.io · Events")).toBeVisible();
   await expect(page.getByText("triggers:read")).toBeVisible();
   await expect(page.getByRole("button", { name: "Edit permissions" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Revoke permissions" })).toHaveCount(0);
@@ -42,10 +47,10 @@ test("edit refreshes a stale grant, saves explicit scopes, and revokes permissio
     const change = route.request().postDataJSON();
     if (change.target.expectedRevision === 1) {
       expect(change).toEqual({ target: { kind: "existing", grantId: id, expectedRevision: 1 }, permissions: { presetId } });
-      active = { ...active, revision: 2, scopes: ["skills:read"] };
+      active = { ...active, revision: 2, scopes: ["integrations:read"] };
       return route.fulfill({ status: 409, json: { error: { message: "The VM grant changed. Refresh it and retry." } } });
     }
-    expect(change).toEqual({ target: { kind: "existing", grantId: id, expectedRevision: 2 }, permissions: { scopes: ["skills:read", "vms:read"] } });
+    expect(change).toEqual({ target: { kind: "existing", grantId: id, expectedRevision: 2 }, permissions: { scopes: ["integrations:read", "vms:read"] } });
     active = { ...active, revision: 3, scopes: change.permissions.scopes, presetId: null, presetName: null };
     return route.fulfill({ json: active });
   });
@@ -54,22 +59,22 @@ test("edit refreshes a stale grant, saves explicit scopes, and revokes permissio
     active = null;
     return route.fulfill({ json: { id, revoked: true } });
   });
-  await page.goto(origin + "/vms");
+  await page.goto(origin + "/workloads/" + id);
   await page.getByRole("button", { name: "Edit permissions" }).click();
   await page.getByLabel("Permission source").selectOption({ label: "Events" });
   await page.getByRole("button", { name: "Save permissions" }).click();
   await expect(page.getByRole("alert")).toHaveText("The VM grant changed. Refresh it and retry.");
-  await expect(page.getByText("skills:read", { exact: true })).toBeVisible();
+  await expect(page.getByText("integrations:read", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Edit permissions" }).click();
-  await page.getByLabel("Permission scopes").fill("skills:read\nvms:read");
+  await page.getByLabel("Permission scopes").fill("integrations:read\nvms:read");
   await page.getByRole("button", { name: "Save permissions" }).click();
-  await expect(page.getByText("skills:read, vms:read")).toBeVisible();
+  await expect(page.getByText("integrations:read, vms:read")).toBeVisible();
   page.once("dialog", dialog => {
     expect(dialog.message()).toContain("The VM will keep running.");
     return dialog.accept();
   });
   await page.getByRole("button", { name: "Revoke permissions" }).click();
-  await expect(page.getByText("No VMs have Factorize permissions.")).toBeVisible();
+  await expect(page.getByText("No workloads have Factorize permissions.")).toBeVisible();
 });
 
 test("shows a VM list error and offers no initial enrollment button", async ({ page, origin }) => {

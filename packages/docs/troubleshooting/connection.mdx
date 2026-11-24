@@ -8,7 +8,7 @@ description: Recover MCP authorization, scopes, and integration access.
 | Browser consent fails or is cancelled | Sign in to the intended Factorize account, restart authorization from the client, and approve the requested scopes. |
 | Client never connects | Confirm `https://app.factorize.sh/mcp`, remote Streamable HTTP and OAuth support. Open the client's MCP status view and authenticate; see [client-specific instructions](/mcp/overview). |
 | `invalid_token` or access disappears | Reauthorize the client. Password reset, password change, or sign-out can invalidate delegated credentials. |
-| `insufficient_scope` | Reconnect and grant `triggers:read` to discover Events and occurrences, or `triggers:write` to manage Events and Triggers. Add `skills:*` or integration scopes only when needed. |
+| `insufficient_scope` | Reconnect and grant `triggers:read` to discover Events and occurrences, or `triggers:write` to manage Events and Triggers. Add integration scopes only when needed. |
 | Provider input is not arriving | Check the saved integration and Trigger source configuration. For delivery diagnosis, see [Event troubleshooting](/troubleshooting/events). |
 
 Revoking an MCP authorization affects access but does not delete stored Events,

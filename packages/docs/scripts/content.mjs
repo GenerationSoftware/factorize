@@ -30,7 +30,8 @@ export async function checkContent() {
   for (const phrase of ["create_event", "create_trigger", "fire_trigger", "list_event_occurrences", "idempotencyKey", "Subscribe"]) if (!guides.get("quickstart").includes(phrase)) throw new Error(`Incomplete Event walkthrough: ${phrase}`);
   const reference = guides.get("mcp/tools");
   checkInventory(await readFile(resolve(root, "../api/src/protected-api.ts"), "utf8"), reference);
-  for (const phrase of ["resource-updated notification", "factorize://events/", "duplicate", "standalone"]) if (!reference.includes(phrase)) throw new Error(`Missing Event/Trigger contract detail: ${phrase}`);
+  for (const phrase of ["resource-updated notification", "factorize://events/", "duplicate", "idempotencyKey"]) if (!reference.includes(phrase)) throw new Error(`Missing Event/Trigger contract detail: ${phrase}`);
+  for (const method of ["skills/list", "skills/get"]) if (!guides.get("mcp/overview").includes(method)) throw new Error(`Missing built-in MCP Skills documentation: ${method}`);
   const readme = await readFile(resolve(root, "../../README.md"), "utf8");
   if (!readme.includes("https://app.factorize.sh/mcp") || readme.indexOf("Optional self-hosting") < readme.indexOf("Connect a supported")) throw new Error("README positioning drift");
   console.log(`Validated ${pages.length} navigation pages, local links, hosted Event workflow and complete MCP inventory.`);

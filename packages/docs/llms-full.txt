@@ -5,7 +5,7 @@ Hosted workflow: connect your agent → define Events → attach Triggers → su
 Application: https://app.factorize.sh
 MCP (Streamable HTTP + OAuth): https://app.factorize.sh/mcp
 
-Browser: manage Event definitions, input Triggers, standalone Skills, integrations and consent.
+Browser: manage Event definitions, input Triggers, integrations and consent.
 MCP: discover Events, subscribe to occurrence resources, read durable occurrences, and manage Triggers.
 A resource update notification signals that an occurrence is ready to read; stored occurrences support recovery after reconnecting.
 
@@ -16,7 +16,7 @@ Source: https://docs.factorize.sh/
 
 Factorize stores versioned Event definitions, input Triggers, and durable Event
 occurrences. MCP subscribers receive notifications when an occurrence is
-available and can read it later. Skills remain standalone instruction documents.
+available and can read it later.
 
 Start at [app.factorize.sh](https://app.factorize.sh), connect an MCP client to
 `https://app.factorize.sh/mcp`, create an Event and attach one or more Triggers.
@@ -41,8 +41,8 @@ https://app.factorize.sh/mcp
 Configure the endpoint in your MCP client and complete its OAuth flow. Authorize
 `triggers:read` to discover Events and read occurrences. Authorize
 `triggers:write` to create Events and Triggers, configure sources, and fire a
-manual Trigger. Other scopes apply only to their corresponding integrations,
-Skills, or application operations.
+manual Trigger. Other scopes apply only to their corresponding integrations or
+application operations.
 
 Ask your client to call `list_events` and `list_triggers`. An empty list is a
 successful connection to a workspace without configured Events or Triggers.
@@ -57,9 +57,10 @@ endpoint to recover stored occurrences.
 
 ## Built-in workflow skills
 
-Factorize also publishes build-shipped MCP Skills that explain how to manage
-team Skills and Triggers. These are static workflow instructions; they are
-separate from Event definitions and do not grant permissions.
+Factorize publishes built-in MCP Skills with workflow guidance. Use
+`skills/list` to discover the catalog and `skills/get` to get the
+`manage-triggers` manifest. Read its resource for instructions on managing
+Events and Triggers.
 
 ## Your first Event
 Source: https://docs.factorize.sh/quickstart
@@ -101,19 +102,6 @@ Read the resource after the MCP update notification. After reconnecting, use
 `list_event_occurrences` to recover occurrences that arrived while disconnected.
 
 The same data is available from `GET /api/v1/events/{eventId}/occurrences`.
-Skills remain standalone instruction documents and can be managed separately.
-
-## Skills
-Source: https://docs.factorize.sh/work/skills
-
-Skills are standalone Markdown instruction documents with standard `SKILL.md`
-frontmatter. They are managed through the browser or `list_skills`, `get_skill`,
-`create_skill`, `update_skill`, and `delete_skill` MCP tools. Updates support
-revision checks so concurrent edits do not silently overwrite one another.
-
-Creating, editing, or deleting a Skill does not create or modify an Event or
-Trigger. Skills do not configure execution settings and are not required to
-publish an Event occurrence.
 
 ## Create and edit Triggers
 Source: https://docs.factorize.sh/work/triggers
@@ -211,7 +199,7 @@ Source: https://docs.factorize.sh/troubleshooting/connection
 | Browser consent fails or is cancelled | Sign in to the intended Factorize account, restart authorization from the client, and approve the requested scopes. |
 | Client never connects | Confirm `https://app.factorize.sh/mcp`, remote Streamable HTTP and OAuth support. Open the client's MCP status view and authenticate; see [client-specific instructions](https://docs.factorize.sh/mcp/overview). |
 | `invalid_token` or access disappears | Reauthorize the client. Password reset, password change, or sign-out can invalidate delegated credentials. |
-| `insufficient_scope` | Reconnect and grant `triggers:read` to discover Events and occurrences, or `triggers:write` to manage Events and Triggers. Add `skills:*` or integration scopes only when needed. |
+| `insufficient_scope` | Reconnect and grant `triggers:read` to discover Events and occurrences, or `triggers:write` to manage Events and Triggers. Add integration scopes only when needed. |
 | Provider input is not arriving | Check the saved integration and Trigger source configuration. For delivery diagnosis, see [Event troubleshooting](https://docs.factorize.sh/troubleshooting/events). |
 
 Revoking an MCP authorization affects access but does not delete stored Events,
@@ -257,10 +245,8 @@ its input and enforces the operation's required scope.
 | `create_app` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `create_event` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `create_payload` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
-| `create_skill` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `create_trigger` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `delete_event` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
-| `delete_skill` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `delete_trigger` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `disable_trigger` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `enable_trigger` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
@@ -271,7 +257,6 @@ its input and enforces the operation's required scope.
 | `get_api_reflection` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `get_app` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `get_event` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
-| `get_skill` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `get_trigger` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `get_webhook_delivery` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `grant_vm_permissions` | `vms:edit` | Machine or existing grant, plus a preset ID or explicit scopes |
@@ -283,7 +268,6 @@ its input and enforces the operation's required scope.
 | `list_events` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `list_exe_connections` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `list_github_installations` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
-| `list_skills` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `list_trigger_webhook_activity` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `list_triggers` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `list_vms` | `vms:read` | Empty object |
@@ -297,7 +281,6 @@ its input and enforces the operation's required scope.
 | `test_trigger_webhook_conditions` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `update_app` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `update_event` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
-| `update_skill` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `update_trigger` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 
 ## Events and occurrences
@@ -333,12 +316,11 @@ show safe processing outcomes without exposing secrets or raw payloads.
 
 `create_trigger` and `update_trigger` accept a parent `eventId` and a
 `sources` array of input configurations. Read a Trigger before replacing its
-configuration. Skills remain standalone and are not part of a Trigger's execution configuration.
+configuration.
 
-## Skills and integration APIs
+## Integration APIs
 
-Skill tools manage standalone team instruction documents. Integration tools
-use server-held credentials and current authorization; credentials are never
+Integration tools use server-held credentials and current authorization; credentials are never
 returned. `get_api_reflection` describes available integrations and safe request
 examples before `request_api` is used. See [REST reference](https://docs.factorize.sh/api/reference) for
 exact request and response schemas.
@@ -401,10 +383,10 @@ Send the proof within 60 seconds and sign a fresh proof for every retry. MCP
 workloads need a transport that can set dynamic HTTP headers. The VM uses
 the scopes in its saved grant and refreshes its provider token before expiry.
 
-## Events, Triggers, and Skills
+## Events and Triggers
 Source: https://docs.factorize.sh/concepts
 
-A **team** owns Events, Triggers, Skills, integrations, and authorization settings.
+A **team** owns Events, Triggers, integrations, and authorization settings.
 
 An **Event** is a named durable record with a versioned JSON payload schema. A
 matching Trigger creates an occurrence, which subscribers can read later. An
@@ -414,9 +396,6 @@ A **Trigger** watches one input source: a schedule, signed webhook, provider
 notification, or explicit fire request. Matching and duplicate-delivery checks
 happen before Factorize validates and stores the Event occurrence. A Trigger
 publishes data; it does not launch an agent or create an execution.
-
-A **Skill** is a standalone reusable Markdown instruction document. It can be
-managed independently and is not required by an Event or Trigger.
 
 MCP clients discover Event definitions, subscribe to their occurrence resource,
 and receive a resource-updated notification after a new occurrence. They then
@@ -449,8 +428,6 @@ ownership and session version are rechecked on service calls.
 | `team:write` | Update team settings |
 | `triggers:read` | Discover Events, Triggers, and stored occurrences |
 | `triggers:write` | Manage Events and Triggers |
-| `skills:read` | Read standalone team Skills |
-| `skills:write` | Create, update, and delete Skills |
 | `integrations:read` | Read integration metadata and provider resources |
 | `integrations:write` | Manage integration connections |
 | `proxy:use` | Use authorized external integration APIs |

@@ -100,22 +100,6 @@ export const eventDefinitionRevisions = app.table("event_definition_revisions", 
 export const triggers = app.table("triggers", {
   tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }), id: uuid("id").notNull(), name: text("name").notNull(), description: text("description").notNull().default(""), slug: text("slug").notNull(), revision: integer("revision").notNull().default(1), eventDefinitionId: uuid("event_definition_id").notNull(), enabled: boolean("enabled").notNull().default(true), createdAt: createdAt(), updatedAt: updatedAt(),
 }, t => [primaryKey({ columns: [t.tenantId, t.id] }), unique().on(t.tenantId, t.slug), foreignKey({columns:[t.tenantId,t.eventDefinitionId],foreignColumns:[eventDefinitions.tenantId,eventDefinitions.id]}).onDelete("cascade")]);
-export const skillLibraries = app.table("skill_libraries", {
-  tenantId: uuid("tenant_id").primaryKey().references(() => tenants.id, {onDelete:"cascade"}),
-  repo: text("repo").notNull().unique(), remote: text("remote").notNull(), source: jsonb("source").notNull(),
-  githubTree: text("github_tree"), commitSha: text("commit_sha"), upstreamSha: text("upstream_sha"), error: text("error"), checkedAt: timestamp("checked_at",{withTimezone:true}),
-});
-export const skillLibraryBackfill = app.table("skill_library_backfill", {
-  tenantId: uuid("tenant_id").primaryKey().references(() => tenants.id, {onDelete:"cascade"}),
-  attemptedAt: timestamp("attempted_at", {withTimezone:true}), error: text("error"),
-});
-export const skills = app.table("skills", {
-  tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }), id: uuid("id").notNull(), key: text("key").notNull(), legacyContext:jsonb("legacy_context").notNull().default([]), migrationPending:boolean("migration_pending").notNull().default(false), encryptedBody: text("encrypted_body"), artifactVersion: jsonb("artifact_version"), encryptedDirectory: text("encrypted_directory"), revision: integer("revision").notNull().default(1), createdAt: createdAt(), updatedAt: updatedAt(),
-}, t => [primaryKey({ columns: [t.tenantId, t.id] }), unique().on(t.tenantId, t.key)]);
-export const skillContentCache = app.table("skill_content_cache", {
-  tenantId:uuid("tenant_id").notNull().references(()=>tenants.id,{onDelete:"cascade"}),
-  repository:text("repository").notNull(),commitSha:text("commit_sha").notNull(),encryptedContent:text("encrypted_content").notNull(),createdAt:createdAt(),
-},t=>[primaryKey({columns:[t.tenantId,t.repository,t.commitSha]})]);
 export const triggerSources = app.table("events", {
   tenantId: uuid("tenant_id").notNull(), id: uuid("id").notNull(), triggerId: uuid("trigger_id").notNull(), kind: text("kind").$type<TriggerSourceKind>().notNull(), slug: text("slug").notNull(), enabled: boolean("enabled").notNull().default(true), config: jsonb("config").$type<Record<string, unknown>>().notNull().default({}), encryptedTemplate:text("encrypted_template"), legacyTemplate:boolean("legacy_template").notNull().default(false), position: integer("position").notNull().default(0), createdAt: createdAt(), updatedAt: updatedAt(), removedAt: timestamp("removed_at", { withTimezone: true }),
 }, t => [primaryKey({ columns: [t.tenantId, t.id] }), uniqueIndex("events_active_slug").on(t.tenantId, t.triggerId, t.slug).where(sql`${t.removedAt} is null`), foreignKey({ columns: [t.tenantId, t.triggerId], foreignColumns: [triggers.tenantId, triggers.id] }).onDelete("cascade"), check("no_webhook_handler_code", sql`NOT (${t.config} ? 'handlerCode')`), check("events_kind_check", sql`${t.kind} in ('manual','schedule','webhook')`)]);
@@ -200,17 +184,7 @@ export const triggerSourceRelations = relations(triggerSources, ({ one }) => ({
 
 export const databaseSchema = {
   teamSettings, schemaMigrations, tenants, oauthConnections, oauthConsentPreviews, authUsers, authAccounts, authResetTokens, authSessions, oauthDeviceAuthorizations, members, accessTokens,
-  connections, agentIntegrations, agentIdentities, agentProxyResponses, integrationCollections, integrationRecords, integrationChanges, linearWorkspaces, githubInstallations, githubSetupStates, eventDefinitions, eventDefinitionRevisions, eventOccurrences, mcpEventSubscriptions, mcpEventDeliveries, triggerMatches, triggers, skillLibraries, skillLibraryBackfill, skills, skillContentCache, triggerSources, webhookConditionsCutover,
+  connections, agentIntegrations, agentIdentities, agentProxyResponses, integrationCollections, integrationRecords, integrationChanges, linearWorkspaces, githubInstallations, githubSetupStates, eventDefinitions, eventDefinitionRevisions, eventOccurrences, mcpEventSubscriptions, mcpEventDeliveries, triggerMatches, triggers, triggerSources, webhookConditionsCutover,
   scheduleState, triggerEditDeliveries, triggerEvents, webhookDeliveries, webhookDeliveryEvents, pendingVerifications, tailFingerprints, wakeHints,
   tenantRelations, triggerRelations, triggerSourceRelations,
 };
-
-export const skillGitNamespaces = app.table("skill_git_namespaces", {
- tenantId: uuid("tenant_id").primaryKey().references(() => tenants.id, { onDelete: "cascade" }),
- slug: text("slug").notNull().unique(),
-}, t => [check("skill_git_namespaces_slug_check", sql`length(${t.slug}) BETWEEN 1 AND 63 AND ${t.slug} ~ '^[a-z0-9]+(-[a-z0-9]+)*$'`)]);
-export const skillGitTokens = app.table("skill_git_tokens", {
- digest: text("digest").primaryKey(), tenantId: uuid("tenant_id").notNull(), userId: uuid("user_id").notNull(),
- repo: text("repo").notNull(), sessionVersion: integer("session_version").notNull(),
- expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-}, t => [foreignKey({ columns: [t.tenantId, t.userId], foreignColumns: [members.tenantId, members.userId] }).onDelete("cascade"), index("skill_git_tokens_expiry").on(t.expiresAt)]);

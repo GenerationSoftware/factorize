@@ -13,7 +13,10 @@ export function appRoutes(root: AnyRootRoute) {
       component: lazyRouteComponent(() => import("./consent"), "AppConsentPage") }),
     createRoute({ getParentRoute: () => root, path: "/apps", beforeLoad,
       component: lazyRouteComponent(() => import("./index"), "ConnectedAppsPage") }),
-    createRoute({ getParentRoute: () => root, path: "/apps/registered", beforeLoad,
+    createRoute({ getParentRoute: () => root, path: "/apps/registered", beforeLoad: ({ location }) => {
+      throw redirect({ to: "/settings/apps", search: location.search, hash: location.hash, replace: true });
+    } }),
+    createRoute({ getParentRoute: () => root, path: "/settings/apps", beforeLoad,
       component: lazyRouteComponent(() => import("./index"), "RegisteredAppsPage") }),
   ];
 }

@@ -70,6 +70,7 @@ const staticChecks = [
   npm("hosting", "hosting and deployment invariants", ["run", "check:hosting"]),
   npm("docs", "documentation validation", workspace("factorize-docs", "run", "validate")),
   node("email", "auth email preflight", ["--test", "packages/api/scripts/validate-auth-email.check.mjs"]),
+  node("skill-purge", "team Skills Artifacts purge", ["--test", "scripts/purge-skill-artifacts.test.mjs"]),
   node("harness", "portable proxy harness", ["--test", "scripts/validation-runner.test.mjs"], 30_000),
 ];
 if (process.env.FACTORIZE_COMPARE_TYPECHECK === "1") {

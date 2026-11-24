@@ -1,8 +1,6 @@
 import { TeamNavigation } from "./team-navigation";
-import { skillQuery, skillsQuery } from "../skills/queries";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "../../shared/ui";
-import { SearchLauncher } from "../search/launcher";
 import { ThemeToggle } from "../../shared/theme";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -16,10 +14,6 @@ export function AccountBar() {
   const session = useQuery(sessionQuery);
   const authenticated = session.data?.authenticated;
   const pathname = useRouterState({ select: state => state.location.pathname });
-  const skillMatch = pathname.match(/^\/skills\/([^/]+)/);
-  const routeSkillId = skillMatch ? decodeURIComponent(skillMatch[1]) : undefined;
-  const routeSkill = useQuery({...skillQuery(routeSkillId??""),enabled:!!authenticated&&!!routeSkillId});
-  const skillOptions = useQuery({...skillsQuery(),enabled:!!authenticated&&!!routeSkillId});
   const triggerMatch = pathname.match(/^\/triggers\/([^/]+)/);
   const routeTriggerId = triggerMatch && triggerMatch[1] !== "new" ? decodeURIComponent(triggerMatch[1]) : undefined;
   const currentTriggerId = routeTriggerId;
@@ -56,16 +50,14 @@ export function AccountBar() {
         </Link>
         <span aria-hidden="true" className="hidden h-8 w-px shrink-0 bg-stone-300 dark:bg-slate-700" />
         {authenticated ? <div className="flex min-w-0 flex-1 items-center gap-2 text-sm font-semibold sm:flex-initial">
-          <Link to="/skills" title={session.data?.authenticated ? session.data.team.name ?? "Team" : "Team"} className="min-w-0 shrink-0 max-w-[24vw] truncate py-1 sm:max-w-56 hover:text-factorize-700 dark:hover:text-factorize-500">{session.data?.authenticated ? session.data.team.name ?? "Team" : "Team"}</Link>
-          {routeSkillId && <><span aria-hidden="true" className="text-slate-400">/</span><Link to="/skills/$skillId" params={{skillId:routeSkillId}} title={routeSkill.data?.key} className="min-w-0 max-w-[35vw] truncate sm:max-w-56">{routeSkill.data?.key??"Loading skill…"}</Link><ResourceSwitcher compact kind="Skill" items={(skillOptions.data?.items??[]).map(item=>({id:item.id,name:item.key}))} currentId={routeSkillId} loading={skillOptions.isPending} error={skillOptions.error?.message} onSelect={id=>void navigate({to:"/skills/$skillId",params:{skillId:id}})}/></>}
-          {!routeSkillId && currentTriggerId && <><span aria-hidden="true" className="hidden text-slate-400 sm:mr-1 sm:inline">/</span><div className="flex min-w-0 items-center">
+          <Link to="/" title={session.data?.authenticated ? session.data.team.name ?? "Team" : "Team"} className="min-w-0 shrink-0 max-w-[24vw] truncate py-1 sm:max-w-56 hover:text-factorize-700 dark:hover:text-factorize-500">{session.data?.authenticated ? session.data.team.name ?? "Team" : "Team"}</Link>
+          {currentTriggerId && <><span aria-hidden="true" className="hidden text-slate-400 sm:mr-1 sm:inline">/</span><div className="flex min-w-0 items-center">
             {routeTrigger.data ? <Link to="/triggers/$triggerId" params={{ triggerId: routeTrigger.data.id }} title={routeTrigger.data.name} className="min-w-0 max-w-[42vw] truncate rounded-md py-1 text-slate-700 transition-colors hover:bg-stone-100 hover:text-factorize-700 dark:text-slate-200 dark:hover:bg-slate-800 sm:max-w-56">{routeTrigger.data.name}</Link> : <span className="truncate text-slate-600 dark:text-slate-300">{routeTrigger.isPending ? "Loading trigger…" : routeTrigger.error ? "Trigger unavailable" : "Trigger"}</span>}
             <ResourceSwitcher compact kind="Trigger" items={(projectTriggers.data ?? []).map(trigger => ({ id: trigger.id, name: trigger.name }))} currentId={currentTriggerId} loading={projectTriggers.isPending} error={projectTriggers.error?.message} onSelect={chooseTrigger} />
           </div></>}
         </div> : <Link to="/" className="text-sm font-semibold">Dashboard</Link>}
       </div>
       <div className="flex shrink-0 items-center gap-2 sm:gap-4">
-        {authenticated && <SearchLauncher />}
         <ThemeToggle />
         {authenticated && <div ref={mobileAccountMenu} className="relative sm:hidden">
           <Button ref={mobileAccountEvent} aria-expanded={accountOpen} aria-controls="mobile-profile-menu" onClick={() => { setMobileAccountOpen(true); setAccountOpen(!accountOpen); }} aria-label="Your account" className="!size-9 !min-h-9 !rounded-full !border-0 !bg-factorize-500 !p-0 text-xs font-semibold text-slate-950">{initials}</Button>
@@ -85,7 +77,7 @@ export function AccountBar() {
         </div> : <Link to="/auth/login" className="rounded-lg px-3 py-2 text-sm font-semibold">Account</Link>}
       </div>
     </nav>
-    {authenticated && (["/", "/triggers", "/events", "/skills", "/integrations", "/vms"].includes(pathname) || pathname === "/apps" || pathname.startsWith("/apps/") || (pathname === "/clients" || pathname.startsWith("/clients/")) || pathname.startsWith("/settings/") || pathname === "/settings") && <TeamNavigation pathname={pathname}/>}
+    {authenticated && (["/", "/triggers", "/events", "/integrations", "/workloads"].includes(pathname) || pathname === "/apps" || pathname.startsWith("/workloads/") || (pathname === "/clients" || pathname.startsWith("/clients/")) || pathname.startsWith("/settings/") || pathname === "/settings") && <TeamNavigation pathname={pathname}/>}
     {logout.isError && <p role="alert">{logout.error.message}</p>}
   </header>;
 }

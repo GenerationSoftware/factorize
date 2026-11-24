@@ -1,13 +1,12 @@
 import { listEventsInput, readEventOccurrencesInput, subscribeEventInput, unsubscribeEventInput } from "./mcp-event-contracts";
 import { appRegistrationInput, appRegistrationUpdate } from "./apps-contracts";
-import { skillInput,skillUpdateInput } from "./skills";
 import {createPayloadInput,appendPayloadInput,finalizePayloadInput,attachmentInput} from "./proxy-payloads";
 import {operationRef,operationRead} from "./proxy-operations";
 import {proxyToolResult} from "./proxy-result";
 import {SKILLS_EXTENSION} from "./mcp-skills";
 import { effectiveConnectionScopes } from "./oauth-connection-settings";
 import { clientNameInput } from "./settings-contracts";
-import { SkillContentError } from "./skill-files";
+import { BuiltinSkillError } from "./builtin-skills";
 import { Hono } from "hono";
 import { AgentApiError } from "./agent-api";
 import {queryApiResponseInput} from "./agent-api-contracts";
@@ -29,7 +28,6 @@ import { activeVmAuthorization } from "./vm-auth";
 import { vmGrantInput, vmGrantRef } from "./vm-grant-contracts";
 
 function errorResponse(error: unknown, origin?: string): Response {
-  if (error instanceof SkillContentError) return Response.json({ error: { code: "invalid_skill_directory", message: error.message } }, {status:409});
   if (error instanceof AgentApiError) return Response.json({error: {code: error.code, message: error.message}}, {status: error.status, headers: error.code === "insufficient_scope" ? {"WWW-Authenticate": `Bearer error="insufficient_scope", scope="${error.scope}", resource_metadata="${origin}/.well-known/oauth-protected-resource/mcp"`} : undefined});
   if (error instanceof URIError) return Response.json({ error: { code: "invalid_request", message: "Invalid path encoding" } }, { status: 400 });
   if (error instanceof z.ZodError) {
@@ -153,9 +151,9 @@ const mcpSignals=new WeakMap<ApiService,AbortSignal>();
 
 function createMcpServer(service: ApiService, subscriptions = true): McpServer {
     const server = new McpServer({ name: "factorize", version: "1.0.0" }, {capabilities:{resources:{subscribe:subscriptions},extensions:{[SKILLS_EXTENSION]:{}}}});
-    const skillAction=async<T>(action:()=>Promise<T>):Promise<T>=> {
+    const resourceAction=async<T>(action:()=>Promise<T>):Promise<T>=> {
       try{return await action();}catch(error){
-        if(error instanceof SkillContentError)throw new ProtocolError(ProtocolErrorCode.InvalidParams,error.message);
+        if(error instanceof BuiltinSkillError)throw new ProtocolError(ProtocolErrorCode.InvalidParams,error.message);
         if(error instanceof ServiceError)throw new ProtocolError(ProtocolErrorCode.InvalidParams,`${error.code}: ${error.message}`);
         throw error;
       }
@@ -173,11 +171,10 @@ function createMcpServer(service: ApiService, subscriptions = true): McpServer {
     server.server.setRequestHandler("events/list", { params: listEventsInput }, params => eventAction(() => service.mcpEventCatalog(params.cursor)));
     server.server.setRequestHandler("events/subscribe", { params: subscribeEventInput }, params => eventAction(() => service.mcpSubscribeEvent(params)));
     server.server.setRequestHandler("events/unsubscribe", { params: unsubscribeEventInput }, params => eventAction(() => service.mcpUnsubscribeEvent(params)));
-    server.server.setRequestHandler("skills/list",{params:z.object({cursor:z.guid().optional(),_meta:z.record(z.string(),z.unknown()).optional()})},params=>skillAction(()=>service.mcpListSkills(params.cursor)));
-    server.server.setRequestHandler("skills/get",{params:z.object({uri:z.string(),_meta:z.record(z.string(),z.unknown()).optional()})},params=>skillAction(()=>service.mcpGetSkill(params.uri)));
-    server.registerResource("factorize-workflow",new ResourceTemplate("skill://factorize/{version}/{name}/SKILL.md",{list:undefined}),{description:"Build-shipped Factorize workflow instructions"},uri=>skillAction(()=>service.mcpReadSkill(uri.href)));
-    server.registerResource("team-skill",new ResourceTemplate("skill://teams/{teamId}/{+path}",{list:undefined}),{description:"Authorized team skill package files"},uri=>skillAction(()=>service.mcpReadSkill(uri.href)));
-    server.registerResource("event-occurrences",new ResourceTemplate("factorize://events/{eventId}/occurrences",{list:undefined}),{mimeType:"application/json",description:"Durable occurrences of an authorized Factorize Event"},uri=>skillAction(()=>service.mcpReadEvent(uri.href)));
+    server.server.setRequestHandler("skills/list",{params:z.object({cursor:z.guid().optional(),_meta:z.record(z.string(),z.unknown()).optional()})},params=>resourceAction(()=>service.mcpListSkills(params.cursor)));
+    server.server.setRequestHandler("skills/get",{params:z.object({uri:z.string(),_meta:z.record(z.string(),z.unknown()).optional()})},params=>resourceAction(()=>service.mcpGetSkill(params.uri)));
+    server.registerResource("factorize-workflow",new ResourceTemplate("skill://factorize/{version}/{name}/SKILL.md",{list:undefined}),{description:"Build-shipped Factorize workflow instructions"},uri=>resourceAction(()=>service.mcpReadSkill(uri.href)));
+    server.registerResource("event-occurrences",new ResourceTemplate("factorize://events/{eventId}/occurrences",{list:undefined}),{mimeType:"application/json",description:"Durable occurrences of an authorized Factorize Event"},uri=>resourceAction(()=>service.mcpReadEvent(uri.href)));
         server.registerResource("proxy-response",new ResourceTemplate("proxy://responses/{handle}",{list:undefined}),{mimeType:"application/json",description:"Bounded authorized retained response byte range; use query_api_response for filtering."},async uri=>({contents:[{uri:uri.href,mimeType:"application/json",text:JSON.stringify(await service.queryApiResponse({handle:uri.pathname.slice(1),mode:"bytes",limit:256}))}]}));
         const tool = <T>(name: string, description: string, schema: any, action: (input: T,signal?:AbortSignal) => Promise<unknown>,rawContent=false,readOnly=false) => server.registerTool(name, { description, inputSchema: schema, ...(readOnly ? { annotations: { readOnlyHint: true, openWorldHint: false } } : {}) }, async (input: T,context:{mcpReq:{signal:AbortSignal;_meta?:{progressToken?:string|number};notify:(value:any)=>Promise<void>}}) => {
       try { const requestSignal=mcpSignals.get(service);const token=context.mcpReq._meta?.progressToken;
@@ -215,11 +212,6 @@ function createMcpServer(service: ApiService, subscriptions = true): McpServer {
     tool("read_event_occurrences", "Read committed Event payloads by occurrenceId or by definitionId and an inclusive recorded-time since value. Follow nextCursor with the same definitionId and since. Reads do not consume history.", readEventOccurrencesInput, (input: z.infer<typeof readEventOccurrencesInput>) => service.readEventOccurrences(input), false, true);
     tool("list_event_occurrences", "Read durable Event occurrences in reverse order.", z.object({eventId:z.uuid(),...eventOccurrenceQuery.shape}), ({eventId,limit,cursor}:any) => service.listEventOccurrences(eventId,limit,cursor));
                                 tool("list_triggers", "List triggers and their parent Events", z.object({}), () => service.listTriggers());
-    tool("list_skills", "List searchable team skill metadata. Shared edits affect every trigger using the skill; bodies are omitted.", z.object({ q: z.string().optional(), limit: z.number().int().min(1).max(100).default(30), cursor: z.string().optional() }), (input: any) => service.listSkills({ q: input.q ?? "", limit: input.limit, cursor: input.cursor }));
-    tool("get_skill", "Read a team skill by stable ID or key. Shared edits affect every trigger using it.", z.object({ skillId: z.string().min(1) }), ({ skillId }: any) => service.getSkill(skillId));
-    tool("create_skill", "Create a standalone SKILL.md with literal Markdown and frontmatter configuration. Supply body or a structured definition.", skillInput, (input: any) => service.createSkill(input));
-    tool("update_skill", "Update a shared team skill with optimistic concurrency; the change affects all referencing triggers.", skillUpdateInput.extend({skillId:z.string().min(1)}), ({ skillId, ...input }: any) => service.updateSkill(skillId, input));
-    tool("delete_skill", "Delete an unused team skill; referenced triggers block deletion.", z.object({ skillId: z.string().min(1), expectedRevision: z.number().int().positive() }), ({ skillId, expectedRevision }: any) => service.deleteSkill(skillId, expectedRevision));
                                             tool("get_trigger", "Get a Trigger, its parent Event, and input configuration", triggerIdSchema, ({ triggerId }: any) => service.getTrigger(triggerId));
     tool("create_trigger", "Create an input Trigger attached to an Event. Credentials are never accepted or returned.", triggerInputSchema, (input: any) => service.createTrigger(input));
     tool("update_trigger", "Replace a Trigger's input configuration and Event parent.", triggerInputSchema.extend({ triggerId: z.string().min(1) }), ({ triggerId, ...input }: any) => service.updateTrigger(triggerId, input));

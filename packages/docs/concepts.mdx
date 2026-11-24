@@ -1,9 +1,9 @@
 ---
-title: Events, Triggers, and Skills
-description: Understand Factorize's durable event model and standalone instruction documents.
+title: Events and Triggers
+description: Understand Factorize's durable event model.
 ---
 
-A **team** owns Events, Triggers, Skills, integrations, and authorization settings.
+A **team** owns Events, Triggers, integrations, and authorization settings.
 
 An **Event** is a named durable record with a versioned JSON payload schema. A
 matching Trigger creates an occurrence, which subscribers can read later. An
@@ -13,9 +13,6 @@ A **Trigger** watches one input source: a schedule, signed webhook, provider
 notification, or explicit fire request. Matching and duplicate-delivery checks
 happen before Factorize validates and stores the Event occurrence. A Trigger
 publishes data; it does not launch an agent or create an execution.
-
-A **Skill** is a standalone reusable Markdown instruction document. It can be
-managed independently and is not required by an Event or Trigger.
 
 MCP clients discover Event definitions, subscribe to their occurrence resource,
 and receive a resource-updated notification after a new occurrence. They then

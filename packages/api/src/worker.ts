@@ -1,7 +1,5 @@
 import { AlarmCoordinator as BaseAlarmCoordinator } from "./alarm-coordinator";
 import { wakeMcpDeliveries } from "./postgres/event-match-repository";
-import { gitHttpsFetch } from "./git-https";
-import { SkillLibrary } from "./skill-library";
 import { staticApp, securityHeaders } from "./static-app";
 import { OAuthProvider, AuthorizationError, getOAuthApi, type AuthRequest, type OAuthProviderOptions } from "@cloudflare/workers-oauth-provider";
 import app from "./index";
@@ -94,7 +92,7 @@ export class AlarmCoordinator extends BaseAlarmCoordinator {
   }
 }
 const backend = { async fetch(request: Request, env: Env, ctx: ExecutionContext) {
-  if (new URL(request.url).hostname === "git.factorize.sh") return gitHttpsFetch(request, env, ctx);
+  if (new URL(request.url).hostname === "git.factorize.sh") return new Response("Not found", { status: 404 });
   if (new URL(request.url).pathname === "/oauth/x/callback") return request.method === "GET" ? xOAuthCallback(request, env) : new Response("Method not allowed", { status: 405, headers: { Allow: "GET" } });
   const oidc = await oidcRequest(request, env);
   if (oidc) return oidc;
@@ -160,23 +158,12 @@ export default {
   async scheduled(_event: ScheduledController, env: Env) {
     // Ensure the alarm sweep starts even if a producer's immediate wake was missed.
     await wakeMcpDeliveries(env).catch(() => {});
-    // Retry missed deliveries and refresh managed remotes in oldest-checked order.
+    // Retire expired VM proofs and incomplete enrollments.
     const db = databaseFor(env);
     await db.pool.query(`DELETE FROM app.vm_permission_proofs WHERE (tenant_id,grant_id,proof_id) IN
       (SELECT tenant_id,grant_id,proof_id FROM app.vm_permission_proofs WHERE expires_at<now() ORDER BY expires_at LIMIT 5000)`);
     await db.pool.query(`UPDATE app.vm_permission_grants SET revoked_at=now(),updated_at=now(),updated_by='system:enrollment-timeout',
       cleaned_at=CASE WHEN provider_kind='fly' THEN now() ELSE NULL END
       WHERE activated_at IS NULL AND revoked_at IS NULL AND created_at<now()-interval '1 hour'`);
-    if (env.SKILL_ARTIFACTS) {
-      const pending = await db.pool.query("SELECT tenant_id FROM app.skill_library_backfill ORDER BY attempted_at NULLS FIRST,tenant_id LIMIT 5");
-      for (const row of pending.rows) {
-        try { await new SkillLibrary(env, row.tenant_id).migrate(); }
-        catch {
-          await db.pool.query("UPDATE app.skill_library_backfill SET attempted_at=now(),error='Migration failed. Verify Artifacts access and published skill contents.' WHERE tenant_id=$1", [row.tenant_id]);
-        }
-      }
-    }
-    const rows = await db.pool.query("SELECT tenant_id FROM app.skill_libraries WHERE (checked_at IS NULL OR checked_at < now()-interval '5 minutes') AND NOT EXISTS (SELECT 1 FROM app.skill_library_backfill pending WHERE pending.tenant_id=skill_libraries.tenant_id) ORDER BY checked_at NULLS FIRST LIMIT 10");
-    for (const row of rows.rows) await new SkillLibrary(env,row.tenant_id).sync();
   },
   async fetch(request: Request, env: Env, ctx: ExecutionContext) { return securityHeaders(request, await backend.fetch(request, env, ctx)); } } satisfies ExportedHandler<Env>;

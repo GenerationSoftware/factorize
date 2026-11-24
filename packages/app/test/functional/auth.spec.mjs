@@ -150,7 +150,7 @@ test("Settings navigation keeps the Settings tab active and shares integration p
     id: policyId, credentialId: "linear", name: "Linear", description: null, kind: "linear",
     policy: "baseline", available: true, revision: 1, requiredScope: `integration:${policyId}:1`,
   }] } }));
-  await page.route("**/api/v1/app-connections", route => route.fulfill({ json: [] }));
+  await page.route("**/api/v1/apps", route => route.fulfill({ json: [] }));
   await page.route("**/api/v1/integrations", route => route.fulfill({ json: {
     exeConnections: [], ampConnections: [], cloudflareTail: { installations: [] }, linear: { organizationName: "Workspace" }, clickup: null,
   } }));
@@ -163,12 +163,12 @@ test("Settings navigation keeps the Settings tab active and shares integration p
   assert.equal(new URL(page.url()).pathname, "/settings/permissions");
   const dashboard = page.getByRole("navigation", { name: "Dashboard navigation" });
   const settings = page.getByRole("navigation", { name: "Settings", exact: true });
-  assert.deepEqual(await settings.getByRole("link").allTextContents(), ["Permissions", "Apps", "Integrations"]);
+  assert.deepEqual(await settings.getByRole("link").allTextContents(), ["Permissions", "Registered apps", "Integrations"]);
   assert.deepEqual(await dashboard.locator('[aria-current="page"]').allTextContents(), ["Settings"]);
   assert.deepEqual(await dashboard.locator(".border-factorize-500").allTextContents(), ["Settings"]);
-  await settings.getByRole("link", { name: "Apps", exact: true }).click();
-  await page.getByText("No connected apps.").waitFor();
-  assert.equal(new URL(page.url()).pathname, "/apps");
+  await settings.getByRole("link", { name: "Registered apps", exact: true }).click();
+  await page.getByText("No registered apps.").waitFor();
+  assert.equal(new URL(page.url()).pathname, "/settings/apps");
   assert.deepEqual(await dashboard.locator('[aria-current="page"]').allTextContents(), ["Settings"]);
   assert.deepEqual(await dashboard.locator(".border-factorize-500").allTextContents(), ["Settings"]);
   await settings.getByRole("link", { name: "Permissions", exact: true }).click();
@@ -297,10 +297,9 @@ test("profile edits username, reports conflicts, and retains the saved value on 
     }
     return route.fulfill({json:{username,email:"owner@example.test"}});
   });
-  await page.route("**/api/v1/skills?*",route=>route.fulfill({json:{items:[],nextCursor:null}}));
   await page.route("**/api/v1/presets",route=>route.fulfill({json:{presets:[]}}));
   await page.goto(origin+"/settings/profile");
-  assert.equal(await page.getByRole("navigation",{name:"Main navigation",exact:true}).getByRole("link",{name:"profile-owner",exact:true}).getAttribute("href"),"/skills");
+  assert.equal(await page.getByRole("navigation",{name:"Main navigation",exact:true}).getByRole("link",{name:"profile-owner",exact:true}).getAttribute("href"),"/");
   await page.getByLabel("Username",{exact:true}).fill("updated-owner");
   await page.getByRole("button",{name:"Save profile"}).click();
   await page.getByRole("status").filter({hasText:"Profile saved"}).waitFor();
@@ -313,6 +312,6 @@ test("profile edits username, reports conflicts, and retains the saved value on 
   await page.reload();
   assert.equal(await page.getByLabel("Username",{exact:true}).inputValue(),"updated-owner");
   await page.getByRole("navigation",{name:"Main navigation",exact:true}).getByRole("link",{name:"updated-owner",exact:true}).click();
-  await page.getByRole("table",{name:"Skills",exact:true}).waitFor();
+  await page.getByRole("heading",{name:"Recent work",exact:true}).waitFor();
   await context.close();
 });

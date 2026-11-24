@@ -1,12 +1,10 @@
 import { cloneInfo, gitCredential } from "./git-https-contracts";
 import { profileInput, profileResponse } from "./usernames";
-import { configureLibrary,libraryStatus,libraryToken } from "./skill-library-contract";
 import {createPayloadInput,payloadReceipt,appendPayloadInput,finalizePayloadInput,attachmentInput} from "./proxy-payloads";
 import {operationRef,operationRead,operationReceipt} from "./proxy-operations";
 import {queryApiResponseInput,queryApiResponseResult} from "./agent-api-contracts";
 import { apiReflection, apiPolicyList, apiPolicyInput, requestApiInput, requestApiResponse, readApiResponseInput, apiResponseChunk } from "./agent-api-contracts";
 import { queryOf } from "./query-params";
-import { searchResponse } from "./search-contracts";
 import { consentPreviewInput, consentPreviewResponse, consentDecisionInput, consentDecisionResponse } from "./consent-api";
 import { exeConnection, integrationStatus, clientPermissionsUpdate, authorizedClient, accessToken, createdAccessToken, savedExe, savedAmp, savedTail, okResult, permissionPreset, permissionPresetInput, permissionPresetList } from "./settings-contracts";
 import { eventAvailabilityResponse, namedOption, providerOptions, githubInstallation, githubRepository, tailIntegration } from "./editor-contracts";
@@ -23,7 +21,6 @@ import {
 import { X_OAUTH_SCOPES } from "./x-oauth";
 import document from "./api-document.json";
 import { authInputs, authSuccess, continuationSuccess, connectionStartInput, connectionStartSuccess, connectionResumeInput, loginSuccess, sessionResponse, type AuthAction } from "./auth-api";
-import { skillDirectoryResponse, skillInput, skillUpdateInput, skillPage, skillResponse } from "./skills";
 import { flyConnectionInput, flyConnectionMetadata } from "./fly-account-client";
 import { eventDefinitionInput, eventDefinitionUpdate, eventDefinitionResponse, eventDefinitionList, eventOccurrenceQuery, eventOccurrencePage } from "./event-contracts";
 import { vmGrantInput, vmGrantList, vmGrantRef, vmGrantResult, vmRevokeResult } from "./vm-grant-contracts";
@@ -85,8 +82,6 @@ const deliveryQuery = z.object({
 const eventQuery = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });
-const searchQuery = z.object({ q: z.string().default("") });
-const skillQuery = z.object({ q: z.string().default(""), limit: z.coerce.number().int().min(1).max(100).default(30), cursor: z.guid().optional() });
 const clickUpQuery = z.object({ listId: z.string().default("") });
 const scheduleBody = z
   .object({
@@ -695,18 +690,6 @@ export const API_ROUTES: RouteContract[] = [
     summary: "Get the current team",
     responses: { "200": { description: "Team", content: { "application/json": { schema: jsonSchema(teamResponse, "output") } } } },
   }, service => service.getTeam()),
-  route("GET", "/api/v1/skill-library/clone", "skills:read", { summary: "Read the readable HTTPS clone URL for the authoritative skills repository", responses: { "200": { description: "Clone URL and tracked folder; never credentials", content: { "application/json": { schema: jsonSchema(cloneInfo, "output") } } } } }, service => service.skillCloneInfo()),
-  route("POST", "/api/v1/skill-library/git-token", "skills:write", { summary: "Issue a one-hour personal Git HTTPS password for the managed skills repository", description: "Interactive owner session required. The token is bound to this user, membership session version and repository. It cannot access GitHub mirrors or another team. Only its digest is stored. Use username git and the token as the password; never include it in the remote URL.", responses: { "200": { description: "One-hour Git credential", content: { "application/json": { schema: jsonSchema(gitCredential, "output") } } } } }, service => service.issueGitCredential(), { ownerSession: true }),
-  route("GET", "/api/v1/skill-library", "skills:read", { summary: "Read skill repository settings", responses: { "200": { description: "Read skill repository settings", content: { "application/json": { schema: jsonSchema(libraryStatus, "output") } } } } }, (service) => service.skillLibraryStatus()),
-  route("PUT", "/api/v1/skill-library", "skills:write", { summary: "Select the authoritative skills repository", responses: { "200": { description: "Select the authoritative skills repository", content: { "application/json": { schema: jsonSchema(libraryStatus, "output") } } } } }, (service,{body}) => service.configureSkillLibrary(body), {body:configureLibrary}),
-  route("POST", "/api/v1/skill-library/token", "skills:write", { summary: "Issue a one-hour repository credential (read-only for GitHub mirrors)", responses: { "200": { description: "Issue a one-hour repository credential (read-only for GitHub mirrors)", content: { "application/json": { schema: jsonSchema(libraryToken, "output") } } } } }, (service) => service.skillLibraryToken()),
-  route("POST", "/api/v1/skill-library/sync", "skills:write", { summary: "Synchronize the tracked branch", responses: { "200": { description: "Synchronize the tracked branch", content: { "application/json": { schema: jsonSchema(libraryStatus, "output") } } } } }, (service) => service.syncSkillLibrary()),
-  route("GET", "/api/v1/skills/{skillId}/files", "skills:read", {summary:"Browse the published skill directory at its immutable revision",responses:{"200":{description:"Published files, with base64 encoded contents",content:{"application/json":{schema:jsonSchema(skillDirectoryResponse,"output")}}}}},(service,{params})=>service.getSkillDirectory(params.skillId),{parameters:z.object({skillId:z.uuid()})}),
-  route("GET", "/api/v1/skills", "skills:read", { summary: "Search global skills", responses: { "200": { description: "Skills", content: { "application/json": { schema: jsonSchema(skillPage, "output") } } } } }, (service, { query }) => service.listSkills(query), { query: skillQuery }),
-  route("POST", "/api/v1/skills", "skills:write", { summary: "Create a global skill", responses: { "201": { description: "Created", content: { "application/json": { schema: jsonSchema(skillResponse, "output") } } } } }, (service, { body }) => service.createSkill(body), { body: skillInput }),
-  route("GET", "/api/v1/skills/{skillId}", "skills:read", { summary: "Get a global skill", responses: { "200": { description: "Skill", content: { "application/json": { schema: jsonSchema(skillResponse, "output") } } } } }, (service, { params }) => service.getSkill(params.skillId)),
-  route("PUT", "/api/v1/skills/{skillId}", "skills:write", { summary: "Update a global skill", responses: { "200": { description: "Updated", content: { "application/json": { schema: jsonSchema(skillResponse, "output") } } } } }, (service, { params, body }) => service.updateSkill(params.skillId, body), { body: skillUpdateInput }),
-  route("DELETE", "/api/v1/skills/{skillId}", "skills:write", { summary: "Delete an unused global skill", responses: { "200": { description: "Deleted" } } }, (service, { params, query }) => service.deleteSkill(params.skillId, query.expectedRevision), { query: z.object({ expectedRevision: z.coerce.number().int().positive() }) }),
   route("GET", "/api/v1/events", "triggers:read", { summary: "List Events", responses: { "200": { description: "Events and current revisions", content: { "application/json": { schema: jsonSchema(eventDefinitionList, "output") } } } } }, service => service.listEvents()),
   route("POST", "/api/v1/events", "triggers:write", { summary: "Create an Event", responses: { "201": { description: "Created Event", content: { "application/json": { schema: jsonSchema(eventDefinitionResponse, "output") } } } } }, (service, { body }) => service.createEvent(body), { body: eventDefinitionInput }),
   route("GET", "/api/v1/events/{eventId}", "triggers:read", { summary: "Get an Event", responses: { "200": { description: "Event", content: { "application/json": { schema: jsonSchema(eventDefinitionResponse, "output") } } } } }, (service, { params }) => service.getEvent(params.eventId), { parameters: z.object({ eventId: z.uuid() }) }),
@@ -832,18 +815,6 @@ export const API_ROUTES: RouteContract[] = [
     "triggers:write",
     { summary: "Delete trigger", responses: { "200": { description: "Deleted" } } },
     (service, { params }) => service.deleteTrigger(params.triggerId),
-  ),
-  route(
-    "GET",
-    "/api/v1/search",
-    "skills:read",
-    {
-      summary: "Search skill names",
-      description: "Search skill names only, using case-insensitive substring and PostgreSQL pg_trgm word matching. Exact names rank first, then prefixes, then other matches by similarity with deterministic ties. Results are tenant-scoped and limited to 100. Triggers, descriptions, instruction bodies, issue fields and Event contents are excluded. Blank or punctuation-only queries return no results.",
-      responses: { "200": { description: "Search results", content: { "application/json": { schema: jsonSchema(searchResponse, "output") } } } },
-    },
-    (service, { query }) => service.search(query.q),
-    { query: searchQuery },
   ),
   route(
     "GET",

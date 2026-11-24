@@ -5,10 +5,10 @@ import {resolve} from 'node:path';
 import {parseDocument} from 'yaml';
 
 const root=fileURLToPath(new URL('../',import.meta.url));
-export const skillNames=['manage-skills','manage-triggers'];
+export const skillNames=['manage-triggers'];
 export async function renderBuiltinSkills(directory=resolve(root,'skills')) {
   const directories=(await readdir(directory,{withFileTypes:true})).filter(entry=>entry.isDirectory()).map(entry=>entry.name).sort();
-  if(JSON.stringify(directories)!==JSON.stringify([...skillNames].sort()))throw new Error('Expected exactly two built-in workflow directories');
+  if(JSON.stringify(directories)!==JSON.stringify([...skillNames].sort()))throw new Error('Unexpected built-in workflow directories');
   const entries=[];
   for(const name of skillNames){
     const text=await readFile(resolve(directory,name,'SKILL.md'),'utf8');

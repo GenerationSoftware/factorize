@@ -15,8 +15,6 @@ const scopeDescriptions: Record<AccessScope, string> = {
   "triggers:write": "Create, edit, enable, disable, and delete triggers",
   "integrations:read": "View integrations and provider resources",
   "integrations:write": "Create, configure, test, and remove integrations",
-  "skills:read": "View shared skills and the triggers using them",
-  "skills:write": "Create, edit, and delete shared skills",
   "vms:read": "View VM permission grants",
   "vms:edit": "Grant, edit, and revoke VM permissions",
 };

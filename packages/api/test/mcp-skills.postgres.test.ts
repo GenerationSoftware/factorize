@@ -1,8 +1,7 @@
 import {beforeAll,afterAll,describe,it,expect,vi} from "vitest";
 import {loadingFixture} from "./helpers/loading-fixture";
 import {mcpRequest} from "./helpers/mcp-request";
-import {encrypt} from "../src/crypto";
-import {skillUri,SKILLS_EXTENSION} from "../src/mcp-skills";
+import {SKILLS_EXTENSION} from "../src/mcp-skills";
 import {builtinSkillDocuments,builtinSkillUri} from "../src/builtin-skills";
 import {IdentityRepository} from "../src/postgres/identity-repository";
 import {EventMatchRepository} from "../src/postgres/event-match-repository";
@@ -11,11 +10,10 @@ vi.mock("cloudflare:workers",()=>({WorkerEntrypoint:class{},WorkflowEntrypoint:c
 vi.mock("@cloudflare/workers-oauth-provider",()=>({OAuthProvider:class{},AuthorizationError:class extends Error{},getOAuthApi:vi.fn()}));
 
 describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("MCP Skills and Event resources",()=>{
- let f:Awaited<ReturnType<typeof loadingFixture>>,auth:OAuthProps,id:string;
- const body="---\nname: guide\ndescription: A team guide\nmetadata:\n  author: local\n---\nReflect, then read references/example.txt.";
+ let f:Awaited<ReturnType<typeof loadingFixture>>,auth:OAuthProps;
  beforeAll(async()=>{
-  f=await loadingFixture(process.env.AUTH_TEST_DATABASE_URL!);auth={...f.auth,scopes:[...f.auth.scopes,"skills:read"]};id=crypto.randomUUID();
-  await f.db.pool.query("INSERT INTO app.skills(tenant_id,id,key,encrypted_body) VALUES($1,$2,'guide',$3)",[f.tenantId,id,await encrypt(body,f.env.CREDENTIAL_ENCRYPTION_KEY)]);
+  f=await loadingFixture(process.env.AUTH_TEST_DATABASE_URL!);
+  auth=f.auth;
  });
  afterAll(async()=>{await f?.cleanup();});
  async function rpc(method:string,params:Record<string,unknown>={},identity=auth){
@@ -23,9 +21,9 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("MCP Skills and Event resou
   expect(status,JSON.stringify(message)).toBe(200);
   return message;
  }
- it("advertises standalone built-in Skills even without skills:read",async()=>{
+ it("advertises standalone built-in Skills without any feature scope",async()=>{
   const discovery=await rpc("server/discover");expect(discovery.result.capabilities.extensions[SKILLS_EXTENSION]).toEqual({});
-  const first=(await rpc("skills/list")).result;expect(first.skills).toHaveLength(2);expect(first.nextCursor).toBeUndefined();expect(first.ttlMs).toBeGreaterThan(0);
+  const first=(await rpc("skills/list")).result;expect(first.skills).toHaveLength(1);expect(first.nextCursor).toBeUndefined();expect(first.ttlMs).toBeGreaterThan(0);
   expect(first.skills.map((skill:any)=>skill.frontmatter.name)).toEqual(builtinSkillDocuments.map(skill=>skill.name));
   expect((await rpc("skills/list",{}, {...auth,scopes:[]})).result).toEqual(first);
   await new IdentityRepository(f.db,f.otherTenant).upsertOwner(f.userId,"owner@example.test");
@@ -37,29 +35,22 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("MCP Skills and Event resou
    const bytes=new TextEncoder().encode(file.text);expect(entry.resources).toEqual([{uri:entry.uri,size:bytes.length,digest:"sha256:"+Buffer.from(await crypto.subtle.digest("SHA-256",bytes)).toString("hex")}]);
   }
  });
- it("retains live team tools and protected legacy resources outside extension discovery",async()=>{
-  const tools=await rpc("tools/list");expect(tools.result.tools.map((tool:any)=>tool.name)).toEqual(expect.arrayContaining(["list_skills","get_skill"]));
-  const list=await rpc("tools/call",{name:"list_skills",arguments:{}});expect(list.result.isError).not.toBe(true);expect(JSON.stringify(list.result)).toContain("guide");
-  const skill=await rpc("tools/call",{name:"get_skill",arguments:{skillId:id}});expect(skill.result.structuredContent.body).toContain("author: local");
-  expect((await rpc("resources/read",{uri:skillUri(f.tenantId,"guide")})).result.contents[0].text).toContain("author: local");
-  expect((await rpc("skills/get",{uri:skillUri(f.tenantId,"guide")})).error).toBeDefined();
+ it("retires team Skills tools and resources while preserving Event resources",async()=>{
+  const tools=await rpc("tools/list");
+  const retired=["list_skills","get_skill","create_skill","update_skill","delete_skill"];
+  expect(tools.result.tools.map((tool:any)=>tool.name).filter((name:string)=>retired.includes(name))).toEqual([]);
+  const uri=`skill://teams/${f.tenantId}/guide/SKILL.md`;
+  expect((await rpc("resources/read",{uri})).error).toBeDefined();
+  expect((await rpc("skills/get",{uri})).error).toBeDefined();
   const { triggerId, definitionId: eventId } = await f.seedEventTrigger();
   const occurrence=await new EventMatchRepository(f.db).match({tenantId:f.tenantId,triggerId,triggerRevision:1,sourceIdentity:"mcp-test",deduplicationKey:"occurrence-1",evidence:{value:"durable"},decision:"matched"});
   const eventResource=await rpc("resources/read",{uri:`factorize://events/${eventId}/occurrences`});
   expect(eventResource.result.contents[0].text).toContain(occurrence.occurrence!.id);
-  expect((await rpc("resources/read",{uri:skillUri(f.tenantId,"guide")},{...auth,scopes:[]})).error.message).toContain("insufficient_scope");
-  expect((await rpc("tools/call",{name:"get_skill",arguments:{skillId:id}},{...auth,scopes:[]})).result.isError).toBe(true);
  });
  it("checks identity and rejects unknown, stale and noncanonical paths",async()=>{
   for(const method of ["skills/list","skills/get","resources/read"])
-   expect((await rpc(method,{uri:builtinSkillUri("manage-skills")},{...auth,sessionVersion:999})).error.message).toContain("invalid_token");
-  for(const uri of [builtinSkillUri("missing"),builtinSkillUri("manage-skills")+"?q=x",builtinSkillUri("manage-skills").replace("SKILL.md","%53KILL.md"),"skill://factorize/old/manage-skills/SKILL.md",skillUri(f.otherTenant,"guide")])
+   expect((await rpc(method,{uri:builtinSkillUri("manage-triggers")},{...auth,sessionVersion:999})).error.message).toContain("invalid_token");
+  for(const uri of [builtinSkillUri("missing"),builtinSkillUri("manage-triggers")+"?q=x",builtinSkillUri("manage-triggers").replace("SKILL.md","%53KILL.md"),"skill://factorize/old/manage-skills/SKILL.md",`skill://teams/${f.otherTenant}/guide/SKILL.md`])
    for(const method of ["skills/get","resources/read"])expect((await rpc(method,{uri})).error).toBeDefined();
- });
- it("does not change publication when team skills are edited, renamed or deleted",async()=>{
-  const before=(await rpc("skills/list")).result;
-  await f.db.pool.query("UPDATE app.skills SET key='renamed-guide',encrypted_body=$3,revision=revision+1 WHERE tenant_id=$1 AND id=$2",[f.tenantId,id,await encrypt("Updated",f.env.CREDENTIAL_ENCRYPTION_KEY)]);
-  expect((await rpc("skills/list")).result).toEqual(before);
-  await f.db.pool.query("DELETE FROM app.skills WHERE tenant_id=$1 AND id=$2",[f.tenantId,id]);expect((await rpc("skills/list")).result).toEqual(before);
  });
 });

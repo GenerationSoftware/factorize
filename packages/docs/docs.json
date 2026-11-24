@@ -25,7 +25,6 @@
       {
         "group": "Work with your agent",
         "pages": [
-          "work/skills",
           "work/triggers"
         ]
       },

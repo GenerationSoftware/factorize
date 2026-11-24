@@ -1,6 +1,6 @@
 ---
 title: MCP tool reference
-description: Event, Trigger, Skill, and integration operations available through MCP.
+description: Event, Trigger, and integration operations available through MCP.
 ---
 
 Connect to `https://app.factorize.sh/mcp` using [client authorization](/mcp/overview).
@@ -18,10 +18,8 @@ its input and enforces the operation's required scope.
 | `create_app` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `create_event` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `create_payload` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
-| `create_skill` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `create_trigger` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `delete_event` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
-| `delete_skill` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `delete_trigger` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `disable_trigger` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `enable_trigger` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
@@ -32,7 +30,6 @@ its input and enforces the operation's required scope.
 | `get_api_reflection` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `get_app` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `get_event` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
-| `get_skill` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `get_trigger` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `get_webhook_delivery` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `grant_vm_permissions` | `vms:edit` | Machine or existing grant, plus a preset ID or explicit scopes |
@@ -44,7 +41,6 @@ its input and enforces the operation's required scope.
 | `list_events` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `list_exe_connections` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `list_github_installations` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
-| `list_skills` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `list_trigger_webhook_activity` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `list_triggers` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `list_vms` | `vms:read` | Empty object |
@@ -58,7 +54,6 @@ its input and enforces the operation's required scope.
 | `test_trigger_webhook_conditions` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `update_app` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `update_event` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
-| `update_skill` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `update_trigger` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 
 ## Events and occurrences
@@ -94,12 +89,11 @@ show safe processing outcomes without exposing secrets or raw payloads.
 
 `create_trigger` and `update_trigger` accept a parent `eventId` and a
 `sources` array of input configurations. Read a Trigger before replacing its
-configuration. Skills remain standalone and are not part of a Trigger's execution configuration.
+configuration.
 
-## Skills and integration APIs
+## Integration APIs
 
-Skill tools manage standalone team instruction documents. Integration tools
-use server-held credentials and current authorization; credentials are never
+Integration tools use server-held credentials and current authorization; credentials are never
 returned. `get_api_reflection` describes available integrations and safe request
 examples before `request_api` is used. See [REST reference](/api/reference) for
 exact request and response schemas.

@@ -24,7 +24,7 @@ function SettingsFrame({ title, description, children, navigation }: { title: st
 export function SettingsLayout({ title, children }: { title: string; children: ReactNode }) {
   return <SettingsFrame title={title} description="Manage access to your software factory." navigation={<SettingsSidebar label="Settings">
     <Link className={linkClass} activeProps={activeLink} to="/settings/permissions"><NavIcon name="key" />Permissions</Link>
-    <Link className={linkClass} activeProps={activeLink} to="/apps"><NavIcon name="integrations" />Apps</Link>
+    <Link className={linkClass} activeProps={activeLink} to="/settings/apps"><NavIcon name="integrations" />Registered apps</Link>
     <Link className={linkClass} activeProps={activeLink} to="/integrations"><NavIcon name="integrations" />Integrations</Link>
   </SettingsSidebar>}>{children}</SettingsFrame>;
 }

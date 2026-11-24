@@ -22,7 +22,7 @@ registered in `packages/api/src/protected-api.ts`.
 Events are versioned definitions with durable occurrences. Triggers belong to
 one Event and publish occurrences from configured input sources. MCP update
 notifications indicate that stored occurrence data is ready to read; they are
-not the persistence mechanism. Skills are standalone instruction documents.
+not the persistence mechanism.
 
 ## Local development and validation
 

@@ -5,7 +5,7 @@ Hosted workflow: connect your agent → define Events → attach Triggers → su
 Application: https://app.factorize.sh
 MCP (Streamable HTTP + OAuth): https://app.factorize.sh/mcp
 
-Browser: manage Event definitions, input Triggers, standalone Skills, integrations and consent.
+Browser: manage Event definitions, input Triggers, integrations and consent.
 MCP: discover Events, subscribe to occurrence resources, read durable occurrences, and manage Triggers.
 A resource update notification signals that an occurrence is ready to read; stored occurrences support recovery after reconnecting.
 
@@ -17,7 +17,6 @@ A resource update notification signals that an occurrence is ready to read; stor
 
 ## Work with your agent
 
-- [Skills](https://docs.factorize.sh/work/skills): Manage reusable team instruction documents independently from Events and Triggers.
 - [Create and edit Triggers](https://docs.factorize.sh/work/triggers): Attach input sources to Events and publish validated occurrences.
 
 ## Automate triggers
@@ -34,8 +33,8 @@ A resource update notification signals that an occurrence is ready to read; stor
 
 ## Reference
 
-- [MCP tool reference](https://docs.factorize.sh/mcp/tools): Event, Trigger, Skill, and integration operations available through MCP.
-- [Events, Triggers, and Skills](https://docs.factorize.sh/concepts): Understand Factorize's durable event model and standalone instruction documents.
+- [MCP tool reference](https://docs.factorize.sh/mcp/tools): Event, Trigger, and integration operations available through MCP.
+- [Events and Triggers](https://docs.factorize.sh/concepts): Understand Factorize's durable event model.
 - [REST API reference](https://docs.factorize.sh/api/reference): How to use the generated API reference.
 - [Authentication and scopes](https://docs.factorize.sh/api/authentication): OAuth 2.1, device authorization, and access-token rules.
 - [OAuth discovery](https://docs.factorize.sh/api/discovery): Endpoints and metadata for OAuth-aware clients.

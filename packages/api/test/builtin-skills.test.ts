@@ -6,7 +6,7 @@ import {builtinSkillDocuments,builtinSkillsVersion,builtinSkillUri,builtinSkill,
 
 describe("build-shipped workflow catalog",()=>{
  it("ships the standalone management documents with exact canonical bytes and manifests",async()=>{
-  expect(builtinSkillDocuments.map(skill=>skill.name)).toEqual(["manage-skills","manage-triggers"]);
+  expect(builtinSkillDocuments.map(skill=>skill.name)).toEqual(["manage-triggers"]);
   for(const skill of builtinSkillDocuments){
    const text=await readFile(resolve(import.meta.dirname,"../../../skills",skill.name,"SKILL.md"),"utf8");
    expect(skill.text).toBe(text);expect(skill.frontmatter.name).toBe(skill.name);expect(skill.frontmatter.description.length).toBeGreaterThan(10);
@@ -17,13 +17,12 @@ describe("build-shipped workflow catalog",()=>{
    expect(builtinSkill(uri)).toBe(skill);
   }
  });
- it("covers the live standalone skill and trigger tools",()=>{
-  const bodies=builtinSkillDocuments.map(skill=>skill.text);
-  for(const [index,terms] of [[0,["create_skill","update_skill","standalone"]],[1,["create_trigger","webhook","list_webhook_deliveries"]]] as const)
-   for(const term of terms)expect(bodies[index]).toContain(term);
+ it("covers the live Trigger and Event tools",()=>{
+  for(const term of ["create_trigger","webhook","list_webhook_deliveries"])
+   expect(builtinSkillDocuments[0].text).toContain(term);
  });
  it("rejects noncanonical and unknown versions/paths",()=>{
-  for(const uri of [builtinSkillUri("missing"),builtinSkillUri("manage-skills")+"?q=1",builtinSkillUri("manage-skills").replace("SKILL.md","%53KILL.md"),builtinSkillUri("manage-skills").replace(builtinSkillsVersion,"old")])expect(()=>builtinSkill(uri)).toThrow();
+  for(const uri of [builtinSkillUri("missing"),builtinSkillUri("manage-triggers")+"?q=1",builtinSkillUri("manage-triggers").replace("SKILL.md","%53KILL.md"),builtinSkillUri("manage-triggers").replace(builtinSkillsVersion,"old")])expect(()=>builtinSkill(uri)).toThrow();
  });
  it("generates deterministically and detects stale embedded content",async()=>{
   // This Node-only generator is never imported by the Worker.

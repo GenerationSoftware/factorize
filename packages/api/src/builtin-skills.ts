@@ -1,11 +1,12 @@
 import {builtinSkillDocuments,builtinSkillsVersion} from "./generated/builtin-skills";
-import {SkillContentError} from "./skill-files";
+
+export class BuiltinSkillError extends Error {}
 export {builtinSkillDocuments,builtinSkillsVersion};
 const prefix=`skill://factorize/${builtinSkillsVersion}/`;
 export const builtinSkillUri=(name:string)=>`${prefix}${name}/SKILL.md`;
 export function builtinSkill(uri:string){
  const skill=builtinSkillDocuments.find(skill=>uri===builtinSkillUri(skill.name));
- if(!skill)throw new SkillContentError("Unknown built-in skill resource. Rediscover the current built-in catalog after an upgrade.");
+ if(!skill)throw new BuiltinSkillError("Unknown built-in skill resource. Rediscover the current built-in catalog after an upgrade.");
  return skill;
 }
 export function builtinSkillEntry(skill:typeof builtinSkillDocuments[number]){

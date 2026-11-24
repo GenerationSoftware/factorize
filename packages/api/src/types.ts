@@ -25,7 +25,6 @@ export interface Env {
   POSTMARK_SERVER_TOKEN?: string;
   POSTMARK_FROM_EMAIL?: string;
   POSTMARK_MESSAGE_STREAM?: string;
-  SKILL_ARTIFACTS?: Artifacts;
   PROXY_ARTIFACTS?: R2Bucket;
   HYPERDRIVE?: Hyperdrive;
   /** Test-only injection point; production uses HYPERDRIVE. */

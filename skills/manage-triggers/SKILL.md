@@ -4,7 +4,7 @@ description: Configure input Triggers that publish durable Factorize Events.
 ---
 # Manage Events and Triggers
 
-Call `get_api_reflection` to inspect current identity and permissions. Events and Skills are independent: an Event describes a durable payload stream, a Trigger watches one or more input sources and publishes matching occurrences, and a Skill is a standalone instruction document.
+Call `get_api_reflection` to inspect current identity and permissions. An Event describes a durable payload stream. A Trigger watches one or more input sources and publishes matching occurrences.
 
 ## Events
 

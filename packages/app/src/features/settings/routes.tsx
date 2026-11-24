@@ -8,7 +8,6 @@ export function settingsRoutes(root: AnyRootRoute) {
     createRoute({getParentRoute:()=>root,path:"/uploads/proxy/$handle",beforeLoad:guard,component:lazyRouteComponent(()=>import("./proxy-upload"),"ProxyUpload")}),
     createRoute({ getParentRoute: () => root, path: "/settings/profile", beforeLoad: guard, component: lazyRouteComponent(() => import("./profile"), "Profile") }),
     createRoute({ getParentRoute: () => root, path: "/settings/permissions", beforeLoad: guard, component: lazyRouteComponent(() => import("./permissions"), "Permissions") }),
-    createRoute({ getParentRoute: () => root, path: "/settings/apps", beforeLoad: ({ location }) => { throw redirect({ to: "/apps", search: location.search, hash: location.hash, replace: true }); } }),
     createRoute({ getParentRoute: () => root, path: "/settings/integrations", beforeLoad: ({ location }) => { throw redirect({ to: "/integrations", search: location.search, hash: location.hash, replace: true }); } }),
     createRoute({ getParentRoute: () => root, path: "/integrations", beforeLoad: guard, component: lazyRouteComponent(() => import("./integrations"), "Integrations") }),
     createRoute({ getParentRoute: () => root, path: "/clients", beforeLoad: guard, component: lazyRouteComponent(() => import("./authorized-clients"), "ClientsPage") }),

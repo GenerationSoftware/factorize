@@ -12,8 +12,8 @@ https://app.factorize.sh/mcp
 Configure the endpoint in your MCP client and complete its OAuth flow. Authorize
 `triggers:read` to discover Events and read occurrences. Authorize
 `triggers:write` to create Events and Triggers, configure sources, and fire a
-manual Trigger. Other scopes apply only to their corresponding integrations,
-Skills, or application operations.
+manual Trigger. Other scopes apply only to their corresponding integrations or
+application operations.
 
 Ask your client to call `list_events` and `list_triggers`. An empty list is a
 successful connection to a workspace without configured Events or Triggers.
@@ -28,6 +28,7 @@ endpoint to recover stored occurrences.
 
 ## Built-in workflow skills
 
-Factorize also publishes build-shipped MCP Skills that explain how to manage
-team Skills and Triggers. These are static workflow instructions; they are
-separate from Event definitions and do not grant permissions.
+Factorize publishes built-in MCP Skills with workflow guidance. Use
+`skills/list` to discover the catalog and `skills/get` to get the
+`manage-triggers` manifest. Read its resource for instructions on managing
+Events and Triggers.
