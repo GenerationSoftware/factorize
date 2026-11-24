@@ -189,8 +189,30 @@ export async function checkOAuth({ read: send, stream, db, tenantId, userId, coo
   assert.equal((await change(edit)).status, 409);
   const blocked = await rpc('tools/call', {name:'list_triggers',arguments:{}}, 9);
   assert.ok(blocked.error || blocked.result?.isError);
-  const reflect = async () => (await rpc('tools/call', {name:'get_api_reflection',arguments:{}}, 10)).result.structuredContent;
-  assert.equal((await reflect()).integrations.find(row => row.id === integrationId).access, 'granted');
+  const reflect = async (credentials = bearer) => (await rpc('tools/call', {name:'get_api_reflection',arguments:{}}, 10, credentials)).result.structuredContent;
+  assert.equal((await reflect()).integrations.find(row => row.id === integrationId).access, 'requestable');
+
+  // Newly selected scopes are carried by a freshly authorized credential.
+  const freshVerifier = randomBytes(32).toString('base64url');
+  const freshQuery = new URLSearchParams(authorizationQuery);
+  freshQuery.set('scope', [...edit.scopes, 'proxy:use'].join(' '));
+  freshQuery.set('state', 'fixture-reauthorize');
+  freshQuery.set('code_challenge', createHash('sha256').update(freshVerifier).digest('base64url'));
+  const freshPreview = await json('/api/v1/oauth/consent/preview', {authorizationQuery: freshQuery.toString()}, owner);
+  assert.equal(freshPreview.status, 200, freshPreview.text);
+  const freshConsent = await json('/api/v1/oauth/consent/decision', {
+    request: freshPreview.json.request, signature: freshPreview.json.signature, decision: 'allow', scopes: [...edit.scopes, 'proxy:use'],
+  }, owner);
+  assert.equal(freshConsent.status, 200, freshConsent.text);
+  const freshDestination = new URL(freshConsent.json.redirectTo);
+  assert.equal(freshDestination.searchParams.get('state'), 'fixture-reauthorize');
+  const freshExchange = await form('/oauth/token', {
+    grant_type: 'authorization_code', client_id: clientId, code: freshDestination.searchParams.get('code'),
+    redirect_uri: redirectUri, code_verifier: freshVerifier, resource: origin+'/mcp',
+  });
+  assert.equal(freshExchange.status, 200, freshExchange.text);
+  const freshBearer = { Authorization: 'Bearer '+freshExchange.json.access_token };
+  assert.equal((await reflect(freshBearer)).integrations.find(row => row.id === integrationId).access, 'granted');
   assert.equal((await change({scopes: originalScopes, expectedRevision: 1})).status, 200);
   assert.equal((await reflect()).integrations.find(row => row.id === integrationId).access, 'unavailable');
   assert.deepEqual((await rpc('tools/call', {name:'list_triggers',arguments:{}}, 11)).result.structuredContent.items, []);

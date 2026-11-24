@@ -275,8 +275,8 @@ export class ProtectedApiHandler extends WorkerEntrypoint<Env, OAuthProps> {
       const token = credential && this.env.OAUTH_PROVIDER ? await this.env.OAUTH_PROVIDER.unwrapToken<OAuthProps>(credential) : null;
       if (!token || token.userId !== auth.userId || !token.grant?.clientId) return Response.json({error:{code:"invalid_token",message:"Invalid OAuth authorization"}}, {status:401});
       // Props describe original consent. The presented token may be narrowed.
-      const grantScopes = normalizeScopes(token.scope).filter(scope => normalizeScopes(auth.scopes).includes(scope));
-      auth = {...auth, authMethod: "oauth", scopes: grantScopes, oauthGrantId: token.grantId, oauthClientId: token.grant.clientId, oauthExpiresAt: token.expiresAt};
+      const tokenScopes = normalizeScopes(token.scope).filter(scope => normalizeScopes(auth.scopes).includes(scope));
+      auth = {...auth, authMethod: "oauth", scopes: tokenScopes, oauthGrantId: token.grantId, oauthClientId: token.grant.clientId, oauthExpiresAt: token.expiresAt};
     }
     return protectedApiFetch(request, this.env, auth, this.ctx);
   }
