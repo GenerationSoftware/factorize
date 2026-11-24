@@ -4,13 +4,13 @@ import { decideDevice, deviceAuthorization, inspectDevice } from "../src/device-
 import type { Env } from "../src/types";
 const session = { tenantId: "tenant", userId: "owner", email: "owner@example.test", sessionVersion: 2, exp: Math.floor(Date.now() / 1000) + 3600 };
 const parsed = { responseType: "code", clientId: "client", redirectUri: "https://client.test/callback", scope: ["team:read", "triggers:read", "integrations:read", "triggers:read", "triggers:write", "triggers:write", "triggers:write"], state: "state", codeChallenge: "challenge", codeChallengeMethod: "S256", resource: "https://factorize.test/mcp", issuer: "https://factorize.test" };
-function fixture() {
+function fixture(defaultPreset?: string[]) {
   const values = new Map<string, string>();
   const used = new Set<string>();
   const query = vi.fn(async (sql: string, args: unknown[]) => {
+    if (sql.startsWith("SELECT scopes FROM app.permission_presets")) return { rows: defaultPreset ? [{ scopes: defaultPreset }] : [] };
     if (sql.startsWith("INSERT INTO app.oauth_consent_previews") ||
-        sql.startsWith("DELETE FROM app.oauth_consent_previews") ||
-        sql.startsWith("SELECT scopes FROM app.permission_presets")) return { rows: [] };
+        sql.startsWith("DELETE FROM app.oauth_consent_previews")) return { rows: [] };
     if (!sql.startsWith("UPDATE app.oauth_consent_previews")) throw new Error(`Unexpected consent query: ${sql}`);
     const id = String(args[0]);
     if (used.has(id)) return { rows: [] };
@@ -35,6 +35,16 @@ describe("static consent support", () => {
     expect(oauth.completeAuthorization.mock.calls[0][0]).toMatchObject({ scope: ["team:read", "triggers:read", "integrations:read"], props: { tenantId: session.tenantId, userId: session.userId, sessionVersion: 2, scopes: ["team:read", "triggers:read", "integrations:read"] } });
     oauth.lookupClient.mockResolvedValue({ clientId: "client", clientName: "External client", redirectUris: ["https://other.test/callback"], tokenEndpointAuthMethod: "none" });
     expect(await consentDecision(env, session, input)).toBeNull();
+  });
+  it("issues the approved default preset scopes", async () => {
+    const { env, oauth } = fixture(["team:read"]);
+    const preview = (await consentPreview(env, session, { authorizationQuery: "client_id=client" }))!;
+    expect(preview.selectedScopes).toEqual(["team:read"]);
+    const input = { request: preview.request, signature: preview.signature, decision: "allow" as const, scopes: preview.selectedScopes };
+    expect((await consentDecision(env, session, input))?.redirectTo).toContain("code=authorized");
+    expect(oauth.completeAuthorization).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      scope: ["team:read"], props: expect.objectContaining({ scopes: ["team:read"] }),
+    }));
   });
   it("expires consent bindings and preserves state and issuer on denial", async () => {
     const { env } = fixture();
