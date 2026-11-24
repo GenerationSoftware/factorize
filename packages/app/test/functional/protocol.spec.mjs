@@ -15,6 +15,32 @@ test("consent refresh preserves OAuth query, scope selection and server-owned re
   await page.goto(origin + "/authorize?client_id=client&state=original&code_challenge=challenge"); await page.getByRole("heading", { name: "Authorize External CLI" }).waitFor(); await page.reload(); await page.getByLabel("triggers:write").uncheck(); await page.getByRole("button", { name: "Allow", exact: true }).click(); await page.waitForURL("**/completed?code=issued");
   assert.equal(previews.at(-1).authorizationQuery, "client_id=client&state=original&code_challenge=challenge"); assert.deepEqual(decision, { request: "signed-request", signature: "signature", decision: "allow", scopes: ["team:read", "triggers:read", "integrations:read"] }); await context.close();
 });
+for (const presetScopes of [["team:read"], []]) {
+  test(`Allow submits the displayed preset selection (${presetScopes.join(", ") || "empty"}) without any checkbox changes`, async () => {
+    const { context, page } = await setup();
+    try {
+      await page.route("**/api/v1/oauth/consent/preview", route => route.fulfill({ json: {
+        clientName: "External CLI", scopes: ["team:read", "triggers:write"], selectedScopes: presetScopes,
+        request: "signed-request", signature: "signature", expiresAt: "2026-10-09T12:00:00Z",
+      } }));
+      let decision;
+      await page.route("**/api/v1/oauth/consent/decision", route => {
+        decision = route.request().postDataJSON();
+        return route.fulfill({ json: { redirectTo: origin + "/completed?code=issued" } });
+      });
+
+      await page.goto(origin + "/authorize?client_id=client&state=original&code_challenge=challenge");
+      await page.getByRole("heading", { name: "Authorize External CLI" }).waitFor();
+      assert.equal(await page.getByLabel("team:read", { exact: true }).isChecked(), presetScopes.includes("team:read"));
+      assert.equal(await page.getByLabel("triggers:write", { exact: true }).isChecked(), false);
+      await page.getByRole("button", { name: "Allow", exact: true }).click();
+      await page.waitForURL("**/completed?code=issued");
+      assert.deepEqual(decision, { request: "signed-request", signature: "signature", decision: "allow", scopes: presetScopes });
+    } finally {
+      await context.close();
+    }
+  });
+}
 test("device deep link loads metadata and approval sends no protocol tokens", async () => {
   const { context, page } = await setup(); let decision;
   await page.route("**/api/v1/oauth/device/preview", route => route.fulfill({ json: { userCode: "ABCD-EFGH", clientName: "My CLI", signature: "device-signature", scopes: ["team:read", "triggers:read", "integrations:read"], expiresAt: "2026-10-09T12:00:00Z" } }));
