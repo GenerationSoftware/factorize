@@ -243,6 +243,13 @@ export class ApiService {
     if (!await repository.get(definitionId)) throw new ServiceError(404, "not_found", "Event not found.");
     return repository.recordedOccurrences(definitionId, input.since, input.limit, cursor ? [cursor[2], cursor[3]] : undefined);
   }
+  async readEventDeliveryDiagnostics(occurrenceId: string) {
+    if (this.auth.authMethod === "vm") throw new ServiceError(403, "owner_required", "An owner credential is required.");
+    await this.authorize("triggers:read");
+    const result = await this.eventDefinitions().deliveryDiagnostics(occurrenceId);
+    if (!result) throw new ServiceError(404, "not_found", "Event occurrence not found.");
+    return result;
+  }
   async mcpReadEvent(uri: string) {
     let parsed: URL; try { parsed = new URL(uri); } catch { throw new ServiceError(400, "invalid_resource", "Expected a Factorize Event resource URI."); }
     if (parsed.protocol !== "factorize:" || parsed.hostname !== "events" || !/^\/[0-9a-f-]{36}\/occurrences$/.test(parsed.pathname)) throw new ServiceError(400, "invalid_resource", "Expected a Factorize Event occurrence URI.");

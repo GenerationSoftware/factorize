@@ -153,6 +153,80 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("MCP event webhook lifecycl
     expect((await get()).structuredContent.sources).toEqual(updated);
   });
 
+  it("reports safe outbound delivery diagnostics for exactly one owner-authorized occurrence", async () => {
+    const toolInfo = (await request("tools/list")).message.result.tools.find((item: { name: string }) =>
+      item.name === "read_event_delivery_diagnostics");
+    expect(toolInfo.annotations.readOnlyHint).toBe(true);
+    const diagnosis = (occurrenceId: string, identity = auth) =>
+      tool("read_event_delivery_diagnostics", { occurrenceId }, identity);
+    const detail = async (occurrenceId: string) => {
+      const result = await diagnosis(occurrenceId);
+      expect(result.isError, JSON.stringify(result)).not.toBe(true);
+      return result.structuredContent;
+    };
+
+    const empty = (await fire("no-subscription", { text: "payload-that-must-not-be-returned" })).occurrenceId;
+    expect(await detail(empty)).toEqual({ occurrenceId: empty, state: "no_delivery_records", items: [], truncated: false });
+    const missing = await diagnosis(crypto.randomUUID());
+    expect(missing.isError).toBe(true);
+    expect(JSON.stringify(missing.content)).toContain("Event occurrence not found.");
+
+    const other = await f.seedEventTrigger(f.otherTenant);
+    const otherMatch = await new EventMatchRepository(f.db).match({
+      tenantId: f.otherTenant, triggerId: other.triggerId, triggerRevision: 1, sourceIdentity: "isolated-test",
+      deduplicationKey: "other-occurrence", evidence: { text: "private" }, decision: "matched",
+    });
+    const crossTenant = await diagnosis(otherMatch.occurrence!.id);
+    expect(crossTenant.isError).toBe(true);
+    expect(crossTenant.content).toEqual(missing.content);
+    expect((await diagnosis(empty, { ...auth, scopes: [] })).isError).toBe(true);
+    expect((await diagnosis(empty, { ...auth, userId: crypto.randomUUID() })).isError).toBe(true);
+
+    const subscriptionId = (await subscribe()).message.result.id;
+    expect(subscriptionId).toMatch(/^sub_/);
+    const accepted = (await fire("accepted")).occurrenceId;
+    const pending = await detail(accepted);
+    expect(pending).toEqual({
+      occurrenceId: accepted, state: "delivery_records_present", truncated: false,
+      items: [{ subscriptionId, status: "pending", attempts: 0, lastOutcome: null, httpStatus: null,
+        updatedAt: expect.any(String), nextAttemptAt: expect.any(String) }],
+    });
+    await dispatchMcpEvents(f.env);
+    expect((await detail(accepted)).items).toEqual([{
+      subscriptionId, status: "accepted", attempts: 1, lastOutcome: "accepted", httpStatus: 200,
+      updatedAt: expect.any(String), nextAttemptAt: null,
+    }]);
+
+    const rejected = (await fire("rejected")).occurrenceId;
+    statuses.push(410);
+    await dispatchMcpEvents(f.env);
+    expect((await detail(rejected)).items).toMatchObject([{ status: "failed", lastOutcome: "http_error", httpStatus: 410, attempts: 1 }]);
+    // Unrecognized stored text is not echoed even if a future writer stores it.
+    await f.db.pool.query("UPDATE app.mcp_event_deliveries SET last_outcome=$2 WHERE occurrence_id=$1",
+      [rejected, "raw-error-with-private-response-body"]);
+    const redacted = await detail(rejected);
+    expect(redacted.items[0].lastOutcome).toBe("unclassified");
+    expect(JSON.stringify(redacted)).not.toContain("raw-error-with-private-response-body");
+
+    const removed = (await fire("cancel-after-unsubscribe")).occurrenceId;
+    await unsubscribe();
+    await dispatchMcpEvents(f.env);
+    expect((await detail(removed)).items).toMatchObject([{ status: "cancelled", lastOutcome: "subscription_inactive", httpStatus: null, attempts: 0 }]);
+
+    expect((await subscribe()).message.result.id).toBeDefined();
+    const denied = (await fire("cancel-after-grant-revocation")).occurrenceId;
+    grantActive = false;
+    await dispatchMcpEvents(f.env);
+    grantActive = true;
+    expect((await detail(denied)).items).toMatchObject([{ status: "cancelled", lastOutcome: "authorization_inactive", httpStatus: null, attempts: 0 }]);
+
+    const retry = (await fire("retry")).occurrenceId;
+    statuses.push(503);
+    await dispatchMcpEvents(f.env);
+    expect((await detail(retry)).items).toMatchObject([{ status: "pending", lastOutcome: "http_error", httpStatus: 503, attempts: 1, nextAttemptAt: expect.any(String) }]);
+    expect(await detail(empty)).toEqual({ occurrenceId: empty, state: "no_delivery_records", items: [], truncated: false });
+  });
+
   it("discovers one stable type and fans out only matching occurrences without breaking legacy subscriptions", async () => {
     const catalog = (await request("events/list")).message.result;
     expect(catalog.events).toEqual([{

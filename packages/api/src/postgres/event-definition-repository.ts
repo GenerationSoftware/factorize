@@ -24,6 +24,23 @@ function presentRecorded(row: RecordedOccurrence) {
 const recordedFields = `id,definition_id,definition_revision,occurred_at,payload,
   to_char(created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS recorded_at`;
 
+type DeliveryStatus = "pending" | "sending" | "accepted" | "failed" | "cancelled";
+interface DeliveryDiagnosticRow {
+  occurrence_id: string;
+  subscription_id: string | null;
+  status: DeliveryStatus | null;
+  attempts: number;
+  last_outcome: string | null;
+  http_status: number | null;
+  updated_at: Date;
+  next_attempt_at: Date;
+}
+const deliveryOutcomeCodes = new Set([
+  "accepted", "http_error", "connection_failed", "timeout", "forbidden_destination",
+  "subscription_inactive", "authorization_inactive", "claim_interrupted", "event_mismatch",
+]);
+const deliveryDiagnosticsLimit = 100;
+
 export interface EventDefinitionInput {
   name: string;
   description?: string;
@@ -60,6 +77,38 @@ export class EventDefinitionRepository {
       `SELECT ${recordedFields} FROM app.event_occurrences WHERE tenant_id=$1 AND id=$2`, [this.tenantId, id],
     )).rows[0];
     return row && presentRecorded(row);
+  }
+
+  async deliveryDiagnostics(occurrenceId: string) {
+    // One tenant-scoped snapshot distinguishes a missing occurrence from an
+    // existing one with no outbox rows without fetching payload or callback data.
+    const { rows } = await this.database.pool.query<DeliveryDiagnosticRow>(
+      `SELECT o.id AS occurrence_id,d.subscription_id,d.status,d.attempts,d.last_outcome,d.http_status,d.updated_at,d.next_attempt_at
+       FROM app.event_occurrences o LEFT JOIN LATERAL (
+         SELECT subscription_id,status,attempts,last_outcome,http_status,updated_at,next_attempt_at
+         FROM app.mcp_event_deliveries
+         WHERE tenant_id=o.tenant_id AND occurrence_id=o.id
+         ORDER BY updated_at DESC,subscription_id LIMIT $3
+       ) d ON TRUE
+       WHERE o.tenant_id=$1 AND o.id=$2
+       ORDER BY d.updated_at DESC,d.subscription_id`, [this.tenantId, occurrenceId, deliveryDiagnosticsLimit + 1],
+    );
+    if (!rows.length) return null;
+    const items = rows.flatMap(row => row.status === null ? [] : [{
+      subscriptionId: row.subscription_id && /^sub_[a-f0-9]{64}$/.test(row.subscription_id) ? row.subscription_id : null,
+      status: row.status,
+      attempts: row.attempts,
+      lastOutcome: row.last_outcome === null ? null : deliveryOutcomeCodes.has(row.last_outcome) ? row.last_outcome : "unclassified",
+      httpStatus: row.http_status !== null && row.http_status >= 100 && row.http_status <= 599 ? row.http_status : null,
+      updatedAt: row.updated_at.toISOString(),
+      nextAttemptAt: row.status === "pending" ? row.next_attempt_at.toISOString() : null,
+    }]);
+    return {
+      occurrenceId: rows[0].occurrence_id,
+      state: items.length ? "delivery_records_present" : "no_delivery_records",
+      items: items.slice(0, deliveryDiagnosticsLimit),
+      truncated: items.length > deliveryDiagnosticsLimit,
+    };
   }
 
   async recordedOccurrences(definitionId: string, since: string, limit: number, boundary?: [string, string]) {

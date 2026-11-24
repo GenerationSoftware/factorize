@@ -16,7 +16,10 @@ The Factorize Worker sends callbacks directly over HTTPS. It rejects private IP 
 
 The occurrence and its outbox rows commit together. Subscription activation and occurrence insertion take the same transaction lock per definition. Each outbox row belongs to one activation generation, so refreshing an active subscription keeps its queued deliveries, while reactivating a stopped or expired one starts a new generation. Expiry defaults to 24 hours and is capped at seven days. A replaced secret is the primary signing key immediately, with a five-minute dual-signing window.
 
-The Worker alarm claims due rows and checks current grant, owner, scope, subscription status, and expiry before sending. A retry after an interrupted or uncertain attempt uses the same occurrence ID and a fresh signature. Callback acceptance means the endpoint returned a successful HTTP status. In PostgreSQL, `app.mcp_event_deliveries` records the attempt count, status, last outcome, and HTTP status.
+The Worker alarm claims due rows and checks current grant, owner, scope, subscription status, and expiry before sending. A retry after an interrupted or uncertain attempt uses the same occurrence ID and a fresh signature. Callback acceptance means the endpoint returned a successful HTTP status.
+
+For one exact occurrence, call the read-only `read_event_delivery_diagnostics` MCP tool with an owner credential scoped to `triggers:read`. It distinguishes a missing occurrence (not found) from an existing occurrence with no delivery records. Up to 100 most recently updated rows describe each delivery's opaque subscription ID, status, attempts, allowlisted outcome code, HTTP status, and timestamps. A pending row can include its next attempt time. `truncated` indicates more rows exist. An accepted delivery confirms callback receipt only, not task execution. The diagnostic does not expose callback details or contents, and cannot retry a delivery.
+In PostgreSQL, `app.mcp_event_deliveries` records the attempt count, status, last outcome, and HTTP status.
 
 ## Mocked Dot pilot
 

@@ -65,3 +65,6 @@ export const readEventOccurrencesInput = z.union([
   }),
 ]);
 export type ReadEventOccurrencesInput = z.infer<typeof readEventOccurrencesInput>;
+
+
+export const readEventDeliveryDiagnosticsInput = z.strictObject({ occurrenceId: z.uuid() });

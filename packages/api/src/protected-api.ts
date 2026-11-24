@@ -1,4 +1,4 @@
-import { listEventsInput, readEventOccurrencesInput, subscribeEventInput, unsubscribeEventInput } from "./mcp-event-contracts";
+import { listEventsInput, readEventDeliveryDiagnosticsInput, readEventOccurrencesInput, subscribeEventInput, unsubscribeEventInput } from "./mcp-event-contracts";
 import { appRegistrationInput, appRegistrationUpdate } from "./apps-contracts";
 import {createPayloadInput,appendPayloadInput,finalizePayloadInput,attachmentInput} from "./proxy-payloads";
 import {operationRef,operationRead} from "./proxy-operations";
@@ -209,6 +209,7 @@ function createMcpServer(service: ApiService, subscriptions = true): McpServer {
     tool("create_event", "Create a durable Event that one or more Triggers can publish.", eventDefinitionInput, (input:any) => service.createEvent(input));
     tool("update_event", "Create a new Event payload schema revision; existing occurrences retain their original revision.", eventDefinitionUpdate.extend({eventId:z.uuid()}), ({eventId,...input}:any) => service.updateEvent(eventId,input));
     tool("delete_event", "Permanently delete an Event, all its Triggers and input configurations, and its occurrence history.", z.object({eventId:z.uuid()}), ({eventId}:any) => service.deleteEvent(eventId));
+    tool("read_event_delivery_diagnostics", "Read safe outbound MCP webhook delivery diagnostics for one exact occurrence ID. This does not return payloads or callback details and does not retry deliveries.", readEventDeliveryDiagnosticsInput, ({ occurrenceId }: z.infer<typeof readEventDeliveryDiagnosticsInput>) => service.readEventDeliveryDiagnostics(occurrenceId), false, true);
     tool("read_event_occurrences", "Read committed Event payloads by occurrenceId or by definitionId and an inclusive recorded-time since value. Follow nextCursor with the same definitionId and since. Reads do not consume history.", readEventOccurrencesInput, (input: z.infer<typeof readEventOccurrencesInput>) => service.readEventOccurrences(input), false, true);
     tool("list_event_occurrences", "Read durable Event occurrences in reverse order.", z.object({eventId:z.uuid(),...eventOccurrenceQuery.shape}), ({eventId,limit,cursor}:any) => service.listEventOccurrences(eventId,limit,cursor));
                                 tool("list_triggers", "List triggers and their parent Events", z.object({}), () => service.listTriggers());
