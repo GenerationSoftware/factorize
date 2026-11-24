@@ -4,7 +4,7 @@ import {createPayloadInput,appendPayloadInput,finalizePayloadInput,attachmentInp
 import {operationRef,operationRead} from "./proxy-operations";
 import {proxyToolResult} from "./proxy-result";
 import {SKILLS_EXTENSION} from "./mcp-skills";
-import { disabledConnectionScopes } from "./oauth-connection-settings";
+import { effectiveConnectionScopes } from "./oauth-connection-settings";
 import { clientNameInput } from "./settings-contracts";
 import { SkillContentError } from "./skill-files";
 import { Hono } from "hono";
@@ -16,8 +16,8 @@ import { WorkerEntrypoint } from "cloudflare:workers";
 import { createMcpHandler, McpServer, ResourceTemplate, ProtocolError, ProtocolErrorCode } from "@modelcontextprotocol/server";
 import { createMcpHonoApp } from "@modelcontextprotocol/hono";
 import { z } from "zod";
-import { ApiService, ServiceError } from "./flow-service";
-import { triggerConditionsTestSchema, triggerIdSchema, triggerInputSchema, fireTriggerInputSchema } from "./flow-schemas";
+import { ApiService, ServiceError } from "./api-service";
+import { triggerConditionsTestSchema, triggerIdSchema, triggerInputSchema, fireTriggerInputSchema } from "./trigger-schemas";
 import type { Env, OAuthProps } from "./types";
 import { executeAuth, validBrowserOrigin } from "./auth-api";
 import { matchApiOperation } from "./api-contract";
@@ -70,8 +70,7 @@ export async function protectedApiFetch(request: Request, env: Env, auth: OAuthP
     try {
       const url = new URL(request.url), path = url.pathname;
       if (auth?.oauthGrantId) {
-        const disabled = await disabledConnectionScopes(env, auth);
-        auth = { ...auth, scopes: auth.scopes.filter(scope => !disabled.includes(scope)) };
+        auth = { ...auth, scopes: await effectiveConnectionScopes(env, auth, auth.scopes) };
         if (path.startsWith("/api/v1/agent/") && !auth.scopes.includes("proxy:use")) throw new ServiceError(403, "insufficient_scope", "The proxy:use scope is required.");
       }
       if (path === "/mcp") {
@@ -94,7 +93,9 @@ export async function protectedApiFetch(request: Request, env: Env, auth: OAuthP
             const credentialActive = async () => {
               if (listenerAuth.oauthGrantId) {
                 const token = await env.OAUTH_PROVIDER?.unwrapToken<OAuthProps>(request.headers.get("Authorization")?.slice(7) ?? "");
-                return token?.grantId === listenerAuth.oauthGrantId && token.expiresAt > Date.now()/1000 && normalizeScopes(token.scope).includes(requiredScope) && !(await disabledConnectionScopes(env, listenerAuth)).includes(requiredScope);
+                if (token?.grantId !== listenerAuth.oauthGrantId || token.expiresAt <= Date.now()/1000) return false;
+                const tokenScopes = normalizeScopes(token.scope).filter(scope => normalizeScopes(listenerAuth.scopes).includes(scope));
+                return (await effectiveConnectionScopes(env, listenerAuth, tokenScopes)).includes(requiredScope);
               }
               return listenerAuth.scopes.includes(requiredScope); // The database read rechecks owner membership and key activity.
             };
@@ -190,7 +191,7 @@ function createMcpServer(service: ApiService, subscriptions = true): McpServer {
     tool("get_event", "Read an Event and its current payload schema revision.", z.object({eventId:z.uuid()}), ({eventId}:any) => service.getEvent(eventId));
     tool("create_event", "Create a durable Event that one or more Triggers can publish.", eventDefinitionInput, (input:any) => service.createEvent(input));
     tool("update_event", "Create a new Event payload schema revision; existing occurrences retain their original revision.", eventDefinitionUpdate.extend({eventId:z.uuid()}), ({eventId,...input}:any) => service.updateEvent(eventId,input));
-    tool("delete_event", "Delete an Event with no attached Triggers.", z.object({eventId:z.uuid()}), ({eventId}:any) => service.deleteEvent(eventId));
+    tool("delete_event", "Permanently delete an Event, all its Triggers and input configurations, and its occurrence history.", z.object({eventId:z.uuid()}), ({eventId}:any) => service.deleteEvent(eventId));
     tool("list_event_occurrences", "Read durable Event occurrences in reverse order.", z.object({eventId:z.uuid(),...eventOccurrenceQuery.shape}), ({eventId,limit,cursor}:any) => service.listEventOccurrences(eventId,limit,cursor));
                                 tool("list_triggers", "List triggers and their parent Events", z.object({}), () => service.listTriggers());
     tool("list_skills", "List searchable team skill metadata. Shared edits affect every trigger using the skill; bodies are omitted.", z.object({ q: z.string().optional(), limit: z.number().int().min(1).max(100).default(30), cursor: z.string().optional() }), (input: any) => service.listSkills({ q: input.q ?? "", limit: input.limit, cursor: input.cursor }));
@@ -249,7 +250,8 @@ export class ProtectedApiHandler extends WorkerEntrypoint<Env, OAuthProps> {
       const token = credential && this.env.OAUTH_PROVIDER ? await this.env.OAUTH_PROVIDER.unwrapToken<OAuthProps>(credential) : null;
       if (!token || token.userId !== auth.userId || !token.grant?.clientId) return Response.json({error:{code:"invalid_token",message:"Invalid OAuth authorization"}}, {status:401});
       // Props describe original consent. The presented token may be narrowed.
-      auth = {...auth, authMethod: "oauth", scopes: normalizeScopes(token.scope).filter(scope => normalizeScopes(auth.scopes).includes(scope)), oauthGrantId: token.grantId, oauthClientId: token.grant.clientId, oauthExpiresAt: token.expiresAt};
+      const grantScopes = normalizeScopes(token.scope).filter(scope => normalizeScopes(auth.scopes).includes(scope));
+      auth = {...auth, authMethod: "oauth", scopes: grantScopes, oauthGrantId: token.grantId, oauthClientId: token.grant.clientId, oauthExpiresAt: token.expiresAt};
     }
     return protectedApiFetch(request, this.env, auth, this.ctx);
   }

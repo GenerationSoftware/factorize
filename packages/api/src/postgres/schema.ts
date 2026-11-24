@@ -69,10 +69,16 @@ export const agentIntegrations = app.table("agent_integrations", {
   policy:text("policy").$type<"baseline"|"requestable"|"disabled">().notNull().default("requestable"),epoch:integer("epoch").notNull().default(1),revision:integer("revision").notNull().default(1),
 },t=>[primaryKey({columns:[t.tenantId,t.id]}),unique().on(t.tenantId,t.kind,t.credentialId)]);
 export const agentIdentities = app.table("agent_identities", {
-  displayName: text("display_name"), disabledScopes: text("disabled_scopes").array().notNull().default([]),
+  displayName: text("display_name"), disabledScopes: text("disabled_scopes").array().notNull().default([]), scopeOverrides: text("scope_overrides").array(),
   integrationOverrides: jsonb("integration_overrides").notNull().default({}), permissionsRevision: integer("permissions_revision").notNull().default(0),
   tenantId:uuid("tenant_id").notNull().references(()=>tenants.id,{onDelete:"cascade"}),id:uuid("id").notNull().defaultRandom(),kind:text("kind").$type<"oauth">().notNull(),subject:text("subject").notNull(),userId:uuid("user_id").notNull(),sessionVersion:integer("session_version").notNull(),revokedAt:timestamp("revoked_at",{withTimezone:true}),createdAt:createdAt(),
 },t=>[primaryKey({columns:[t.tenantId,t.id]}),unique().on(t.tenantId,t.kind,t.subject)]);
+export const permissionPresets = app.table("permission_presets", {
+  tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  id: uuid("id").notNull(), name: text("name").notNull(), scopes: text("scopes").array().notNull().default([]),
+  isDefault: boolean("is_default").notNull().default(false), revision: integer("revision").notNull().default(1),
+  createdAt: createdAt(), updatedAt: updatedAt(),
+}, t => [primaryKey({ columns: [t.tenantId, t.id] }), uniqueIndex("permission_presets_name").on(t.tenantId, sql`lower(${t.name})`), uniqueIndex("permission_presets_default").on(t.tenantId).where(sql`${t.isDefault}`)]);
 export const agentProxyResponses = app.table("agent_proxy_responses", {
   tenantId:uuid("tenant_id").notNull(),id:uuid("id").notNull(),identityId:uuid("identity_id").notNull(),integrationId:uuid("integration_id").notNull(),integrationEpoch:integer("integration_epoch").notNull(),objectKey:text("object_key").notNull().unique(),size:integer("size"),expiresAt:timestamp("expires_at",{withTimezone:true}).notNull(),
 },t=>[primaryKey({columns:[t.tenantId,t.id]}),foreignKey({columns:[t.tenantId,t.identityId],foreignColumns:[agentIdentities.tenantId,agentIdentities.id]}),foreignKey({columns:[t.tenantId,t.integrationId],foreignColumns:[agentIntegrations.tenantId,agentIntegrations.id]}),index("agent_proxy_response_expiry").on(t.expiresAt)]);
@@ -93,7 +99,7 @@ export const eventDefinitionRevisions = app.table("event_definition_revisions", 
 }, t => [primaryKey({columns:[t.tenantId,t.definitionId,t.revision]}),foreignKey({columns:[t.tenantId,t.definitionId],foreignColumns:[eventDefinitions.tenantId,eventDefinitions.id]}).onDelete("cascade")]);
 export const triggers = app.table("triggers", {
   tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }), id: uuid("id").notNull(), name: text("name").notNull(), description: text("description").notNull().default(""), slug: text("slug").notNull(), revision: integer("revision").notNull().default(1), eventDefinitionId: uuid("event_definition_id").notNull(), enabled: boolean("enabled").notNull().default(true), createdAt: createdAt(), updatedAt: updatedAt(),
-}, t => [primaryKey({ columns: [t.tenantId, t.id] }), unique().on(t.tenantId, t.slug), foreignKey({columns:[t.tenantId,t.eventDefinitionId],foreignColumns:[eventDefinitions.tenantId,eventDefinitions.id]}).onDelete("restrict")]);
+}, t => [primaryKey({ columns: [t.tenantId, t.id] }), unique().on(t.tenantId, t.slug), foreignKey({columns:[t.tenantId,t.eventDefinitionId],foreignColumns:[eventDefinitions.tenantId,eventDefinitions.id]}).onDelete("cascade")]);
 export const skillLibraries = app.table("skill_libraries", {
   tenantId: uuid("tenant_id").primaryKey().references(() => tenants.id, {onDelete:"cascade"}),
   repo: text("repo").notNull().unique(), remote: text("remote").notNull(), source: jsonb("source").notNull(),

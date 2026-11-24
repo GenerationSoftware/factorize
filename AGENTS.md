@@ -4,7 +4,7 @@ This project in Linear is "Factorize"
 
 ## Validation
 
-Use Node 24.12.0 and npm 11.19.0 (`.node-version` and `package.json`) and run `npm ci` after a clean checkout.
+Use Node 24.21.0 and npm 11.19.0 (`.node-version` and `package.json`) and run `npm ci` after a clean checkout.
 Run `npm test` after the final code change; it is the complete required local
 validation and runs the shared backend and browser lanes used by CI. `npm run
 check` is an alias for the same suite. Targeted workspace commands remain
@@ -12,7 +12,7 @@ available for iteration, but do not replace the root suite before handoff.
 
 For a fresh exe.dev VM, use the Factorize validation runner image described in
 [`docs/factorize-validation-runner.md`](docs/factorize-validation-runner.md).
-It provides Node 24.12.0, npm 11.19.0, PostgreSQL and the matching Playwright
+It provides Node 24.21.0, npm 11.19.0, PostgreSQL and the matching Playwright
 Chromium build. After checkout, run `npm ci` and `npm run test:local`; this
 resets only the isolated local validation database, applies migrations, and
 runs the complete root suite with the database variables in its child

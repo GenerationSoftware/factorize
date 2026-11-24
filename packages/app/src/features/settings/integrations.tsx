@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "factorize-api-client";
 import { integrationsQuery } from "./queries";
 import { installationsQuery } from "./provider-queries";
-import { Page } from "../../shared/ui";
+import { SettingsLayout } from "./navigation";
 import { IntegrationForm } from "./integration-form";
 import { messageOf } from "../auth/session";
 import { useBearerIntegrations } from "./bearer-integrations";
@@ -18,7 +18,7 @@ type Kind = "exe" | "amp" | "cloudflareTail" | "github";
 const linkClass = "inline-flex min-h-10 items-center rounded-lg border border-stone-200 px-3 py-2 text-sm font-semibold hover:bg-stone-100 dark:border-slate-700 dark:hover:bg-slate-800";
 export function Integrations() {
   useDisableCredentialAutofill();
-  return <Page><IntegrationPoliciesProvider><IntegrationsContent /></IntegrationPoliciesProvider></Page>;
+  return <SettingsLayout title="Integrations"><IntegrationPoliciesProvider><IntegrationsContent /></IntegrationPoliciesProvider></SettingsLayout>;
 }
 function IntegrationsContent() {
   const cache = useQueryClient(), status = useQuery(integrationsQuery), github = useQuery(installationsQuery);

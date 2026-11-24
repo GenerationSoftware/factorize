@@ -2,7 +2,8 @@ import { useState, type FormEvent } from "react";
 import { Link, useLocation } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type paths } from "factorize-api-client";
-import { Button, Input, Label, Page } from "../../shared/ui";
+import { Button, Input, Label } from "../../shared/ui";
+import { SettingsLayout } from "../settings/navigation";
 import { Dialog } from "../../shared/dialog";
 import { messageOf } from "../auth/session";
 import { tabClasses } from "../auth/team-navigation";
@@ -35,7 +36,7 @@ export function ConnectedAppsPage() {
     },
     onSuccess: () => cache.invalidateQueries({ queryKey: connectedKey }),
   });
-  return <Page><h1>Apps</h1><AppNavigation />
+  return <SettingsLayout title="Apps"><AppNavigation />
     {connected.isPending && <p role="status">Loading connected apps…</p>}
     {connected.error && <p role="alert">{connected.error.message}</p>}
     {revoke.error && <p role="alert">{revoke.error.message}</p>}
@@ -48,7 +49,7 @@ export function ConnectedAppsPage() {
         }}>Revoke connection</Button>
       </li>
     )}</ul>
-  </Page>;
+  </SettingsLayout>;
 }
 
 function RegistrationEditor({ app, close }: { app: AppRegistration | null; close: () => void }) {
@@ -104,7 +105,7 @@ export function RegisteredAppsPage() {
     },
     onSuccess: () => cache.invalidateQueries({ queryKey: registeredKey }),
   });
-  return <Page><h1>Apps</h1><AppNavigation />
+  return <SettingsLayout title="Apps"><AppNavigation />
     <Button variant="primary" onClick={() => setEditing(null)}>Register app</Button>
     {registered.isPending && <p role="status">Loading registered apps…</p>}
     {registered.error && <p role="alert">{registered.error.message}</p>}
@@ -128,5 +129,5 @@ export function RegisteredAppsPage() {
       <Label>Client secret<Input readOnly value={issued.clientSecret} /></Label>
       <Button onClick={() => setIssued(null)}>Done</Button>
     </Dialog>}
-  </Page>;
+  </SettingsLayout>;
 }

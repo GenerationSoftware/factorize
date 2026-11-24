@@ -2475,6 +2475,10 @@ paths:
                     type: array
                     items:
                       type: string
+                  selectedScopes:
+                    type: array
+                    items:
+                      type: string
                   request:
                     type: string
                   signature:
@@ -2502,6 +2506,7 @@ paths:
                 required:
                   - clientName
                   - scopes
+                  - selectedScopes
                   - request
                   - signature
                   - expiresAt
@@ -3975,18 +3980,15 @@ paths:
                       type: array
                       items:
                         type: string
-                        enum:
-                          - team:read
-                          - team:write
-                          - triggers:read
-                          - triggers:write
-                          - integrations:read
-                          - integrations:write
-                          - skills:read
-                          - skills:write
-                          - proxy:use
-                          - apps:manage
+                    scopeLabels:
+                      default: {}
+                      type: object
+                      propertyNames:
+                        type: string
+                      additionalProperties:
+                        type: string
                     integrationOverrides:
+                      default: {}
                       type: object
                       propertyNames:
                         type: string
@@ -3997,7 +3999,6 @@ paths:
                           - type: string
                           - type: boolean
                             const: false
-                      description: Integration ID to approved epoch-bound scope, or false to block.
                     revision:
                       type: integer
                       minimum: -9007199254740991
@@ -4026,6 +4027,7 @@ paths:
                         - "null"
                   required:
                     - availableScopes
+                    - scopeLabels
                     - integrationOverrides
                     - revision
                     - grantId
@@ -4300,7 +4302,13 @@ paths:
             minLength: 1
   /api/v1/access/authorizations/{grantId}/permissions:
     put:
-      summary: Edit an OAuth connection’s scopes and integration access
+      summary: Set an OAuth connection’s effective scopes and integration access
+      description: |-
+        Interactive owner session required. Saving updates the connection immediately and can add scopes beyond the original OAuth request.
+
+        Requires the triggers:write scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
       responses:
         "200":
           description: Permissions saved
@@ -4332,10 +4340,6 @@ paths:
           $ref: "#/components/responses/Error500"
         "503":
           $ref: "#/components/responses/Error503"
-      description: |-
-        Requires the triggers:write scope.
-
-        An interactive owner session is required; bearer tokens cannot call this operation.
       operationId: put_api_v1_access_authorizations_grantId_permissions
       tags:
         - access
@@ -4357,6 +4361,12 @@ paths:
             schema:
               type: object
               properties:
+                scopes:
+                  description: Complete owner-selected effective scope set for this connection.
+                  maxItems: 100
+                  type: array
+                  items:
+                    type: string
                 disabledScopes:
                   maxItems: 10
                   type: array
@@ -4374,6 +4384,7 @@ paths:
                       - proxy:use
                       - apps:manage
                 integrationOverrides:
+                  description: Integration ID to approved epoch-bound scope, or false to block.
                   type: object
                   propertyNames:
                     type: string
@@ -4384,15 +4395,369 @@ paths:
                       - type: string
                       - type: boolean
                         const: false
-                  description: Integration ID to approved epoch-bound scope, or false to block.
                 expectedRevision:
                   type: integer
                   minimum: 0
                   maximum: 9007199254740991
-              required:
-                - disabledScopes
-                - integrationOverrides
               additionalProperties: false
+  /api/v1/permission-presets:
+    get:
+      summary: List team permission presets
+      responses:
+        "200":
+          description: Permission presets
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                      format: uuid
+                      pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                    name:
+                      type: string
+                    scopes:
+                      type: array
+                      items:
+                        type: string
+                    isDefault:
+                      type: boolean
+                    revision:
+                      type: integer
+                      exclusiveMinimum: 0
+                      maximum: 9007199254740991
+                    createdAt:
+                      type: string
+                    updatedAt:
+                      type: string
+                  required:
+                    - id
+                    - name
+                    - scopes
+                    - isDefault
+                    - revision
+                    - createdAt
+                    - updatedAt
+                  additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the team:read scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      operationId: get_api_v1_permission_presets
+      tags:
+        - permission-presets
+      security:
+        - cookieAuth: []
+      x-required-scope: team:read
+      x-owner-session-required: true
+    post:
+      summary: Create a team permission preset
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                  name:
+                    type: string
+                  scopes:
+                    type: array
+                    items:
+                      type: string
+                  isDefault:
+                    type: boolean
+                  revision:
+                    type: integer
+                    exclusiveMinimum: 0
+                    maximum: 9007199254740991
+                  createdAt:
+                    type: string
+                  updatedAt:
+                    type: string
+                required:
+                  - id
+                  - name
+                  - scopes
+                  - isDefault
+                  - revision
+                  - createdAt
+                  - updatedAt
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the team:write scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      operationId: post_api_v1_permission_presets
+      tags:
+        - permission-presets
+      security:
+        - cookieAuth: []
+      x-required-scope: team:write
+      x-owner-session-required: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+                scopes:
+                  maxItems: 100
+                  type: array
+                  items:
+                    type: string
+                expectedRevision:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+              required:
+                - name
+                - scopes
+              additionalProperties: false
+  /api/v1/permission-presets/{presetId}:
+    put:
+      summary: Update a team permission preset
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                  name:
+                    type: string
+                  scopes:
+                    type: array
+                    items:
+                      type: string
+                  isDefault:
+                    type: boolean
+                  revision:
+                    type: integer
+                    exclusiveMinimum: 0
+                    maximum: 9007199254740991
+                  createdAt:
+                    type: string
+                  updatedAt:
+                    type: string
+                required:
+                  - id
+                  - name
+                  - scopes
+                  - isDefault
+                  - revision
+                  - createdAt
+                  - updatedAt
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the team:write scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      operationId: put_api_v1_permission_presets_presetId
+      tags:
+        - permission-presets
+      security:
+        - cookieAuth: []
+      x-required-scope: team:write
+      x-owner-session-required: true
+      parameters:
+        - name: presetId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+                scopes:
+                  maxItems: 100
+                  type: array
+                  items:
+                    type: string
+                expectedRevision:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+              required:
+                - name
+                - scopes
+                - expectedRevision
+              additionalProperties: false
+    delete:
+      summary: Delete a team permission preset
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the team:write scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      operationId: delete_api_v1_permission_presets_presetId
+      tags:
+        - permission-presets
+      security:
+        - cookieAuth: []
+      x-required-scope: team:write
+      x-owner-session-required: true
+      parameters:
+        - name: presetId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+  /api/v1/permission-presets/{presetId}/default:
+    post:
+      summary: Set the team default permission preset
+      responses:
+        "200":
+          description: Default updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                required:
+                  - ok
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the team:write scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      operationId: post_api_v1_permission_presets_presetId_default
+      tags:
+        - permission-presets
+      security:
+        - cookieAuth: []
+      x-required-scope: team:write
+      x-owner-session-required: true
+      parameters:
+        - name: presetId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
   /api/v1/access/authorizations/{grantId}:
     delete:
       summary: Revoke one isolated OAuth connection
@@ -6466,7 +6831,13 @@ paths:
                 - expectedRevision
               additionalProperties: false
     delete:
-      summary: Delete an Event with no Triggers
+      summary: Delete an Event and its Triggers and occurrences
+      description: |-
+        Permanently deletes the Event, all attached Triggers, their input configurations, and the Event's occurrence history.
+
+        Requires the triggers:write scope.
+
+        Accepts a scoped bearer token or interactive owner session.
       responses:
         "200":
           description: Deleted
@@ -6490,10 +6861,6 @@ paths:
           $ref: "#/components/responses/Error500"
         "503":
           $ref: "#/components/responses/Error503"
-      description: |-
-        Requires the triggers:write scope.
-
-        Accepts a scoped bearer token or interactive owner session.
       operationId: delete_api_v1_events_eventId
       tags:
         - events

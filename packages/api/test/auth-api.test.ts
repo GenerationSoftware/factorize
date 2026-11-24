@@ -8,7 +8,7 @@ import { safeReturnTo } from "../src/auth-api";
 import { signSession } from "../src/session";
 import { AuthRepository } from "../src/postgres/auth-repository";
 import { IdentityRepository } from "../src/postgres/identity-repository";
-import { ApiService } from "../src/flow-service";
+import { ApiService } from "../src/api-service";
 import type { Env, OAuthProps } from "../src/types";
 
 vi.mock("cloudflare:workers", () => ({ WorkerEntrypoint: class {}, DurableObject: class {} }));

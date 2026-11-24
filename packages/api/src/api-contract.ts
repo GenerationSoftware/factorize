@@ -8,17 +8,17 @@ import { apiReflection, apiPolicyList, apiPolicyInput, requestApiInput, requestA
 import { queryOf } from "./query-params";
 import { searchResponse } from "./search-contracts";
 import { consentPreviewInput, consentPreviewResponse, consentDecisionInput, consentDecisionResponse } from "./consent-api";
-import { exeConnection, integrationStatus, clientPermissionsUpdate, authorizedClient, accessToken, createdAccessToken, savedExe, savedAmp, savedTail, okResult } from "./settings-contracts";
+import { exeConnection, integrationStatus, clientPermissionsUpdate, authorizedClient, accessToken, createdAccessToken, savedExe, savedAmp, savedTail, okResult, permissionPreset, permissionPresetInput, permissionPresetList } from "./settings-contracts";
 import { eventAvailabilityResponse, namedOption, providerOptions, githubInstallation, githubRepository, tailIntegration } from "./editor-contracts";
 import { triggerResponse, triggerUpdateInput } from "./trigger-contracts";
 import { z } from "zod";
 import { oidcConsentInput, oidcConsentPreview } from "./oidc-provider";
 import { appRegistrationInput, appRegistrationUpdate, appSecret, connectedApp, registeredApp } from "./apps-contracts";
-import type { ApiService } from "./flow-service";
+import type { ApiService } from "./api-service";
 import {
   triggerInputSchema,
   fireTriggerInputSchema, triggerConditionsTestSchema, scopeSchema, teamResponse,
-} from "./flow-schemas";
+} from "./trigger-schemas";
 
 import { X_OAUTH_SCOPES } from "./x-oauth";
 import document from "./api-document.json";
@@ -552,9 +552,15 @@ export const API_ROUTES: RouteContract[] = [
     { ownerSession: true },
   ),
   route("PUT", "/api/v1/access/authorizations/{grantId}/permissions", "triggers:write", {
-    summary: "Edit an OAuth connection’s scopes and integration access",
+    summary: "Set an OAuth connection’s effective scopes and integration access",
+    description: "Interactive owner session required. Saving updates the connection immediately and can add scopes beyond the original OAuth request.",
     responses: {"200": {description: "Permissions saved", content: {"application/json": {schema: jsonSchema(okResult, "output")}}}},
   }, (service, {params, body}) => service.updateClientPermissions(params.grantId, body), {ownerSession: true, body: clientPermissionsUpdate}),
+  route("GET", "/api/v1/permission-presets", "team:read", {summary:"List team permission presets",responses:{"200":{description:"Permission presets",content:{"application/json":{schema:jsonSchema(permissionPresetList,"output")}}}}}, service=>service.listPermissionPresets(), {ownerSession:true}),
+  route("POST", "/api/v1/permission-presets", "team:write", {summary:"Create a team permission preset",responses:{"201":{description:"Created",content:{"application/json":{schema:jsonSchema(permissionPreset,"output")}}}}}, (service,{body})=>service.createPermissionPreset(body), {ownerSession:true,body:permissionPresetInput}),
+  route("PUT", "/api/v1/permission-presets/{presetId}", "team:write", {summary:"Update a team permission preset",responses:{"200":{description:"Updated",content:{"application/json":{schema:jsonSchema(permissionPreset,"output")}}}}}, (service,{params,body})=>service.updatePermissionPreset(params.presetId,body), {ownerSession:true,parameters:z.object({presetId:z.uuid()}),body:permissionPresetInput.extend({expectedRevision:z.number().int().positive()})}),
+  route("POST", "/api/v1/permission-presets/{presetId}/default", "team:write", {summary:"Set the team default permission preset",responses:{"200":{description:"Default updated",content:{"application/json":{schema:jsonSchema(okResult,"output")}}}}}, (service,{params})=>service.setDefaultPermissionPreset(params.presetId), {ownerSession:true,parameters:z.object({presetId:z.uuid()})}),
+  route("DELETE", "/api/v1/permission-presets/{presetId}", "team:write", {summary:"Delete a team permission preset",responses:{"200":{description:"Deleted"}}}, (service,{params})=>service.deletePermissionPreset(params.presetId), {ownerSession:true,parameters:z.object({presetId:z.uuid()})}),
   route("DELETE", "/api/v1/access/authorizations/{grantId}", "triggers:write", {summary:"Revoke one isolated OAuth connection", description:"Other connections, including copies of the same client, retain their approvals.",responses:{"200":{description:"Authorization revoked",content:{"application/json":{schema:jsonSchema(z.object({revoked:z.number().int()}),"output")}}}}}, (service,{params})=>service.revokeOAuthAuthorization(params.grantId), {ownerSession:true}),
   route(
     "DELETE",
@@ -690,7 +696,7 @@ export const API_ROUTES: RouteContract[] = [
   route("POST", "/api/v1/events", "triggers:write", { summary: "Create an Event", responses: { "201": { description: "Created Event", content: { "application/json": { schema: jsonSchema(eventDefinitionResponse, "output") } } } } }, (service, { body }) => service.createEvent(body), { body: eventDefinitionInput }),
   route("GET", "/api/v1/events/{eventId}", "triggers:read", { summary: "Get an Event", responses: { "200": { description: "Event", content: { "application/json": { schema: jsonSchema(eventDefinitionResponse, "output") } } } } }, (service, { params }) => service.getEvent(params.eventId), { parameters: z.object({ eventId: z.uuid() }) }),
   route("PUT", "/api/v1/events/{eventId}", "triggers:write", { summary: "Update an Event payload schema", responses: { "200": { description: "Updated Event", content: { "application/json": { schema: jsonSchema(eventDefinitionResponse, "output") } } } } }, (service, { params, body }) => service.updateEvent(params.eventId, body), { parameters: z.object({ eventId: z.uuid() }), body: eventDefinitionUpdate }),
-  route("DELETE", "/api/v1/events/{eventId}", "triggers:write", { summary: "Delete an Event with no Triggers", responses: { "200": { description: "Deleted" } } }, (service, { params }) => service.deleteEvent(params.eventId), { parameters: z.object({ eventId: z.uuid() }) }),
+  route("DELETE", "/api/v1/events/{eventId}", "triggers:write", { summary: "Delete an Event and its Triggers and occurrences", description:"Permanently deletes the Event, all attached Triggers, their input configurations, and the Event's occurrence history.", responses: { "200": { description: "Deleted" } } }, (service, { params }) => service.deleteEvent(params.eventId), { parameters: z.object({ eventId: z.uuid() }) }),
   route("GET", "/api/v1/events/{eventId}/occurrences", "triggers:read", { summary: "List durable Event occurrences", responses: { "200": { description: "Occurrences", content: { "application/json": { schema: jsonSchema(eventOccurrencePage, "output") } } } } }, (service, { params, query }) => service.listEventOccurrences(params.eventId, query.limit, query.cursor), { parameters: z.object({ eventId: z.uuid() }), query: eventOccurrenceQuery }),
   route(
     "GET",

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-expected_node=24.12.0
+expected_node=24.21.0
 expected_npm=11.19.0
 expected_playwright=1.64.0
 

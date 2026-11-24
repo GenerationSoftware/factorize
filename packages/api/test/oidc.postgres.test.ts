@@ -3,7 +3,7 @@ import { Buffer } from "node:buffer";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { loadingFixture } from "./helpers/loading-fixture";
 import { accessTokenDigest } from "../src/access-tokens";
-import { ApiService } from "../src/flow-service";
+import { ApiService } from "../src/api-service";
 import { signSession } from "../src/session";
 import worker from "../src/worker";
 

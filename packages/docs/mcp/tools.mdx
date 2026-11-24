@@ -69,6 +69,9 @@ subscription support. After a resource-updated notification, read the resource
 to retrieve durable data. `list_event_occurrences` lets a reconnecting client
 recover stored records.
 
+`delete_event` permanently removes the Event, all attached Triggers and input
+configurations, and all stored occurrences.
+
 ## Triggers
 
 A Trigger belongs to one Event and watches a schedule, signed webhook/provider

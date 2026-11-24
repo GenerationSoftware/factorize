@@ -963,13 +963,93 @@ export interface paths {
         };
         get?: never;
         /**
-         * Edit an OAuth connection’s scopes and integration access
-         * @description Requires the triggers:write scope.
+         * Set an OAuth connection’s effective scopes and integration access
+         * @description Interactive owner session required. Saving updates the connection immediately and can add scopes beyond the original OAuth request.
+         *
+         *     Requires the triggers:write scope.
          *
          *     An interactive owner session is required; bearer tokens cannot call this operation.
          */
         put: operations["put_api_v1_access_authorizations_grantId_permissions"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/permission-presets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List team permission presets
+         * @description Requires the team:read scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        get: operations["get_api_v1_permission_presets"];
+        put?: never;
+        /**
+         * Create a team permission preset
+         * @description Requires the team:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        post: operations["post_api_v1_permission_presets"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/permission-presets/{presetId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Update a team permission preset
+         * @description Requires the team:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        put: operations["put_api_v1_permission_presets_presetId"];
+        post?: never;
+        /**
+         * Delete a team permission preset
+         * @description Requires the team:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        delete: operations["delete_api_v1_permission_presets_presetId"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/permission-presets/{presetId}/default": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set the team default permission preset
+         * @description Requires the team:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        post: operations["post_api_v1_permission_presets_presetId_default"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1457,8 +1537,10 @@ export interface paths {
         put: operations["put_api_v1_events_eventId"];
         post?: never;
         /**
-         * Delete an Event with no Triggers
-         * @description Requires the triggers:write scope.
+         * Delete an Event and its Triggers and occurrences
+         * @description Permanently deletes the Event, all attached Triggers, their input configurations, and the Event's occurrence history.
+         *
+         *     Requires the triggers:write scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
@@ -3584,6 +3666,7 @@ export interface operations {
                     "application/json": {
                         clientName: string;
                         scopes: string[];
+                        selectedScopes: string[];
                         request: string;
                         signature: string;
                         expiresAt: string;
@@ -4399,8 +4482,12 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        availableScopes: ("team:read" | "team:write" | "triggers:read" | "triggers:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write" | "proxy:use" | "apps:manage")[];
-                        /** @description Integration ID to approved epoch-bound scope, or false to block. */
+                        availableScopes: string[];
+                        /** @default {} */
+                        scopeLabels: {
+                            [key: string]: string;
+                        };
+                        /** @default {} */
                         integrationOverrides: {
                             [key: string]: string | false;
                         };
@@ -4550,9 +4637,11 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
-                    disabledScopes: ("team:read" | "team:write" | "triggers:read" | "triggers:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write" | "proxy:use" | "apps:manage")[];
+                    /** @description Complete owner-selected effective scope set for this connection. */
+                    scopes?: string[];
+                    disabledScopes?: ("team:read" | "team:write" | "triggers:read" | "triggers:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write" | "proxy:use" | "apps:manage")[];
                     /** @description Integration ID to approved epoch-bound scope, or false to block. */
-                    integrationOverrides: {
+                    integrationOverrides?: {
                         [key: string]: string | false;
                     };
                     expectedRevision?: number;
@@ -4577,6 +4666,199 @@ export interface operations {
             404: components["responses"]["Error404"];
             409: components["responses"]["Error409"];
             415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    get_api_v1_permission_presets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Permission presets */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        name: string;
+                        scopes: string[];
+                        isDefault: boolean;
+                        revision: number;
+                        createdAt: string;
+                        updatedAt: string;
+                    }[];
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_permission_presets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    name: string;
+                    scopes: string[];
+                    expectedRevision?: number;
+                };
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        name: string;
+                        scopes: string[];
+                        isDefault: boolean;
+                        revision: number;
+                        createdAt: string;
+                        updatedAt: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    put_api_v1_permission_presets_presetId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                presetId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    name: string;
+                    scopes: string[];
+                    expectedRevision: number;
+                };
+            };
+        };
+        responses: {
+            /** @description Updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        name: string;
+                        scopes: string[];
+                        isDefault: boolean;
+                        revision: number;
+                        createdAt: string;
+                        updatedAt: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    delete_api_v1_permission_presets_presetId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                presetId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_permission_presets_presetId_default: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                presetId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Default updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ok: boolean;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
             429: components["responses"]["Error429"];
             500: components["responses"]["Error500"];
             503: components["responses"]["Error503"];

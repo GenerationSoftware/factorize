@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { loadingFixture } from "./helpers/loading-fixture";
 import { gitHttpsFetch, issueGitCredential, skillCloneInfo } from "../src/git-https";
 import { SkillLibrary } from "../src/skill-library";
-import { ApiService } from "../src/flow-service";
+import { ApiService } from "../src/api-service";
 import { protectedApiFetch } from "../src/protected-api";
 import { installationToken } from "../src/github";
 import { GitHubRepository } from "../src/postgres/github-repository";

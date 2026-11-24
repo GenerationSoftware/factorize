@@ -10,7 +10,7 @@ import type { Session } from "./session";
 import { AGENT_SCOPES, normalizeScopes } from "./access-tokens";
 export const consentPreviewInput = z.object({ authorizationQuery: z.string().min(1).max(8192) }).strict();
 export const consentDecisionInput = z.object({ request: z.string().min(1).max(16384), signature: z.string().min(1).max(256), decision: z.enum(["allow", "deny"]), scopes: z.array(z.string()) }).strict();
-export const consentPreviewResponse = z.object({ clientName: z.string(), scopes: z.array(z.string()), request: z.string(), signature: z.string(), expiresAt: z.string(), integrationLabels: z.array(z.object({ scope: z.string(), name: z.string(), description: z.string().nullable() })).optional() });
+export const consentPreviewResponse = z.object({ clientName: z.string(), scopes: z.array(z.string()), selectedScopes: z.array(z.string()), request: z.string(), signature: z.string(), expiresAt: z.string(), integrationLabels: z.array(z.object({ scope: z.string(), name: z.string(), description: z.string().nullable() })).optional() });
 export const consentDecisionResponse = z.object({ redirectTo: z.string() });
 const supported: readonly string[] = AGENT_SCOPES;
 const encode = (value: unknown) => btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(value))));
@@ -39,7 +39,10 @@ export async function consentPreview(env: Env, session: Session, input: z.infer<
   if (parsed.scope.some(scope => !supported.includes(scope) && !isIntegrationScope(scope))) return null;
   const requestedScopes = parsed.scope;
   const integrationLabels = await integrationConsentLabels(env, session.tenantId, requestedScopes);
-  return { integrationLabels, clientName: client.clientName ?? "this client", scopes: normalizeScopes(requestedScopes), request, signature: await hmac(binding(request, session), env.SESSION_SIGNING_SECRET), expiresAt: new Date(expiresAt * 1000).toISOString() };
+  const scopes = normalizeScopes(requestedScopes);
+  const defaultPreset = (await databaseFor(env).pool.query<{scopes:string[]}>("SELECT scopes FROM app.permission_presets WHERE tenant_id=$1 AND is_default=true", [session.tenantId])).rows[0];
+  const selectedScopes = defaultPreset ? scopes.filter(scope => defaultPreset.scopes.includes(scope)) : scopes;
+  return { integrationLabels, clientName: client.clientName ?? "this client", scopes, selectedScopes, request, signature: await hmac(binding(request, session), env.SESSION_SIGNING_SECRET), expiresAt: new Date(expiresAt * 1000).toISOString() };
 }
 export async function consentDecision(env: Env, session: Session, input: z.infer<typeof consentDecisionInput>) {
   if (!env.OAUTH_PROVIDER || !equal(input.signature, await hmac(binding(input.request, session), env.SESSION_SIGNING_SECRET))) return null;

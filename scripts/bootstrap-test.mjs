@@ -4,7 +4,7 @@ import process from "node:process";
 
 const exec = promisify(execFile);
 const runTests = process.argv.includes("--test");
-const expectedNode = "v24.12.0";
+const expectedNode = "v24.21.0";
 const expectedNpm = "11.19.0";
 const databaseUrl = process.env.VALIDATION_DATABASE_URL ?? "postgresql://postgres:local-validation-only@localhost:5432/factorize_validation";
 const adminUrl = process.env.VALIDATION_DATABASE_ADMIN_URL ?? "postgresql://postgres:local-validation-only@localhost:5432/postgres";

@@ -2,7 +2,7 @@ FROM ghcr.int.exe.xyz/boldsoftware/exeuntu:latest
 
 SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 
-ARG NODE_VERSION=24.12.0
+ARG NODE_VERSION=24.21.0
 ARG NPM_VERSION=11.19.0
 ARG PLAYWRIGHT_VERSION=1.64.0
 

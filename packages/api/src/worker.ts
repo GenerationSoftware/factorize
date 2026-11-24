@@ -11,6 +11,7 @@ import { consentDecision } from "./consent-api";
 import { addDeviceMetadata, DEVICE_GRANT, deviceAuthorization, deviceClientRegistration, deviceToken, deviceVerification } from "./device-oauth";
 import type { Env, OAuthProps } from "./types";
 import { AGENT_SCOPES, ACCESS_SCOPES, authenticateAccessToken, normalizeScopes } from "./access-tokens";
+import { effectiveConnectionScopes } from "./oauth-connection-settings";
 import { databaseFor } from "./postgres/database";
 import { IdentityRepository } from "./postgres/identity-repository";
 import { oidcApiAuth, oidcRequest } from "./oidc-provider";
@@ -110,7 +111,8 @@ const backend = { async fetch(request: Request, env: Env, ctx: ExecutionContext)
     const props = token?.grant.props;
     if (!token || token.audience !== env.APP_ORIGIN+"/mcp" || !props || props.userId !== token.userId || token.expiresAt <= Date.now()/1000)
       return Response.json({error:{code:"invalid_token"}},{status:401});
-    const effective = normalizeScopes(token.scope).filter(scope => normalizeScopes(props.scopes).includes(scope));
+    const tokenScopes = normalizeScopes(token.scope).filter(scope => normalizeScopes(props.scopes).includes(scope));
+    const effective = await effectiveConnectionScopes(env, { ...props, authMethod: "oauth", oauthGrantId: token.grantId }, tokenScopes);
     if (!effective.includes("proxy:use")) return Response.json({error:{code:"insufficient_scope"}},{status:403, headers:{"WWW-Authenticate":'Bearer error="insufficient_scope", scope="proxy:use"'}});
     return protectedApiFetch(request,apiEnv,{...props,authMethod:"oauth",scopes:effective,oauthGrantId:token.grantId,oauthClientId:token.grant.clientId,oauthExpiresAt:token.expiresAt},ctx);
   }

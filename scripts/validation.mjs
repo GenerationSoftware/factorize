@@ -3,7 +3,7 @@ import process from "node:process";
 import { runProcess } from "./portable-proxy-test-helpers.mjs";
 
 const lane = process.argv[2] ?? "all";
-const expectedNode = "24.12.0";
+const expectedNode = "24.21.0";
 const suiteTimeoutMs = 1_000_000;
 const lanes = {
   backend: [

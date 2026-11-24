@@ -26,7 +26,7 @@ not the persistence mechanism. Skills are standalone instruction documents.
 
 ## Local development and validation
 
-Use Node 24.12.0 and npm 11.19.0. After a clean checkout run `npm ci`. For full
+Use Node 24.21.0 and npm 11.19.0. After a clean checkout run `npm ci`. For full
 local validation, use the image and isolated database described in
 [`factorize-validation-runner.md`](factorize-validation-runner.md), then run
 `npm run test:local`. This applies migrations and runs the complete root suite.

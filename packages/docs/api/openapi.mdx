@@ -11,6 +11,6 @@ The definition is generated from the executable route catalog in `packages/api/s
 npm run generate:openapi
 ```
 
-Commit `packages/docs/openapi.yaml` with the change. CI regenerates it and rejects a diff; parsed contract tests also require exact method/path equality with the executable catalog. Shared schemas and general API metadata live beside the catalog in `flow-schemas.ts`, `trace-replay-schemas.ts`, and `api-document.json`.
+Commit `packages/docs/openapi.yaml` with the change. CI regenerates it and rejects a diff; parsed contract tests also require exact method/path equality with the executable catalog. Shared schemas and general API metadata live beside the catalog in `trigger-schemas.ts`, `trace-replay-schemas.ts`, and `api-document.json`.
 
 Run `npm run validate --workspace=factorize-docs` to verify the generated artifact, parsed operation contract, and Mintlify configuration before publishing.

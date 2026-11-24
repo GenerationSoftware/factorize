@@ -8,7 +8,7 @@ Call `get_api_reflection` to inspect current identity and permissions. Events an
 
 ## Events
 
-Use `list_events` and `get_event` to inspect Events and their payload schema revisions. Create an Event with `create_event`, including a lowercase stable `name`, optional description, and JSON Schema object in `payloadSchema`. Use `update_event` with the current `expectedRevision` to add a schema revision. Existing occurrences keep their original revision. Delete Events only after removing their Triggers.
+Use `list_events` and `get_event` to inspect Events and their payload schema revisions. Create an Event with `create_event`, including a lowercase stable `name`, optional description, and JSON Schema object in `payloadSchema`. Use `update_event` with the current `expectedRevision` to add a schema revision. Existing occurrences keep their original revision. `delete_event` permanently deletes the Event, all attached Triggers and input configurations, and all occurrence history.
 
 MCP subscribers read `factorize://events/{eventId}/occurrences`. Subscribe through `subscriptions/listen`; on resource update, read the occurrence resource. Occurrences are durable, so reconnecting clients can read missed records. Use `list_event_occurrences` to page through stored occurrences.
 

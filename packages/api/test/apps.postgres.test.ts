@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { loadingFixture } from "./helpers/loading-fixture";
-import { ApiService } from "../src/flow-service";
+import { ApiService } from "../src/api-service";
 import { accessTokenDigest } from "../src/access-tokens";
 
 vi.mock("cloudflare:workers", () => ({ WorkerEntrypoint: class {}, DurableObject: class {} }));

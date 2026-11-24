@@ -13,12 +13,12 @@ export const webhookEventConfigSchema = z.discriminatedUnion("provider", [
   webhookCommonSchema.extend({ provider: z.literal("cloudflareTail"), integrationId: z.string().min(1) }).strict(),
 ]);
 const eventTemplate = z.string().max(50_000).refine(value => { try { Mustache.parse(value); return true; } catch { return false; } }, "Enter a valid Mustache template.").optional();
-export const eventSchema = z.discriminatedUnion("kind", [
+export const triggerSourceSchema = z.discriminatedUnion("kind", [
   z.object({ id: z.string().min(1).optional(), slug: z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/).optional(), kind: z.literal("manual"), template: eventTemplate, enabled: z.boolean().default(true), config: z.object({}).strict().default({}) }).strict(),
   z.object({ id: z.string().min(1).optional(), slug: z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/).optional(), kind: z.literal("schedule"), template: eventTemplate, enabled: z.boolean().default(true), config: z.object({ cron: z.string().trim().min(1), timezone: z.string().trim().min(1) }).strict() }).strict(),
   z.object({ id: z.string().min(1).optional(), slug: z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/).optional(), kind: z.literal("webhook"), template: eventTemplate, enabled: z.boolean().default(true), config: webhookEventConfigSchema }).strict(),
 ]);
-export const triggerInputSchema = z.object({ name: resourceName, eventId: z.guid(), events: z.array(eventSchema).min(1).max(50).default([{ kind: "manual", slug: "event-1", enabled: true, config: {} }]) }).strict();
+export const triggerInputSchema = z.object({ name: resourceName, eventId: z.guid(), events: z.array(triggerSourceSchema).min(1).max(50).default([{ kind: "manual", slug: "event-1", enabled: true, config: {} }]) }).strict();
 export const triggerIdSchema = z.object({ triggerId: z.string().min(1) });
 export const fireTriggerInputSchema = z.object({ data: z.record(z.string(), z.unknown()).default({}), idempotencyKey: z.string().trim().min(1).max(200).optional() }).strict();
 export const triggerConditionsTestSchema = z.object({ conditions: conditionsSchema.optional(), webhook: preparedWebhookSchema }).strict();

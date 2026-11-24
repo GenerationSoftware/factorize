@@ -4,7 +4,7 @@ import { SkillContent } from "../src/skill-content";
 import { PostgresSkillContentCache } from "../src/postgres/skill-content-cache";
 import { withSkillGit } from "../src/skill-git";
 import { markdown,type Directory } from "../src/skill-files";
-import { ApiService } from "../src/flow-service";
+import { ApiService } from "../src/api-service";
 import { decrypt } from "../src/crypto";
 vi.mock("cloudflare:workers",()=>({WorkerEntrypoint:class{},DurableObject:class{}}));
 vi.mock("@cloudflare/workers-oauth-provider",()=>({OAuthProvider:class{},AuthorizationError:class extends Error{},getOAuthApi:vi.fn()}));

@@ -8,6 +8,8 @@ describe("Events and Triggers API contract", () => {
       "GET /api/v1/events", "POST /api/v1/events", "GET /api/v1/events/{eventId}",
       "PUT /api/v1/events/{eventId}", "DELETE /api/v1/events/{eventId}",
       "GET /api/v1/events/{eventId}/occurrences", "GET /api/v1/triggers",
+      "GET /api/v1/permission-presets", "POST /api/v1/permission-presets",
+      "PUT /api/v1/access/authorizations/{grantId}/permissions",
       "POST /api/v1/triggers", "POST /api/v1/triggers/{triggerId}/fire",
     ]) expect(routes).toContain(operation);
     expect(matchApiOperation("GET", "/api/v1/runs")).toBeUndefined();

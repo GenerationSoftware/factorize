@@ -130,7 +130,7 @@ test("authenticated password route shows settings navigation with the active pas
   } }));
   await page.goto(origin + "/settings/password");
   const settings = page.getByRole("navigation", { name: "Settings" });
-  assert.equal(await settings.getByRole("link", { name: "Integrations", exact: true }).count(), 0);
+  assert.equal(await settings.getByRole("link", { name: "Integrations", exact: true }).count(), 1);
   assert.equal(await settings.getByRole("link", { name: "Skills library", exact: true }).count(), 0);
   const dashboard = page.getByRole("navigation", { name: "Dashboard navigation" });
   assert.equal(await dashboard.count(), 1);
@@ -140,6 +140,28 @@ test("authenticated password route shows settings navigation with the active pas
   await password.waitFor();
   assert.equal(await password.getAttribute("aria-current"), "page");
   assert.match(await password.getAttribute("class"), /bg-factorize-50/);
+  await context.close();
+});
+
+test("Settings navigation opens permission presets and Apps from the sidebar", async () => {
+  const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const page = await context.newPage();
+  await page.route("**/api/v1/session", route => route.fulfill({ json: {
+    authenticated: true, user: { id: "owner-a", email: "owner@example.test" },
+    team: { id: "workspace-a", name: "Workspace", role: "owner" }, capabilities: [],
+  } }));
+  await page.route("**/api/v1/permission-presets", route => route.fulfill({ json: [] }));
+  await page.route("**/api/v1/integration-api-policies", route => route.fulfill({ json: { integrations: [] } }));
+  await page.route("**/api/v1/app-connections", route => route.fulfill({ json: [] }));
+  await page.goto(origin + "/settings");
+  await page.getByRole("heading", { name: "Permissions", exact: true }).waitFor();
+  assert.equal(new URL(page.url()).pathname, "/settings/permissions");
+  const settings = page.getByRole("navigation", { name: "Settings" });
+  await settings.getByRole("link", { name: "Apps", exact: true }).click();
+  await page.getByText("No connected apps.").waitFor();
+  assert.equal(new URL(page.url()).pathname, "/apps");
+  await settings.getByRole("link", { name: "Permissions", exact: true }).click();
+  await page.getByRole("heading", { name: "Permissions", exact: true }).waitFor();
   await context.close();
 });
 

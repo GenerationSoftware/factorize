@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { resourceName } from "../src/resource-names";
-import { triggerInputSchema } from "../src/flow-schemas";
+import { triggerInputSchema } from "../src/trigger-schemas";
 import { skillInput } from "../src/skills";
 import { loadingFixture } from "./helpers/loading-fixture";
 

@@ -6,7 +6,7 @@ documented exe.dev `exeuntu` base. It keeps the base image's SSH, systemd,
 `exedev` user, and agent setup while adding prerequisites for the complete
 Factorize test suite.
 
-The image pins Node 24.12.0, npm 11.19.0, and Playwright/Chromium 1.64.0. It
+The image pins Node 24.21.0, npm 11.19.0, and Playwright/Chromium 1.64.0. It
 installs PostgreSQL 16 without starting systemd during image build, enables
 the PostgreSQL service for VM boot, and sets the `postgres` password used by
 `scripts/bootstrap-test.mjs`. PostgreSQL listens on loopback; the test
@@ -53,6 +53,10 @@ or the full suite. A failure requires correcting the image or bootstrap and
 publishing a new digest, followed by repeating this sequence.
 
 ## Validated image record
+
+The existing digest below records the previous Node 24.12.0 image. The current
+Dockerfile and validation scripts target Node 24.21.0; rebuild and publish a
+new image digest before using it for validation or pinning it to a Dev job.
 
 | Field | Value |
 | --- | --- |
