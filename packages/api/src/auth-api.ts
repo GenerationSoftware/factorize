@@ -1,3 +1,4 @@
+import { clearGoogleCookie, finishGoogleSignIn, googleEnabled, googlePending, googleUsernameAvailable, redeemGoogleCallback, requestGoogleEmail, startGoogleSignIn, verifyGoogleEmail, type GoogleIdentity } from "./google-sign-in";
 import { usernameSchema } from "./usernames";
 import { integrationConsentLabels } from "./agent-api";
 import { ACCESS_SCOPES } from "./access-tokens";
@@ -23,6 +24,9 @@ export const authInputs = {
   request: z.object({ email, connection }).strict(),
   verify: z.object({ token }).strict(),
   reset: z.object({ token, password }).strict(),
+  googleStart: z.object({ returnTo: z.string().max(8192).optional(), connection }).strict(),
+  googleFinish: z.union([z.object({ username: usernameSchema }).strict(), z.object({ password }).strict()]),
+  googleUsername: z.object({ username: usernameSchema }).strict(),
   change: z.object({ currentPassword: password, password }).strict(),
 };
 export const sessionResponse = z.discriminatedUnion("authenticated", [
@@ -33,6 +37,7 @@ export const sessionResponse = z.discriminatedUnion("authenticated", [
     team: z.object({ id: z.string(), name: z.string().nullable(), role: z.literal("owner") }).strict(),
     capabilities: z.array(z.enum(SESSION_SCOPES)),
     expiresAt: z.iso.datetime(),
+    hasPassword: z.boolean().optional(),
   }).strict(),
 ]);
 export const authSuccess = z.object({ ok: z.literal(true) }).strict();
@@ -40,6 +45,10 @@ export const continuationSuccess = authSuccess.extend({ returnTo: z.string().opt
 export const connectionStartInput = z.object({ returnTo: z.string().min(1).max(8192) }).strict();
 export const connectionStartSuccess = z.object({ connection: z.uuid(), clientName: z.string(), expiresAt: z.iso.datetime() });
 export const connectionResumeInput = z.object({ connection: z.uuid() }).strict();
+export const googleAvailability = z.object({ enabled: z.boolean() });
+export const googleStartResult = z.object({ authorizationUrl: z.url() });
+export const googlePendingResult = z.object({ email: z.email(), mode: z.enum(["link", "signup", "verify-email"]) });
+export const googleUsernameResult = z.object({ available: z.boolean() });
 export const loginSuccess = authSuccess.extend({ returnTo: z.string() });
 
 /** Only local application/protocol destinations; never trust a return cookie or form field. */
@@ -69,12 +78,57 @@ async function currentSession(request: Request, env: Env): Promise<Session | nul
   const member = await new IdentityRepository(databaseFor(env), session.tenantId).member(session.userId);
   return member?.role === "owner" && member.sessionVersion === session.sessionVersion ? { ...session, email: member.email } : null;
 }
-export type AuthAction = "profile" | "profile-update" | "connection-start" | "connection-resume" | "session" | "login" | "signup" | "verification-request" | "verification" | "reset-request" | "reset" | "password" | "logout" | "consent-preview" | "consent-decision" | "device-preview" | "device-decision";
+export type AuthAction = "google-available" | "google-start" | "google-pending" | "google-username" | "google-email-request" | "google-email-verify" | "google-finish" | "password-set-request" | "profile" | "profile-update" | "connection-start" | "connection-resume" | "session" | "login" | "signup" | "verification-request" | "verification" | "reset-request" | "reset" | "password" | "logout" | "consent-preview" | "consent-decision" | "device-preview" | "device-decision";
 
 export async function executeAuth(action: AuthAction, request: Request, env: Env, input: Record<string, unknown> = {}): Promise<Response> {
   // These operations use browser cookies only. Ignore neither a bad bearer nor a
   // good bearer and silently fall back to a potentially unrelated browser identity.
   if (request.headers.has("Authorization")) return failure(403, "An interactive browser session is required.");
+  if (action === "google-available") return authJson({ enabled: googleEnabled(env) });
+  if (action.startsWith("google-")) {
+    if (!googleEnabled(env)) return failure(404, "Google sign-in is not available.");
+    if (action === "google-start") {
+      const parsed = authInputs.googleStart.parse(input);
+      if (parsed.connection) {
+        const pending = await connectionFor(env, parsed.connection);
+        if (!pending || !await originalBrowser(request, env, pending)) return failure(400, "This connection expired. Restart from your MCP client.");
+      }
+      const { cookie, authorizationUrl } = await startGoogleSignIn(env, safeReturnTo(parsed.returnTo), parsed.connection);
+      const response = authJson({ authorizationUrl });
+      response.headers.append("Set-Cookie", cookie);
+      return response;
+    }
+    if (action === "google-pending") {
+      const pending = await googlePending(request, env);
+      return pending ? authJson(pending) : failure(400, "This Google sign-in expired. Start again from Factorize.");
+    }
+    if (action === "google-email-request") {
+      return await requestGoogleEmail(request, env) ? authJson({ ok: true }) : failure(400, "This Google signup expired. Start again from Factorize.");
+    }
+    if (action === "google-email-verify") {
+      return await verifyGoogleEmail(request, env, authInputs.verify.parse(input).token) ? authJson({ ok: true })
+        : failure(400, "This link is invalid or expired. Open it in the browser where you started Google signup, or start again.");
+    }
+    if (action === "google-username") {
+      const available = await googleUsernameAvailable(request, env, authInputs.googleUsername.parse(input).username);
+      return available === null ? failure(400, "This Google signup expired. Start again from Factorize.") : authJson({ available });
+    }
+    if (action === "google-finish") {
+      const result = await finishGoogleSignIn(request, env, authInputs.googleFinish.parse(input));
+      if ("status" in result) return failure(result.status, result.message);
+      const response = await completeInteractiveSignIn(request, env, result.identity, result.returnTo, result.connection);
+      response.headers.append("Set-Cookie", clearGoogleCookie(env));
+      return response;
+    }
+  }
+  if (action === "password-set-request") {
+    const session = await currentSession(request, env);
+    if (!session) return failure(401, "Sign in before setting a password.");
+    const repo = new AuthRepository(databaseFor(env), env);
+    if (await repo.hasPassword(session.userId)) return failure(409, "You already have a password. Use Change password instead.");
+    await repo.requestReset({ email: session.email });
+    return authJson({ ok: true });
+  }
   if (action === "connection-start") {
     try {
       const started = await startConnection(request, env, String(input.returnTo));
@@ -113,11 +167,12 @@ export async function executeAuth(action: AuthAction, request: Request, env: Env
     }
     if (action === "session") {
       if (!session) return authJson({ authenticated: false });
-      const workspace = (await databaseFor(env).pool.query<{ name: string | null }>("SELECT name FROM app.tenants WHERE id=$1", [session.tenantId])).rows[0];
+      const workspace = (await databaseFor(env).pool.query<{ name: string | null; has_password: boolean }>(`SELECT name, EXISTS (SELECT 1 FROM app.auth_accounts
+        WHERE user_id=$2 AND provider='credential' AND password_hash IS NOT NULL) has_password FROM app.tenants WHERE id=$1`, [session.tenantId, session.userId])).rows[0];
       return authJson(sessionResponse.parse({
         authenticated: true, user: { id: session.userId, email: session.email },
         team: { id: session.tenantId, name: workspace?.name ?? null, role: "owner" },
-        capabilities: [...SESSION_SCOPES], expiresAt: new Date(session.exp * 1000).toISOString(),
+        capabilities: [...SESSION_SCOPES], hasPassword: workspace?.has_password, expiresAt: new Date(session.exp * 1000).toISOString(),
       }));
     }
     if (action === "device-preview" || action === "device-decision") {
@@ -161,15 +216,7 @@ export async function executeAuth(action: AuthAction, request: Request, env: Env
     const identity = result.body as { userId: string; tenantId: string; email: string; sessionVersion: number; connection?: string };
     const member = await new IdentityRepository(databaseFor(env), identity.tenantId).member(identity.userId);
     if (member?.role !== "owner" || member.sessionVersion !== identity.sessionVersion) return failure(403, "This account cannot access the workspace.");
-    let returnTo = safeReturnTo(input.returnTo as string | undefined);
-    if (input.connection) {
-      const pending = await connectionFor(env, String(input.connection));
-      if (!pending || pending.user_id && pending.user_id !== identity.userId) return failure(403, "Sign in with the account used for this connection.");
-      const bound = await databaseFor(env).pool.query("UPDATE app.oauth_connections SET user_id=$2,ready=false WHERE id=$1 AND (user_id IS NULL OR user_id=$2) AND expires_at>now() AND used_at IS NULL RETURNING id", [pending.id, identity.userId]);
-      if (!bound.rows.length) return failure(400, "This connection expired or belongs to another account. Restart from your MCP client.");
-      returnTo = connectionDestination(pending);
-    }
-    return signedIn(env, identity, { ok: true, returnTo });
+    return completeInteractiveSignIn(request, env, identity, safeReturnTo(input.returnTo as string | undefined), input.connection as string | undefined);
   }
   const result = action === "signup" ? await repo.signup(input)
     : action === "verification-request" ? await repo.requestEmail(input, "verify")
@@ -193,6 +240,41 @@ export async function executeAuth(action: AuthAction, request: Request, env: Env
   // Keep legacy form status compatibility until those screens are cut over.
   if (action === "signup" && (result.status === 201 || result.status === 409 && (!("error" in result.body) || result.body.error !== "That username is already taken."))) return authJson({ ok: true }, 202);
   return result.status < 300 ? authJson({ ok: true }) : failure(result.status, "error" in result.body ? result.body.error ?? "Request failed." : "Request failed.");
+}
+
+async function completeInteractiveSignIn(request: Request, env: Env, identity: GoogleIdentity, returnTo: string, connection?: string) {
+  if (connection) {
+    const pending = await connectionFor(env, connection);
+    if (!pending || !await originalBrowser(request, env, pending)) return failure(400, "This connection expired. Restart from your MCP client.");
+    if (pending.user_id && pending.user_id !== identity.userId) return failure(403, "Sign in with the account used for this connection.");
+    const bound = await databaseFor(env).pool.query("UPDATE app.oauth_connections SET user_id=$2,ready=false WHERE id=$1 AND (user_id IS NULL OR user_id=$2) AND expires_at>now() AND used_at IS NULL RETURNING id", [pending.id, identity.userId]);
+    if (!bound.rows.length) return failure(400, "This connection expired or belongs to another account. Restart from your MCP client.");
+    returnTo = connectionDestination(pending);
+  }
+  return signedIn(env, identity, { ok: true, returnTo });
+}
+
+export async function googleSignInCallback(request: Request, env: Env) {
+  if (request.method !== "GET") return new Response(null, { status: 405, headers: { Allow: "GET" } });
+  const redirect = (target: string) => new Response(null, { status: 303, headers: {
+    Location: new URL(target, env.APP_ORIGIN).href, "Cache-Control": "no-store", "Referrer-Policy": "no-referrer",
+  } });
+  if (request.headers.has("Authorization")) return redirect("/auth/login?google=failed");
+  try {
+    const result = await redeemGoogleCallback(request, env);
+    if ("status" in result) return redirect(result.status === 403 ? "/auth/login?google=account" : "/auth/login?google=failed");
+    if ("pending" in result) return redirect("/auth/google");
+    const signed = await completeInteractiveSignIn(request, env, result.identity, result.returnTo, result.connection);
+    if (!signed.ok) return redirect("/auth/login?google=connection");
+    const { returnTo } = loginSuccess.parse(await signed.json());
+    const response = redirect(returnTo);
+    response.headers.append("Set-Cookie", signed.headers.get("Set-Cookie")!);
+    response.headers.append("Set-Cookie", clearGoogleCookie(env));
+    return response;
+  } catch {
+    // Never reflect provider errors, authorization codes, or token data.
+    return redirect("/auth/login?google=failed");
+  }
 }
 
 async function signedIn(env: Env, identity: { tenantId: string; userId: string; email: string; sessionVersion: number }, body: unknown) {

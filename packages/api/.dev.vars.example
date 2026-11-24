@@ -14,3 +14,8 @@ POSTMARK_SERVER_TOKEN=
 # Must be verified in Postmark (plain email address).
 POSTMARK_FROM_EMAIL=
 POSTMARK_MESSAGE_STREAM=outbound
+
+# Optional Google OAuth web client for Factorize sign-in (separate from MCP OAuth).
+# Register <APP_ORIGIN>/oauth/google/sign-in/callback with Google.
+GOOGLE_SIGN_IN_CLIENT_ID=
+GOOGLE_SIGN_IN_CLIENT_SECRET=

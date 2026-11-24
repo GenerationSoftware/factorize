@@ -1,3 +1,5 @@
+import { useQuery } from "@tanstack/react-query";
+import { sessionQuery } from "../auth/session";
 import type { ReactNode } from "react";
 import { Page } from "../../shared/ui";
 import { Link } from "@tanstack/react-router";
@@ -30,9 +32,11 @@ export function SettingsLayout({ title, children }: { title: string; children: R
 }
 
 export function AccountSettingsLayout({ title, children }: { title: string; children: ReactNode }) {
+  const { data: session } = useQuery(sessionQuery);
+  const passwordLabel = session?.authenticated && session.hasPassword === false ? "Set password" : "Change password";
   return <SettingsFrame title={title} navigation={<SettingsSidebar label="Account settings">
     <Link className={linkClass} activeProps={activeLink} to="/settings/profile"><NavIcon name="users" />Profile</Link>
     <Link className={linkClass} activeProps={activeLink} to="/settings/api-keys"><NavIcon name="key" />API keys</Link>
-    <Link className={linkClass} activeProps={activeLink} to="/settings/password"><NavIcon name="lock" />Change password</Link>
+    <Link className={linkClass} activeProps={activeLink} to="/settings/password"><NavIcon name="lock" />{passwordLabel}</Link>
   </SettingsSidebar>}>{children}</SettingsFrame>;
 }

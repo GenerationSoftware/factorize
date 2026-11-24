@@ -1,0 +1,160 @@
+import { expect, it, vi } from "vitest";
+import { protectedApiFetch } from "../src/protected-api";
+import { googleSignInCallback } from "../src/auth-api";
+import { hashPassword } from "../src/auth";
+import { loadingFixture } from "./helpers/loading-fixture";
+
+vi.mock("cloudflare:workers", () => ({ WorkerEntrypoint: class {}, DurableObject: class {} }));
+vi.mock("@cloudflare/workers-oauth-provider", () => ({ OAuthProvider: class {}, AuthorizationError: class extends Error {}, getOAuthApi: vi.fn() }));
+
+const url = process.env.AUTH_TEST_DATABASE_URL;
+const password = "some fixture password";
+const signedPart = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
+
+it.skipIf(!url)("links only after confirming the original password and reuses the existing workspace", async () => {
+  const f = await loadingFixture(url!);
+  try {
+    const h = await harness(f);
+    await f.db.pool.query("INSERT INTO app.auth_accounts(id,user_id,provider,provider_account_id,password_hash) VALUES ($1,$2::uuid,'credential',$2::uuid::text,$3)", [crypto.randomUUID(), f.userId, await hashPassword(password)]);
+    const email = (await f.db.pool.query<{email:string}>("SELECT email FROM app.auth_users WHERE id=$1", [f.userId])).rows[0].email;
+    const first = await h.google("existing-subject", email);
+    expect(first.result.headers.get("Location")).toBe(f.env.APP_ORIGIN + "/auth/google");
+    expect(first.result.headers.getSetCookie()).toEqual([]);
+    const pending = await h.api("GET", "/auth/google/pending", undefined, first.browser);
+    expect(await pending.json()).toEqual({ email, mode: "link" });
+    expect((await h.api("POST", "/auth/google/finish", { password: "incorrect password" }, first.browser)).status).toBe(401);
+    expect((await f.db.pool.query("SELECT 1 FROM app.auth_accounts WHERE provider='google' AND user_id=$1", [f.userId])).rows).toHaveLength(0);
+    const finish = await h.api("POST", "/auth/google/finish", { password }, first.browser);
+    expect(finish.status, await finish.clone().text()).toBe(200);
+    expect(await finish.json()).toEqual({ ok: true, returnTo: "/clients" });
+    const cookie = h.sessionCookie(finish);
+    expect(await (await h.api("GET", "/session", undefined, cookie)).json()).toMatchObject({ user: { id: f.userId }, team: { id: f.tenantId }, hasPassword: true });
+
+    // Google can change its email metadata; subsequent sign-in is bound to the stable subject.
+    const returning = await h.google("existing-subject", "updated@gmail.com");
+    expect(returning.result.headers.get("Location")).toBe(f.env.APP_ORIGIN + "/clients");
+    expect(await (await h.api("GET", "/session", undefined, h.sessionCookie(returning.result))).json()).toMatchObject({ user: { id: f.userId, email }, team: { id: f.tenantId } });
+    const byPassword = await h.api("POST", "/auth/login", { email, password });
+    expect(byPassword.status).toBe(200);
+    expect(await (await h.api("GET", "/session", undefined, h.sessionCookie(byPassword))).json()).toMatchObject({ user: { id: f.userId }, team: { id: f.tenantId } });
+  } finally {
+    vi.unstubAllGlobals();
+    await f.cleanup();
+  }
+});
+
+it.skipIf(!url)("checks username availability but enforces it at signup and adds a first password only through email", async () => {
+  const f = await loadingFixture(url!);
+  try {
+    const h = await harness(f);
+    const newEmail = "google-new-user@gmail.com";
+    const { browser, result } = await h.google("signup-subject", newEmail);
+    expect(result.headers.get("Location")).toBe(f.env.APP_ORIGIN + "/auth/google");
+    const checkName = async (username: string) => (await h.api("POST", "/auth/google/username", { username }, browser)).json();
+    const competing = "available-now";
+    expect(await checkName(competing)).toEqual({ available: true });
+    await f.db.pool.query("UPDATE app.auth_users SET username=$2 WHERE id=$1", [f.userId, competing]);
+    const conflict = await h.api("POST", "/auth/google/finish", { username: competing }, browser);
+    expect(conflict.status).toBe(409);
+    expect(await checkName(competing)).toEqual({ available: false });
+    expect((await f.db.pool.query("SELECT 1 FROM app.auth_users WHERE lower(email)=$1", [newEmail])).rows).toHaveLength(0);
+    const finish = await h.api("POST", "/auth/google/finish", { username: "google-factory" }, browser);
+    expect(finish.status, await finish.clone().text()).toBe(200);
+    const cookie = h.sessionCookie(finish);
+    const session = await (await h.api("GET", "/session", undefined, cookie)).json() as { user:{ id: string }; team:{ id: string }; hasPassword:boolean };
+    expect(session).toMatchObject({ authenticated: true, user: { email: newEmail }, hasPassword: false });
+    expect(session.team.id).not.toBe(f.tenantId);
+    expect((await h.api("POST", "/auth/password/set-request", undefined)).status).toBe(401);
+    expect((await h.api("POST", "/auth/password/set-request", undefined, cookie)).status).toBe(200);
+    expect(h.mail).toHaveLength(1);
+    expect(h.mail[0].To).toBe(newEmail);
+    const link = new URL(h.mail[0].TextBody.match(/https:\/\/\S+/)![0]);
+    const reset = await h.api("POST", "/auth/password-reset/complete", { token: link.searchParams.get("token"), password });
+    expect(reset.status, await reset.clone().text()).toBe(200);
+    const next = h.sessionCookie(reset);
+    expect(await (await h.api("GET", "/session", undefined, next)).json()).toMatchObject({ user: { id: session.user.id }, team: { id: session.team.id }, hasPassword: true });
+    expect((await h.api("POST", "/auth/password/set-request", undefined, next)).status).toBe(409);
+  } finally {
+    vi.unstubAllGlobals();
+    await f.cleanup();
+  }
+});
+
+it.skipIf(!url)("lets new Google users on a third-party email domain confirm that address without creating a password", async () => {
+  const f = await loadingFixture(url!);
+  try {
+    const h = await harness(f);
+    const email = "google-external@example.test";
+    const { browser, result } = await h.google("external-subject", email);
+    expect(result.headers.get("Location")).toBe(f.env.APP_ORIGIN + "/auth/google");
+    const state = () => h.api("GET", "/auth/google/pending", undefined, browser).then(response => response.json());
+    expect(await state()).toEqual({ email, mode: "verify-email" });
+    expect((await h.api("POST", "/auth/google/email/request", undefined, browser)).status).toBe(200);
+    expect(h.mail).toHaveLength(1);
+    expect(h.mail[0].To).toBe(email);
+    const confirmation = new URL(h.mail[0].TextBody.match(/https:\/\/\S+/)![0]);
+    expect(confirmation.pathname).toBe("/auth/google");
+    const token = confirmation.searchParams.get("token");
+    expect((await h.api("POST", "/auth/google/email/verify", { token }, browser)).status).toBe(200);
+    expect(await state()).toEqual({ email, mode: "signup" });
+    const signup = await h.api("POST", "/auth/google/finish", { username: "external-google" }, browser);
+    expect(signup.status, await signup.clone().text()).toBe(200);
+    expect(await (await h.api("GET", "/session", undefined, h.sessionCookie(signup))).json()).toMatchObject({
+      authenticated: true, user: { email }, hasPassword: false,
+    });
+  } finally {
+    vi.unstubAllGlobals();
+    await f.cleanup();
+  }
+});
+
+async function harness(f: Awaited<ReturnType<typeof loadingFixture>>) {
+  const env = Object.assign(f.env, {
+    GOOGLE_SIGN_IN_CLIENT_ID: "google-fixture", GOOGLE_SIGN_IN_CLIENT_SECRET: "fixture-secret",
+    POSTMARK_SERVER_TOKEN: "fixture", POSTMARK_FROM_EMAIL: "test@example.test", POSTMARK_MESSAGE_STREAM: "outbound",
+  });
+  const pair = await crypto.subtle.generateKey({ name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" }, true, ["sign", "verify"]);
+  const publicKey = await crypto.subtle.exportKey("jwk", pair.publicKey);
+  const mail: { To:string; TextBody:string }[] = [];
+  let token: string;
+  let challenge: string;
+  vi.stubGlobal("fetch", vi.fn(async (url: string, options?: RequestInit) => {
+    if (url === "https://oauth2.googleapis.com/token") {
+      const body = options!.body as URLSearchParams;
+      const actual = Buffer.from(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(body.get("code_verifier")!))).toString("base64url");
+      expect(actual).toBe(challenge);
+      expect(body.get("redirect_uri")).toBe(env.APP_ORIGIN + "/oauth/google/sign-in/callback");
+      return Response.json({ id_token: token });
+    }
+    if (url === "https://www.googleapis.com/oauth2/v3/certs") return Response.json({ keys: [{ ...publicKey, kid: "test", alg: "RS256", use: "sig" }] });
+    if (url === "https://api.postmarkapp.com/email") {
+      mail.push(JSON.parse(String(options?.body)));
+      return Response.json({ ErrorCode: 0 });
+    }
+    throw new Error("Unexpected fixture endpoint");
+  }));
+  const api = (method: string, path: string, body?: unknown, cookie = "") => protectedApiFetch(new Request(env.APP_ORIGIN + "/api/v1" + path, {
+    method, headers: { Cookie: cookie, Origin: env.APP_ORIGIN, "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body),
+  }), env, null, {} as ExecutionContext);
+  const google = async (subject: string, email: string) => {
+    const start = await api("POST", "/auth/google/start", { returnTo: "/clients" });
+    expect(start.status, await start.clone().text()).toBe(200);
+    const browser = start.headers.get("Set-Cookie")!.split(";")[0];
+    const authorization = new URL((await start.json() as { authorizationUrl:string }).authorizationUrl);
+    expect(authorization.origin).toBe("https://accounts.google.com");
+    expect(authorization.searchParams.get("code_challenge_method")).toBe("S256");
+    challenge = authorization.searchParams.get("code_challenge")!;
+    const now = Math.floor(Date.now()/1000);
+    const encoded = signedPart({ alg: "RS256", kid: "test" }) + "." + signedPart({
+      iss: "https://accounts.google.com", sub: subject, aud: env.GOOGLE_SIGN_IN_CLIENT_ID, exp: now+3600, iat: now,
+      email, email_verified: true, nonce: authorization.searchParams.get("nonce"),
+    });
+    token = encoded + "." + Buffer.from(await crypto.subtle.sign("RSASSA-PKCS1-v1_5", pair.privateKey, new TextEncoder().encode(encoded))).toString("base64url");
+    const redirect = new URL(authorization.searchParams.get("redirect_uri")!);
+    redirect.search = new URLSearchParams({ state: authorization.searchParams.get("state")!, code: "fixture-code" }).toString();
+    const result = await googleSignInCallback(new Request(redirect, { headers: { Cookie: browser } }), env);
+    return { browser, result };
+  };
+  const sessionCookie = (response: Response) => response.headers.getSetCookie().find(row => row.startsWith("factorize_session="))!.split(";")[0];
+  return { google, sessionCookie, api, mail };
+}

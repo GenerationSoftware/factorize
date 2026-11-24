@@ -1,3 +1,5 @@
+import { googleSignInCallback } from "./auth-api";
+import { googleCallbackPath } from "./google-sign-in";
 import { AlarmCoordinator as BaseAlarmCoordinator } from "./alarm-coordinator";
 import { wakeMcpDeliveries } from "./postgres/event-match-repository";
 import { staticApp, securityHeaders } from "./static-app";
@@ -93,6 +95,7 @@ export class AlarmCoordinator extends BaseAlarmCoordinator {
 }
 const backend = { async fetch(request: Request, env: Env, ctx: ExecutionContext) {
   if (new URL(request.url).hostname === "git.factorize.sh") return new Response("Not found", { status: 404 });
+  if (new URL(request.url).pathname === googleCallbackPath) return googleSignInCallback(request, env);
   if (new URL(request.url).pathname === "/oauth/x/callback") return request.method === "GET" ? xOAuthCallback(request, env) : new Response("Method not allowed", { status: 405, headers: { Allow: "GET" } });
   const oidc = await oidcRequest(request, env);
   if (oidc) return oidc;

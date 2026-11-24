@@ -2,7 +2,7 @@ import type { Env } from "./types";
 
 export const STATIC_CSP = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'";
 // Browser auth screens share /auth with backend callbacks and form handlers.
-const authPages = new Set(["/auth/login", "/auth/signup", "/auth/password-reset", "/auth/verify", "/auth/verify/request"]);
+const authPages = new Set(["/auth/login", "/auth/google", "/auth/signup", "/auth/password-reset", "/auth/verify", "/auth/verify/request"]);
 const backendNamespaces = ["/api", "/healthz", "/auth", "/oauth", "/webhooks", "/internal", "/mcp", "/.well-known"];
 function isBackendNamespace(path: string) {
   return backendNamespaces.some(namespace => path === namespace || path.startsWith(`${namespace}/`));
@@ -19,7 +19,7 @@ export function securityHeaders(request: Request, response: Response) {
   const headers = new Headers(response.headers);
   if (!headers.has("Cache-Control")) headers.set("Cache-Control", "no-store");
   headers.set("Content-Security-Policy", STATIC_CSP);
-  headers.set("Referrer-Policy", "same-origin");
+  headers.set("Referrer-Policy", ["/auth/google", "/oauth/google/sign-in/callback"].includes(new URL(request.url).pathname) ? "no-referrer" : "same-origin");
   headers.set("X-Content-Type-Options", "nosniff");
   headers.set("X-Frame-Options", "DENY");
   headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");

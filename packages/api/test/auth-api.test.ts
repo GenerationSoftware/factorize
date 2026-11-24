@@ -121,11 +121,11 @@ describe("public auth API and cookie security", () => {
   it("maps current authoritative identity and selected workspace without secrets", async () => {
     const cookie = await signSession({ ...identity, email: "stale@test.com", exp: Math.floor(Date.now() / 1000) + 100 }, env.SESSION_SIGNING_SECRET);
     vi.spyOn(IdentityRepository.prototype, "member").mockResolvedValue(member);
-    vi.mocked(env.DATABASE!.pool.query).mockResolvedValue({ rows: [{ name: "Workspace A" }] } as never);
+    vi.mocked(env.DATABASE!.pool.query).mockResolvedValue({ rows: [{ name: "Workspace A", has_password: true }] } as never);
     const response = await call("/api/v1/session", undefined, { Cookie: "factorize_session=" + cookie });
-    expect(await contract(response, "/api/v1/session", "GET")).toMatchObject({ authenticated: true, user: { id: identity.userId, email: identity.email }, team: { id: identity.tenantId, name: "Workspace A", role: "owner" }, capabilities: expect.arrayContaining(["triggers:read", "triggers:write"]) });
+    expect(await contract(response, "/api/v1/session", "GET")).toMatchObject({ authenticated: true, user: { id: identity.userId, email: identity.email }, team: { id: identity.tenantId, name: "Workspace A", role: "owner" }, hasPassword: true, capabilities: expect.arrayContaining(["triggers:read", "triggers:write"]) });
     const query = vi.mocked(env.DATABASE!.pool.query).mock.calls.at(-1)!;
-    expect(query[1]).toEqual([identity.tenantId]);
+    expect(query[1]).toEqual([identity.tenantId, identity.userId]);
   });
 
   it("returns 404 for retired team Skills API routes", async () => {

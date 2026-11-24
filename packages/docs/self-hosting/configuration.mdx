@@ -23,6 +23,25 @@ Before deploying, configure `POSTMARK_SERVER_TOKEN` as a **production GitHub env
 
 `APP_ORIGIN` must be the canonical HTTPS origin, without a trailing slash. Run `npm run auth:validate-email --workspace=factorize` manually when needed: it checks the server token/stream with Postmark and sends one preflight email from/to the configured sender, rejecting unverified senders or sending failures. It prints no credentials. Missing configuration fails the manual check. The deploy workflow does not run this check or send a preflight email. Runtime signup and recovery also fail closed if configuration or delivery fails; users can resend verification after a delivery failure. Local mail testing needs an HTTPS origin and a separate Postmark test server/sender; automated tests mock Postmark and never send mail.
 
+### Optional Google sign-in
+
+Create a **Web application** OAuth client in Google Cloud. Register exactly
+`<APP_ORIGIN>/oauth/google/sign-in/callback` as an authorized redirect URI
+(`https://app.factorize.sh/oauth/google/sign-in/callback` on the hosted deployment).
+Complete Google's OAuth consent screen setup for your intended audience. Set
+`GOOGLE_SIGN_IN_CLIENT_ID` and `GOOGLE_SIGN_IN_CLIENT_SECRET` as Worker secrets.
+The Google button is hidden unless both values are set. Apply migration 0104
+using the normal database deployment step. Google sign-in is separate from
+Factorize's MCP authorization clients and uses only `openid email`.
+
+A first Google sign-in matching an existing verified Factorize account
+requires its current Factorize password; email alone never links accounts.
+New Google users choose a unique Factorize username. For addresses Google
+does not manage directly, Factorize emails a confirmation link to be opened
+in the browser that started signup. Once signed in, Google-first users can
+use **Set password** to receive a password link at their verified email.
+Keep Postmark configured for address confirmation and password recovery.
+
 ### Existing account migration
 
 Apply `0008_native_accounts.sql` and `0009_remove_auth_usernames.sql` before deploying this code. They reject ambiguous legacy emails that differ only in case (reconcile those identities before retrying migration), preserve tenant IDs, memberships, triggers and encrypted Linear connections, and backfill explicit Linear organization-to-workspace mappings. Existing Linear-only users choose **Forgot password or previously signed in with Linear?**, receive a reset email at their existing address, and set a password. Email possession is required; signup cannot replace an existing account's credentials. Existing native users keep their passwords and may sign in by email; unverified accounts must verify first. A reset never promotes a member to owner. An account with multiple existing owner memberships currently opens the oldest workspace; no new workspace-switching UI is introduced.

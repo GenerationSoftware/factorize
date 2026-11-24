@@ -80,7 +80,7 @@ export class AuthRepository {
   }
   async requestReset(input: Record<string, unknown>) { return this.requestEmail(input, "reset"); }
 
-  private async ensurePersonalTeam(client: DatabaseClient, userId: string, email: string) {
+  async ensurePersonalTeam(client: DatabaseClient, userId: string, email: string) {
     const existing = await client.query("SELECT tenant_id FROM app.members WHERE user_id=$1 AND role='owner'", [userId]);
     if (existing.rows.length) return;
     // Personal ownership never changes membership in an existing team.
@@ -124,6 +124,10 @@ export class AuthRepository {
       });
       return completed ? { status: 200, body: { ok: true, ...completed } } : invalidLink();
     } catch (error) { throw error; }
+  }
+
+  async hasPassword(userId: string) {
+    return !!(await this.database.pool.query("SELECT 1 FROM app.auth_accounts WHERE user_id=$1 AND provider='credential' AND password_hash IS NOT NULL", [userId])).rows.length;
   }
 
   async changePassword(userId: string, input: Record<string, unknown>) {
