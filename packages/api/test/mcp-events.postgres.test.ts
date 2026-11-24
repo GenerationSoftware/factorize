@@ -15,6 +15,7 @@ vi.mock("cloudflare:workers", () => ({
 vi.mock("@cloudflare/workers-oauth-provider", () => ({ OAuthProvider: class {}, AuthorizationError: class extends Error {}, getOAuthApi: vi.fn() }));
 
 const receiver = "https://receiver.example.com/inbound";
+const otherReceiver = "https://receiver.example.com/second";
 const key = Buffer.alloc(32, 9), replacement = Buffer.alloc(32, 12);
 const secret = (signingKey: Buffer) => `whsec_${signingKey.toString("base64")}`;
 type Captured = {
@@ -61,7 +62,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("MCP event webhook lifecycl
     request = mcpRequest(f.env, auth);
     vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
       try {
-        expect(url).toBe(receiver);
+        expect([receiver, otherReceiver]).toContain(url);
         expect(init?.method).toBe("POST");
         expect(init?.redirect).toBe("manual");
         const headers = new Headers(init?.headers);
@@ -152,18 +153,79 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("MCP event webhook lifecycl
     expect((await get()).structuredContent.sources).toEqual(updated);
   });
 
+  it("discovers one stable type and fans out only matching occurrences without breaking legacy subscriptions", async () => {
+    const catalog = (await request("events/list")).message.result;
+    expect(catalog.events).toEqual([{
+        name: "factorize.occurrence", title: "Factorize occurrence", description: expect.any(String),
+        delivery: ["webhook"],
+        inputSchema: {
+          type: "object", properties: { event_id: { type: "string", format: "uuid", description: expect.any(String) } },
+          required: ["event_id"], additionalProperties: false,
+        },
+        payloadSchema: {
+          type: "object", additionalProperties: false, required: ["occurrenceId", "definitionId"],
+          properties: { occurrenceId: { type: "string", format: "uuid" }, definitionId: { type: "string", format: "uuid" } },
+        },
+    }]);
+    expect(catalog.nextCursor).toBeUndefined();
+    const legacy = (await subscribe()).message.result;
+    const subscribeTo = (definitionId: string, url = receiver) => request("events/subscribe", {
+      name: catalog.events[0].name, arguments: { event_id: definitionId },
+      delivery: { mode: "webhook", url, secret: secret(signingKey) },
+    });
+    const triggerFor = async (eventName: string) => {
+      const event = (await tool("create_event", { name: eventName })).structuredContent;
+      const trigger = (await tool("create_trigger", {
+        name: eventName, eventId: event.id, sources: [{ kind: "manual", config: {} }],
+      })).structuredContent;
+      return { eventId: event.id, triggerId: trigger.id };
+    };
+    const first = await triggerFor("dynamic-alpha");
+    const second = await triggerFor("dynamic-beta");
+    expect((await request("events/list")).message.result.events).toEqual(catalog.events);
+    const alpha = (await subscribeTo(first.eventId)).message.result;
+    const duplicate = (await subscribeTo(first.eventId.toUpperCase())).message.result;
+    expect(duplicate.id).toBe(alpha.id);
+    const alphaFanout = (await subscribeTo(first.eventId, otherReceiver)).message.result;
+    const beta = (await subscribeTo(second.eventId)).message.result;
+    const companion = (await subscribeTo(source.definitionId)).message.result;
+    expect(new Set([alpha.id, alphaFanout.id, beta.id, companion.id, legacy.id]).size).toBe(5);
+    const otherTenant = await f.seedEventTrigger(f.otherTenant);
+    expect((await subscribeTo(otherTenant.definitionId)).message.error.code).toBe(-32023);
+    expect((await subscribeTo("not-a-uuid")).message.error).toBeDefined();
+
+    const fireAt = async (triggerId: string, idempotencyKey: string) =>
+      (await tool("fire_trigger", { triggerId, idempotencyKey })).structuredContent.occurrenceId;
+    const alphaOccurrence = await fireAt(first.triggerId, "alpha");
+    const betaOccurrence = await fireAt(second.triggerId, "beta");
+    const legacyOccurrence = (await fire("legacy-and-stable")).occurrenceId;
+    await dispatchMcpEvents(f.env);
+    const observed = (id: string) => deliveries.filter(d => d.id === id)
+      .map(d => [d.subscriptionId, d.event.name, d.event.data.definitionId]).sort();
+    expect(observed(alphaOccurrence)).toEqual([
+      [alpha.id, "factorize.occurrence", first.eventId],
+      [alphaFanout.id, "factorize.occurrence", first.eventId],
+    ].sort());
+    expect(observed(betaOccurrence)).toEqual([[beta.id, "factorize.occurrence", second.eventId]]);
+    expect(observed(legacyOccurrence)).toEqual([
+      [legacy.id, name, source.definitionId],
+      [companion.id, "factorize.occurrence", source.definitionId],
+    ].sort());
+
+    expect((await subscribe()).message.result.id).toBe(legacy.id);
+    expect((await unsubscribe()).message.result).toBeDefined();
+    const stopAlpha = { name: catalog.events[0].name, arguments: { event_id: first.eventId.toUpperCase() }, delivery: { url: receiver } };
+    expect((await request("events/unsubscribe", stopAlpha)).message.result).toBeDefined();
+    expect((await request("events/unsubscribe", stopAlpha)).message.result).toBeDefined();
+    const remainingAlpha = await fireAt(first.triggerId, "alpha-again");
+    const remainingLegacy = (await fire("after-legacy-stop")).occurrenceId;
+    await dispatchMcpEvents(f.env);
+    expect(observed(remainingAlpha)).toEqual([[alphaFanout.id, "factorize.occurrence", first.eventId]]);
+    expect(observed(remainingLegacy)).toEqual([[companion.id, "factorize.occurrence", source.definitionId]]);
+  });
+
   it("discovers, subscribes, commits, dispatches and reads a deduplicated occurrence", async () => {
     expect((await request("server/discover")).message.result.capabilities).toMatchObject({ events: {}, resources: { subscribe: true } });
-    expect((await request("events/list")).message.result.events).toEqual([{
-      name, title: "fixture-event", description: "", delivery: ["webhook"],
-      inputSchema: { type: "object", properties: {}, additionalProperties: false },
-      payloadSchema: {
-        type: "object", additionalProperties: false, required: ["occurrenceId", "definitionId"],
-        properties: { occurrenceId: { type: "string", format: "uuid" }, definitionId: { type: "string", format: "uuid" } },
-      },
-    }]);
-    await f.db.pool.query("UPDATE app.event_definitions SET name='renamed',description='Updated description' WHERE tenant_id=$1 AND id=$2", [f.tenantId, source.definitionId]);
-    expect((await request("events/list")).message.result.events[0]).toMatchObject({ name, title: "renamed", description: "Updated description" });
     await fire("before-subscribe");
     const active = (await subscribe()).message.result;
     expect(active).toMatchObject({ id: expect.stringMatching(/^sub_/), refreshBefore: expect.any(String), cursor: null, truncated: false });

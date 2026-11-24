@@ -2,7 +2,7 @@ import { ProtocolError, ProtocolErrorCode } from "@modelcontextprotocol/server";
 import type { z } from "zod";
 import { normalizeScopes } from "./access-tokens";
 import { decrypt, encrypt } from "./crypto";
-import { eventDefinitionId, eventProtocolName, type subscribeEventInput, type unsubscribeEventInput } from "./mcp-event-contracts";
+import { eventDefinitionId, deliveryEventName, type subscribeEventInput, type unsubscribeEventInput } from "./mcp-event-contracts";
 import { callbackAccepted, canonicalCallbackURL, canonicalWebhookSecret, sendMcpWebhook, validChallenge, type WebhookOutcome } from "./mcp-webhook";
 import { applyConnectionScopes, type ConnectionScopePolicy } from "./oauth-connection-settings";
 import { databaseFor, type DatabaseClient } from "./postgres/database";
@@ -68,10 +68,10 @@ async function subscriptionKey(auth: OAuthProps, input: z.infer<typeof unsubscri
     tenant_id: auth.tenantId, user_id: auth.userId, grant_id: auth.oauthGrantId, client_id: auth.oauthClientId,
     session_version: auth.sessionVersion,
   };
-  // The strict empty arguments schema has one canonical representation.
+  // Validated arguments have one canonical representation per event and protocol.
   const args = JSON.stringify(input.arguments);
   const id = "sub_" + await digest(JSON.stringify([auth.tenantId, auth.userId, auth.oauthGrantId, url, input.name, args]));
-  return { id, url, args, principal, definitionId: eventDefinitionId(input.name) };
+  return { id, url, args, principal, definitionId: eventDefinitionId(input) };
 }
 
 export async function subscribeMcpEvent(env: Env, auth: OAuthProps, input: z.infer<typeof subscribeEventInput>) {
@@ -162,6 +162,8 @@ type Claim = {
   attempts: number;
 };
 type Subscription = Principal & {
+  definition_id: string;
+  arguments: unknown;
   generation: string;
   status: string;
   expires_at: Date;
@@ -225,6 +227,11 @@ async function dispatchClaim(env: Env, claim: Claim, now: () => number) {
       await finish(sql, "failed", maxAttempts, "claim_interrupted");
       return;
     }
+    const name = deliveryEventName(subscription.definition_id, subscription.arguments);
+    if (record.definition_id !== subscription.definition_id || !name) {
+      await finish(sql, "cancelled", claim.attempts - 1, "event_mismatch");
+      return;
+    }
     const attempts = claim.attempts;
     let result: WebhookOutcome;
     try {
@@ -242,7 +249,7 @@ async function dispatchClaim(env: Env, claim: Claim, now: () => number) {
         subscriptionId: claim.subscription_id,
         id: claim.occurrence_id,
         payload: {
-          eventId: claim.occurrence_id, name: eventProtocolName(record.definition_id), timestamp: record.occurred_at.toISOString(),
+          eventId: claim.occurrence_id, name, timestamp: record.occurred_at.toISOString(),
           data: { occurrenceId: claim.occurrence_id, definitionId: record.definition_id }, cursor: null,
         },
         secrets,

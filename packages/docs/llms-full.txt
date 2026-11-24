@@ -297,8 +297,12 @@ subscription support. After a resource-updated notification, read the resource
 to retrieve durable data. `list_event_occurrences` lets a reconnecting client
 recover stored records.
 
-MCP Events clients can call `events/list` to discover webhook-capable
-definitions and `events/subscribe` to start delivery through their OAuth grant.
+MCP Events clients discover the stable `factorize.occurrence` type with
+`events/list` and subscribe using `arguments: { "event_id": "<uuid>" }`.
+Get the UUID from `create_event` or `list_events`; no plugin refresh is
+needed for new Event definitions after the one-time catalog refresh. Reuse the
+same name, arguments, and callback to renew or unsubscribe. Existing per-Event
+subscriptions keep their original names and continue receiving webhooks.
 Each notification includes the occurrence and definition IDs. Call
 `read_event_occurrences` with `occurrenceId` for the committed payload. For a
 wake without an ID, call it with the saved `definitionId` and a recent `since`

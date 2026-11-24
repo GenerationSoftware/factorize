@@ -1,6 +1,12 @@
 # MCP Event webhooks
 
-Factorize exposes Event definitions over the authenticated `/mcp` endpoint. A definition's protocol name is `factorize.event.<definition-id>`. The catalog uses the current name and description. Subscriptions use the connected OAuth grant, require `triggers:read`, and receive newly recorded occurrences after activation. The webhook contains `occurrenceId` and `definitionId`. Use `read_event_occurrences` for the committed payload and its definition revision.
+Factorize exposes one stable MCP Events type, `factorize.occurrence`, over the authenticated `/mcp` endpoint. Its required `event_id` argument is the UUID from `create_event` or `list_events`, not a name or a catalog enum. Create an Event and use its UUID immediately; creating or renaming Event definitions never changes the MCP catalog. Subscriptions use the connected OAuth grant, require `triggers:read` in the definition's tenant, and receive only newly recorded occurrences for that definition.
+
+Use `events/subscribe` with `name: "factorize.occurrence"`, `arguments: { "event_id": "<uuid>" }` and the client's verified webhook delivery configuration. Repeat the same name, arguments and callback URL to refresh or unsubscribe. An occurrence can be delivered to several distinct matching subscriptions. All carry `name: "factorize.occurrence"` and the same `occurrenceId` and `definitionId` in `data`; subscription IDs are distinct. Use `read_event_occurrences` for the committed payload and its definition revision.
+
+## One-time rollout
+
+After the updated server is deployed, refresh the installed MCP plugin's metadata once and verify it exposes `factorize.occurrence` with the UUID argument. No further refresh is needed to subscribe to a newly created Factorize Event. Keep existing subscriptions in place: legacy `factorize.event.<definition-id>` subscriptions keep their original signed envelope name and may renew or unsubscribe with their original empty arguments. The new catalog does not list those names. If migrating a client, confirm the new subscription receives the intended definition before stopping the old one, and deduplicate overlapping deliveries by occurrence ID.
 
 ## Webhook egress
 
