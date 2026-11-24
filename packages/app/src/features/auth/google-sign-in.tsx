@@ -48,6 +48,19 @@ export function GoogleSignInScreen() {
       await pending.refetch();
     },
   });
+  const [newPassword, setNewPassword] = useState("");
+  const completePassword = useMutation({
+    retry: false,
+    mutationFn: async () => {
+      const { data, error } = await api.POST("/api/v1/auth/google/password/complete", { body: { token: token!, password: newPassword } });
+      if (!data || error) throw new Error(messageOf(error));
+      return data.returnTo;
+    },
+    onSuccess: async target => {
+      await refreshIdentity();
+      window.location.assign(target);
+    },
+  });
   const [username, setUsername] = useState("");
   const [confirmedName, setConfirmedName] = useState("");
   const [password, setPassword] = useState("");
@@ -87,19 +100,25 @@ export function GoogleSignInScreen() {
     },
   });
   const signup = pending.data?.mode === "signup";
-  const canSubmit = !!pending.data && pending.data.mode !== "verify-email" && !finish.isPending && (!signup || (validUsername(proposedName) && !(checkingName && availability.data === false)));
+  const canSubmit = !!pending.data && pending.data.mode !== "verify-email" && pending.data.mode !== "set-password" && !finish.isPending && (!signup || (validUsername(proposedName) && !(checkingName && availability.data === false)));
   function submit(event: FormEvent) { event.preventDefault(); if (canSubmit) finish.mutate(); }
-  const requiresEmail = pending.data?.mode === "verify-email";
+  const settingPassword = pending.data?.mode === "set-password";
+  const requiresEmail = pending.data?.mode === "verify-email" || settingPassword;
   return <Page className="my-8 flex-none max-w-md rounded-2xl border border-stone-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:p-8">
-    <h1 className="mb-4 text-2xl font-semibold">{token || requiresEmail ? "Confirm your email" : signup ? "Choose your Factorize username" : pending.data ? "Connect Google to Factorize" : "Sign in with Google"}</h1>
+    <h1 className="mb-4 text-2xl font-semibold">{settingPassword && token ? "Set your Factorize password" : token || requiresEmail ? "Confirm your email" : signup ? "Choose your Factorize username" : pending.data ? "Connect Google to Factorize" : "Sign in with Google"}</h1>
     {pending.isPending && <p role="status">Checking your Google sign-in…</p>}
     {pending.error && !token && <p role="alert">{pending.error.message}</p>}
-    {token ? <div className="space-y-4">
+    {token && pending.isPending ? null : token && settingPassword ? <form className="space-y-4" onSubmit={event => { event.preventDefault(); if (!completePassword.isPending) completePassword.mutate(); }}>
+      <Label className="block">New password<Input className="mt-1 block w-full" type="password" value={newPassword} onChange={event => setNewPassword(event.target.value)} autoComplete="new-password" minLength={12} maxLength={200} required /></Label>
+      <p>Use 12–200 characters.</p>
+      <Button type="submit" variant="primary" disabled={completePassword.isPending}>Save password</Button>
+      {completePassword.error && <p role="alert">{completePassword.error.message}</p>}
+    </form> : token ? <div className="space-y-4">
       <p>Confirm this address to continue Google signup. Open this link in the browser where you started.</p>
       <Button type="button" variant="primary" disabled={verifyEmail.isPending} onClick={() => verifyEmail.mutate(token)}>Confirm email</Button>
       {verifyEmail.error && <p role="alert">{verifyEmail.error.message}</p>}
     </div> : requiresEmail ? <div className="space-y-4">
-      <p>We’ll send a confirmation link to {pending.data!.email}. Open it in this browser to finish signing up.</p>
+      <p>We’ll send a confirmation link to {pending.data!.email}. Open it in this browser to {settingPassword ? "set your password" : "finish signing up"}.</p>
       <Button type="button" variant="primary" disabled={sendEmail.isPending} onClick={() => sendEmail.mutate()}>{sendEmail.isSuccess ? "Resend confirmation" : "Email me a confirmation link"}</Button>
       {sendEmail.isSuccess && <p role="status">Check your email for the confirmation link.</p>}
       {sendEmail.error && <p role="alert">{sendEmail.error.message}</p>}

@@ -21,10 +21,12 @@ export function AuthScreen({ mode, inAccountSettings = false }: { mode: AuthMode
   const [notice, setNotice] = useState("");
   const account = useQuery({ ...sessionQuery, enabled: mode === "password" });
   const setPasswordMode = mode === "password" && account.data?.authenticated && account.data.hasPassword === false;
+  const managedRecovery = mode === "password" && account.data?.authenticated && account.data.googleManagedRecovery === true;
   const setup = useMutation({ retry: false, mutationFn: async () => {
     const { data, error } = await api.POST("/api/v1/auth/password/set-request");
     if (!data || error) throw new Error(messageOf(error));
-  } });
+    return data.authorizationUrl;
+  }, onSuccess: url => window.location.assign(url) });
   const resetCompletion = mode === "reset" && Boolean(search.token);
   const continuation = useQuery({
     queryKey: ["connection", search.connection], enabled: !!search.connection && !search.token && mode !== "verify",
@@ -67,9 +69,8 @@ export function AuthScreen({ mode, inAccountSettings = false }: { mode: AuthMode
   });
   function submit(event: FormEvent) { event.preventDefault(); setNotice(""); mutation.mutate(); }
   if (setPasswordMode) return <AccountSettingsLayout title="Set password">
-    <p className="mb-4">We’ll email you a link to set your Factorize password for {account.data!.authenticated && account.data!.user.email}.</p>
-    <Button type="button" variant="primary" disabled={setup.isPending || setup.isSuccess} onClick={() => setup.mutate()}>Email me a link</Button>
-    {setup.isSuccess && <p role="status">Check your email for a link to set your password.</p>}
+    <p className="mb-4">Confirm your linked Google account first. Then we’ll email you a link to set a Factorize password.</p>
+    <Button type="button" variant="primary" disabled={setup.isPending} onClick={() => setup.mutate()}>Continue with Google</Button>
     {setup.error && <p role="alert">{setup.error.message}</p>}
   </AccountSettingsLayout>;
   const showEmail = mode !== "password" && mode !== "verify" && !resetCompletion;
@@ -80,7 +81,8 @@ export function AuthScreen({ mode, inAccountSettings = false }: { mode: AuthMode
       {search.connection && <p>Connecting {continuation.data?.clientName ?? "your MCP client"}. After verification, review its permissions and choose Allow or Deny.</p>}
       {(continuation.error || search.expired) && <p role="alert">{continuation.error?.message ?? "Your MCP request has expired. Start a new connection from your client."}</p>}
       {mode === "login" && search.google && <p role="alert">{
-        search.google === "account" ? "This Google account couldn’t be used. Create and verify your Factorize account first, or sign in another way."
+        search.google === "collision" ? "That Google email is already used by another Factorize account. Password recovery is paused. You can still sign in with your linked Google account."
+          : search.google === "account" ? "This Google account couldn’t be used. Create and verify your Factorize account first, or sign in another way."
           : search.google === "connection" ? "This MCP connection expired or belongs to another account. Restart from your client."
           : "Google sign-in didn’t finish. Start again from Factorize."
       }</p>}
@@ -95,6 +97,11 @@ export function AuthScreen({ mode, inAccountSettings = false }: { mode: AuthMode
         {mutation.isError && <p role="alert">{mutation.error.message}</p>}
         {notice && <p role="status">{notice}</p>}
       </form>
+      {managedRecovery && <div className="mt-5">
+        <Button type="button" disabled={setup.isPending} onClick={() => setup.mutate()}>Recover password with Google</Button>
+        {setup.error && <p role="alert">{setup.error.message}</p>}
+      </div>}
+      {mode === "reset" && !resetCompletion && <p className="mt-4">If your recovery address is managed by Google, sign in with Google and use password recovery in Account settings.</p>}
       {mode !== "password" && <nav className="mt-6 flex flex-wrap gap-4" aria-label="Account">
         {mode !== "login" && <Link to="/auth/login" search={{ connection: search.connection, returnTo: search.returnTo }}>Sign in</Link>}
         {mode === "login" && <><Link to="/auth/signup" search={{ connection: search.connection, returnTo: search.returnTo }}>Create an account</Link><Link to="/auth/password-reset" search={{ connection: search.connection, returnTo: search.returnTo }}>Forgot password?</Link></>}

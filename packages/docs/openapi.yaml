@@ -1668,6 +1668,8 @@ paths:
                         type: string
                         format: date-time
                         pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z))$
+                      googleManagedRecovery:
+                        type: boolean
                       hasPassword:
                         type: boolean
                     required:
@@ -1850,6 +1852,7 @@ paths:
                       - link
                       - signup
                       - verify-email
+                      - set-password
                 required:
                   - email
                   - mode
@@ -2062,6 +2065,83 @@ paths:
               required:
                 - username
               additionalProperties: false
+  /api/v1/auth/google/password/complete:
+    post:
+      summary: Set the Factorize password with fresh Google proof and email confirmation
+      description: Cookie-only browser operation. Mutations require an exact app Origin and reject cross-site requests. Authorization headers are rejected. Responses are never cached.
+      responses:
+        "200":
+          description: Success
+          headers:
+            X-Factorize-Webhook-Conditions:
+              description: Conditions-only webhook runtime deployment marker.
+              schema:
+                type: string
+                const: v1
+            X-Factorize-Contract:
+              description: Deployment compatibility marker for the complete GEN-2157 static-client API contract. Deploy this API stage before static frontend cutover.
+              schema:
+                type: string
+                const: gen-2157-static-v1
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    const: true
+                  returnTo:
+                    type: string
+                required:
+                  - ok
+                  - returnTo
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: post_api_v1_auth_google_password_complete
+      tags:
+        - auth
+      security: []
+      x-browser-auth-operation: google-password-complete
+      x-owner-session-required: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token:
+                  type: string
+                  minLength: 1
+                  maxLength: 512
+                  writeOnly: true
+                password:
+                  type: string
+                  minLength: 12
+                  maxLength: 200
+                  writeOnly: true
+              required:
+                - token
+                - password
+              additionalProperties: false
   /api/v1/auth/google/finish:
     post:
       summary: Choose a username or confirm your existing Factorize password
@@ -2146,7 +2226,7 @@ paths:
                   additionalProperties: false
   /api/v1/auth/password/set-request:
     post:
-      summary: Email a link to set the first password
+      summary: Start fresh Google verification before setting or recovering a password
       description: Cookie-only browser operation. Mutations require an exact app Origin and reject cross-site requests. Authorization headers are rejected. Responses are never cached.
       responses:
         "200":
@@ -2167,11 +2247,11 @@ paths:
               schema:
                 type: object
                 properties:
-                  ok:
-                    type: boolean
-                    const: true
+                  authorizationUrl:
+                    type: string
+                    format: uri
                 required:
-                  - ok
+                  - authorizationUrl
                 additionalProperties: false
         "400":
           $ref: "#/components/responses/Error400"

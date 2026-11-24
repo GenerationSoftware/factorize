@@ -1,5 +1,5 @@
 import { googleSignInCallback } from "./auth-api";
-import { googleCallbackPath } from "./google-sign-in";
+import { clearExpiredGoogleSignIns, googleCallbackPath } from "./google-sign-in";
 import { AlarmCoordinator as BaseAlarmCoordinator } from "./alarm-coordinator";
 import { wakeMcpDeliveries } from "./postgres/event-match-repository";
 import { staticApp, securityHeaders } from "./static-app";
@@ -163,6 +163,7 @@ export default {
     await wakeMcpDeliveries(env).catch(() => {});
     // Retire expired VM proofs and incomplete enrollments.
     const db = databaseFor(env);
+    await clearExpiredGoogleSignIns(db.pool);
     await db.pool.query(`DELETE FROM app.vm_permission_proofs WHERE (tenant_id,grant_id,proof_id) IN
       (SELECT tenant_id,grant_id,proof_id FROM app.vm_permission_proofs WHERE expires_at<now() ORDER BY expires_at LIMIT 5000)`);
     await db.pool.query(`UPDATE app.vm_permission_grants SET revoked_at=now(),updated_at=now(),updated_by='system:enrollment-timeout',

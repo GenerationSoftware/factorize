@@ -396,6 +396,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/google/password/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set the Factorize password with fresh Google proof and email confirmation
+         * @description Cookie-only browser operation. Mutations require an exact app Origin and reject cross-site requests. Authorization headers are rejected. Responses are never cached.
+         */
+        post: operations["post_api_v1_auth_google_password_complete"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/google/finish": {
         parameters: {
             query?: never;
@@ -426,7 +446,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Email a link to set the first password
+         * Start fresh Google verification before setting or recovering a password
          * @description Cookie-only browser operation. Mutations require an exact app Origin and reject cross-site requests. Authorization headers are rejected. Responses are never cached.
          */
         post: operations["post_api_v1_auth_password_set_request"];
@@ -3211,6 +3231,7 @@ export interface operations {
                         capabilities: ("team:read" | "team:write" | "triggers:read" | "triggers:write" | "integrations:read" | "integrations:write" | "vms:read" | "vms:edit" | "apps:manage")[];
                         /** Format: date-time */
                         expiresAt: string;
+                        googleManagedRecovery?: boolean;
                         hasPassword?: boolean;
                     };
                 };
@@ -3326,7 +3347,7 @@ export interface operations {
                         /** Format: email */
                         email: string;
                         /** @enum {string} */
-                        mode: "link" | "signup" | "verify-email";
+                        mode: "link" | "signup" | "verify-email" | "set-password";
                     };
                 };
             };
@@ -3458,6 +3479,50 @@ export interface operations {
             503: components["responses"]["Error503"];
         };
     };
+    post_api_v1_auth_google_password_complete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    token: string;
+                    password: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    /** @description Conditions-only webhook runtime deployment marker. */
+                    "X-Factorize-Webhook-Conditions"?: "v1";
+                    /** @description Deployment compatibility marker for the complete GEN-2157 static-client API contract. Deploy this API stage before static frontend cutover. */
+                    "X-Factorize-Contract"?: "gen-2157-static-v1";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        ok: true;
+                        returnTo: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
     post_api_v1_auth_google_finish: {
         parameters: {
             query?: never;
@@ -3523,8 +3588,8 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        /** @constant */
-                        ok: true;
+                        /** Format: uri */
+                        authorizationUrl: string;
                     };
                 };
             };

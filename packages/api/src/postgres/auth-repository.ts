@@ -8,6 +8,15 @@ type AuthResult = { status: number; body: { ok?: boolean; error?: string; userId
 const ok = () => ({ status: 200, body: { ok: true } });
 const invalidLink = () => ({ status: 400, body: { error: "The link is invalid or expired." } });
 
+// A Google-only account cannot acquire a password using an ordinary email
+// reset. Provider-managed recovery always requires a fresh Google proof, even
+// after a password exists, so stale address ownership is never sufficient.
+export async function requiresGooglePasswordProof(db: DatabaseClient, userId: string) {
+  return !!(await db.query(`SELECT 1 FROM app.auth_users u WHERE u.id=$1 AND
+    (u.google_recovery_managed OR (EXISTS (SELECT 1 FROM app.auth_accounts a WHERE a.user_id=u.id AND a.provider='google')
+    AND NOT EXISTS (SELECT 1 FROM app.auth_accounts a WHERE a.user_id=u.id AND a.provider='credential' AND a.password_hash IS NOT NULL)))`, [userId])).rows.length;
+}
+
 export class AuthRepository {
   constructor(private database: Database, private env: Env) {}
 
@@ -75,7 +84,9 @@ export class AuthRepository {
     validateAuthEmailConfig(this.env);
     const email = normalizeEmail(String(input.email ?? ""));
     const user = (await this.database.pool.query<{ id: string; email_verified: boolean }>("SELECT id,email_verified FROM app.auth_users WHERE lower(email)=$1", [email])).rows[0];
-    if (user && (purpose === "reset" || !user.email_verified)) await this.issueEmail(user.id, email, purpose, input.connection as string | undefined);
+    if (user && (purpose === "reset" ? !await requiresGooglePasswordProof(this.database.pool, user.id) : !user.email_verified)) {
+      await this.issueEmail(user.id, email, purpose, input.connection as string | undefined);
+    }
     return ok();
   }
   async requestReset(input: Record<string, unknown>) { return this.requestEmail(input, "reset"); }
@@ -108,6 +119,7 @@ export class AuthRepository {
         const active = await client.query("SELECT digest,connection_id FROM app.auth_reset_tokens WHERE digest=$1 AND purpose=$2 AND used_at IS NULL AND expires_at>clock_timestamp() FOR UPDATE", [digest, purpose]);
         if (!active.rows.length) return false;
         if (purpose === "reset") {
+          if (await requiresGooglePasswordProof(client, row.user_id)) return false;
           // Email possession lets legacy Linear-only users establish native credentials.
           await client.query(`INSERT INTO app.auth_accounts(id,user_id,provider,provider_account_id,password_hash) VALUES ($1,$2::uuid,'credential',$2::uuid::text,$3)
             ON CONFLICT (provider,provider_account_id) DO UPDATE SET password_hash=excluded.password_hash`, [crypto.randomUUID(), row.user_id, passwordHash]);
@@ -124,10 +136,6 @@ export class AuthRepository {
       });
       return completed ? { status: 200, body: { ok: true, ...completed } } : invalidLink();
     } catch (error) { throw error; }
-  }
-
-  async hasPassword(userId: string) {
-    return !!(await this.database.pool.query("SELECT 1 FROM app.auth_accounts WHERE user_id=$1 AND provider='credential' AND password_hash IS NOT NULL", [userId])).rows.length;
   }
 
   async changePassword(userId: string, input: Record<string, unknown>) {

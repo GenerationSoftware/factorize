@@ -39,8 +39,19 @@ requires its current Factorize password; email alone never links accounts.
 New Google users choose a unique Factorize username. For addresses Google
 does not manage directly, Factorize emails a confirmation link to be opened
 in the browser that started signup. Once signed in, Google-first users can
-use **Set password** to receive a password link at their verified email.
-Keep Postmark configured for address confirmation and password recovery.
+use **Set password**. First confirm the linked Google account again, then open the
+Factorize email link in that same browser. An email link alone cannot establish a
+first password on a Google account.
+
+Addresses verified independently by Factorize are not replaced by Google.
+For accounts enrolled using Google's authoritative email, Google remains the
+authority for password recovery even after a password is added. Factorize
+retires the old email's recovery authority and outstanding links when a Google
+address change is observed. If the new address needs independent confirmation,
+prove it through the Google recovery flow. If it is already used by another
+Factorize account, password recovery pauses rather than transferring or combining
+accounts. Sign-in with the linked Google account still works. Keep Postmark
+configured for address confirmation and password recovery.
 
 ### Existing account migration
 

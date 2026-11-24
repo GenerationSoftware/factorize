@@ -45,24 +45,33 @@ test("Google linking requires a Factorize password and offers recovery", async (
   expect(sent).toEqual({ password: "fixture password" });
 });
 
-test("first password is set by email and settings switch to Change password", async ({ page, origin }) => {
+test("first password requires Google confirmation and an emailed link before settings switches to Change password", async ({ page, origin }) => {
   let hasPassword = false;
   let mailed = 0;
   await page.route("**/api/v1/session", route => route.fulfill({ json: {
     authenticated: true, user: { id: "owner", email: "google-user@gmail.com" },
-    team: { id: "workspace", name: "Workspace", role: "owner" }, capabilities: [], hasPassword,
+    team: { id: "workspace", name: "Workspace", role: "owner" }, capabilities: [], hasPassword, googleManagedRecovery: true,
   } }));
-  await page.route("**/api/v1/auth/password/set-request", route => {
+  await page.route("**/api/v1/auth/password/set-request", route => route.fulfill({ json: { authorizationUrl: origin + "/auth/google" } }));
+  await page.route("**/api/v1/auth/google/pending", route => route.fulfill({ json: { email: "google-user@gmail.com", mode: "set-password" } }));
+  await page.route("**/api/v1/auth/google/email/request", route => {
     mailed++;
     return route.fulfill({ json: { ok: true } });
   });
+  await page.route("**/api/v1/auth/google/password/complete", route => {
+    expect(route.request().postDataJSON()).toEqual({ token: "test-link", password: "my fixture password" });
+    hasPassword = true;
+    return route.fulfill({ json: { ok: true, returnTo: "/settings/password" } });
+  });
   await page.goto(origin + "/settings/password");
   await expect(page.getByRole("heading", { name: "Set password" })).toBeVisible();
-  await page.getByRole("button", { name: "Email me a link" }).click();
-  await expect(page.getByRole("status")).toHaveText("Check your email for a link to set your password.");
+  await page.getByRole("button", { name: "Continue with Google" }).click();
+  await page.getByRole("button", { name: "Email me a confirmation link" }).click();
+  await expect(page.getByRole("status")).toHaveText("Check your email for the confirmation link.");
   expect(mailed).toBe(1);
-  hasPassword = true;
-  await page.reload();
+  await page.goto(origin + "/auth/google?token=test-link");
+  await page.getByLabel("New password").fill("my fixture password");
+  await page.getByRole("button", { name: "Save password" }).click();
   await expect(page.getByRole("heading", { name: "Change password" })).toBeVisible();
   await expect(page.getByLabel("Current password")).toBeVisible();
 });
