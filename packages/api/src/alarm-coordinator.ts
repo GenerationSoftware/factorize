@@ -5,7 +5,7 @@ import { databaseFor } from "./postgres/database";
 import { cleanupAgentResponses } from "./agent-api";
 import { maintainProxyOperations } from "./proxy-operations";
 import type { Env } from "./types";
-import { dispatchMcpEvents, mcpEventDispatchBatchSize } from "./mcp-event-subscriptions";
+import { dispatchMcpEvents, mcpEventDispatchBatchSize, nextMcpDeliveryDelay } from "./mcp-event-subscriptions";
 
 /** Wakes provider and schedule Triggers and maintains bounded proxy records. */
 export class AlarmCoordinator extends DurableObject<Env> {
@@ -41,7 +41,10 @@ export class AlarmCoordinator extends DurableObject<Env> {
       } finally {
         backlog = await dispatchMcpEvents(this.eventEnv()) === mcpEventDispatchBatchSize;
       }
-    } finally { await this.schedule(backlog ? 100 : 60_000); }
+    } finally {
+      const delay = backlog ? 100 : await nextMcpDeliveryDelay(this.eventEnv()).catch(() => 60_000);
+      await this.schedule(Math.min(60_000, delay));
+    }
   }
   private async schedule(delay = 60_000) {
     const current = await this.ctx.storage.getAlarm(), desired = Date.now() + delay;

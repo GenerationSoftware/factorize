@@ -21,6 +21,34 @@ The Worker alarm claims due rows and checks current grant, owner, scope, subscri
 For one exact occurrence, call the read-only `read_event_delivery_diagnostics` MCP tool with an owner credential scoped to `triggers:read`. It distinguishes a missing occurrence (not found) from an existing occurrence with no delivery records. Up to 100 most recently updated rows describe each delivery's opaque subscription ID, status, attempts, allowlisted outcome code, HTTP status, and timestamps. A pending row can include its next attempt time. `truncated` indicates more rows exist. An accepted delivery confirms callback receipt only, not task execution. The diagnostic does not expose callback details or contents, and cannot retry a delivery.
 In PostgreSQL, `app.mcp_event_deliveries` records the attempt count, status, last outcome, and HTTP status.
 
+## Optional processing acknowledgments
+
+An active OAuth client with `triggers:read` can opt in on its own subscription
+using `set_event_processing_acknowledgments`. The standard subscribe,
+unsubscribe and webhook payload schemas do not change. The optional timeout
+is 30–86400 seconds (default 300). An HTTP-accepted occurrence remains
+`awaiting_ack` until durably processed, waived, cancelled or exhausted.
+
+Use `acknowledge_events(subscription_id, event_ids, cooldown_seconds?)` only
+after durable completion or handoff. Use exactly the original occurrence IDs
+in `data.occurrenceId` regardless of delivery order or how many events appeared
+in a wake. The optional cooldown pauses delivery on this subscription and
+only changes when at least one ID is newly acknowledged. Duplicate ACKs are
+safe and never extend the cooldown. Continue independent client-local pacing;
+do not rely on the platform's limits or silently discard unfinished work.
+
+When an ACK times out, the scheduler issues a recovery wake with a fresh
+webhook `eventId` and the same original `data.occurrenceId`. Transport retries
+of an interrupted recovery reuse its persisted wake ID. There are at most
+four automatic recovery attempts per cycle with backoff. Explicit
+`replay_unacknowledged_events` can queue exact unresolved original IDs after
+inspection, including exhausted recovery, without changing the durable
+business event stream. Cooldown applies to replays as well. Diagnostics
+report HTTP transport separately from processing state, attempted recoveries
+and next recovery time. After disabling, outstanding processing is waived
+(not marked complete), unstarted recovery is cancelled, and cooldown is
+cleared. A new opt-in starts with future occurrences only.
+
 ## Mocked Dot pilot
 
 The mock saves the subscribed definition ID. For a wake with occurrence IDs, it calls `read_event_occurrences` once per ID. For an empty wake, it uses the saved ID and a recent overlapping `since` value, paging until `nextCursor` is null. The mock tracks already summarized occurrence IDs in its context. Without prior context an overlapping window can summarize an occurrence again.
