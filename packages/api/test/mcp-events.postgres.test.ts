@@ -119,11 +119,13 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("MCP event webhook lifecycl
     "SELECT occurrence_id,status,attempts,http_status FROM app.mcp_event_deliveries ORDER BY updated_at,occurrence_id",
   )).rows;
 
-  it("persists a Linear webhook from legacy MCP input alongside the built-in manual source", async () => {
+  it("requires canonical MCP sources and persists the configured Linear webhook", async () => {
     const catalog = (await request("tools/list")).message.result.tools;
     for (const toolName of ["create_trigger", "update_trigger"]) {
-      expect(catalog.find((item: { name: string }) => item.name === toolName).inputSchema.properties)
-        .toMatchObject({ sources: { type: "array" }, events: { type: "array" } });
+      const schema = catalog.find((item: { name: string }) => item.name === toolName).inputSchema;
+      expect(schema.properties).toMatchObject({ sources: { type: "array" } });
+      expect(schema.properties).not.toHaveProperty("events");
+      expect(schema.required).toContain("sources");
     }
     const config = {
       provider: "linear", projectId: "fixture-project",
@@ -131,7 +133,9 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("MCP event webhook lifecycl
     };
     const webhook = { kind: "webhook", enabled: true, config };
     const input = { name: "fixture-linear", eventId: source.definitionId };
-    const create = await tool("create_trigger", { ...input, events: [webhook] });
+    expect((await tool("create_trigger", input)).isError).toBe(true);
+    expect((await tool("create_trigger", { ...input, events: [webhook] })).isError).toBe(true);
+    const create = await tool("create_trigger", { ...input, sources: [webhook] });
     expect(create.isError, JSON.stringify(create)).not.toBe(true);
     const triggerId = create.structuredContent.id;
     const get = () => tool("get_trigger", { triggerId });
@@ -139,15 +143,13 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("MCP event webhook lifecycl
     expect(original).toMatchObject([{ kind: "manual" }, webhook]);
     const update = { ...input, triggerId };
     const manual = { kind: "manual", id: original[0].id, config: {} };
-    const oldWebhook = { ...webhook, id: original[1].id };
-    const newWebhook = { ...oldWebhook, config: { ...config, matchRules: [{ type: "status", targetId: "fixture-review" }] } };
+    const newWebhook = { ...webhook, id: original[1].id, config: { ...config, matchRules: [{ type: "status", targetId: "fixture-review" }] } };
     expect((await tool("update_trigger", { ...update, sources: [manual, newWebhook] })).isError).not.toBe(true);
-    expect((await get()).structuredContent.sources).toMatchObject([manual, newWebhook]);
-    expect((await tool("update_trigger", { ...update, events: [manual, oldWebhook] })).isError).not.toBe(true);
-    const restored = (await get()).structuredContent.sources;
-    expect(restored).toMatchObject([manual, oldWebhook]);
-    expect((await tool("update_trigger", { ...update, sources: [manual, newWebhook], events: [manual, oldWebhook] })).isError).toBe(true);
-    expect((await get()).structuredContent.sources).toEqual(restored);
+    const updated = (await get()).structuredContent.sources;
+    expect(updated).toMatchObject([manual, newWebhook]);
+    expect((await tool("update_trigger", update)).isError).toBe(true);
+    expect((await tool("update_trigger", { ...update, events: [webhook] })).isError).toBe(true);
+    expect((await get()).structuredContent.sources).toEqual(updated);
   });
 
   it("discovers, subscribes, commits, dispatches and reads a deduplicated occurrence", async () => {

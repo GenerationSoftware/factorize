@@ -22,18 +22,11 @@ export const triggerSourceSchema = z.discriminatedUnion("kind", [
 const triggerSources = z.array(triggerSourceSchema).min(1).max(50);
 export const triggerInputSchema = z.object({ name: resourceName, eventId: z.guid(), sources: triggerSources.default([{ kind: "manual", slug: "source-1", enabled: true, config: {} }]) }).strict();
 
-// A previously discovered MCP tool catalog can still send the old "events"
-// input. Validate both spellings identically, but keep REST's contract unchanged.
+// Require explicit MCP input so a stale tool catalog cannot discard the
+// source configuration and fall back to creating or restoring a manual source.
 export const mcpTriggerInputSchema = triggerInputSchema.extend({
-  sources: triggerSources.optional().describe("Input sources for the Trigger."),
-  events: triggerSources.optional().describe("Deprecated MCP alias for sources; do not supply both."),
-}).refine(({ sources, events }) => sources === undefined || events === undefined, {
-  path: ["events"], message: "Specify either sources or events, not both.",
+  sources: triggerSources.describe("Input sources for the Trigger."),
 });
-
-export function normalizeMcpTriggerInput({ events, sources, ...input }: z.infer<typeof mcpTriggerInputSchema>): TriggerInput {
-  return triggerInputSchema.parse({ ...input, sources: sources ?? events });
-}
 export const triggerIdSchema = z.object({ triggerId: z.string().min(1) });
 export const fireTriggerInputSchema = z.object({ data: z.record(z.string(), z.unknown()).default({}), idempotencyKey: z.string().trim().min(1).max(200).optional() }).strict();
 export const triggerConditionsTestSchema = z.object({ conditions: conditionsSchema.optional(), webhook: preparedWebhookSchema }).strict();
