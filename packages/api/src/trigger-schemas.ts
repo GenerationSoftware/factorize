@@ -19,7 +19,14 @@ export const triggerSourceSchema = z.discriminatedUnion("kind", [
   z.object({ id: z.string().min(1).optional(), slug: z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/).optional(), kind: z.literal("schedule"), template: sourceTemplate, enabled: z.boolean().default(true), config: z.object({ cron: z.string().trim().min(1), timezone: z.string().trim().min(1) }).strict() }).strict(),
   z.object({ id: z.string().min(1).optional(), slug: z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/).optional(), kind: z.literal("webhook"), template: sourceTemplate, enabled: z.boolean().default(true), config: webhookSourceConfigSchema }).strict(),
 ]);
-export const triggerInputSchema = z.object({ name: resourceName, eventId: z.guid(), sources: z.array(triggerSourceSchema).min(1).max(50).default([{ kind: "manual", slug: "source-1", enabled: true, config: {} }]) }).strict();
+const triggerSources = z.array(triggerSourceSchema).min(1).max(50);
+export const triggerInputSchema = z.object({ name: resourceName, eventId: z.guid(), sources: triggerSources.default([{ kind: "manual", slug: "source-1", enabled: true, config: {} }]) }).strict();
+
+// Require explicit MCP input so a stale tool catalog cannot discard the
+// source configuration and fall back to creating or restoring a manual source.
+export const mcpTriggerInputSchema = triggerInputSchema.extend({
+  sources: triggerSources.describe("Input sources for the Trigger."),
+});
 export const triggerIdSchema = z.object({ triggerId: z.string().min(1) });
 export const fireTriggerInputSchema = z.object({ data: z.record(z.string(), z.unknown()).default({}), idempotencyKey: z.string().trim().min(1).max(200).optional() }).strict();
 export const triggerConditionsTestSchema = z.object({ conditions: conditionsSchema.optional(), webhook: preparedWebhookSchema }).strict();

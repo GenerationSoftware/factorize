@@ -17,7 +17,7 @@ import { createMcpHandler, McpServer, ResourceTemplate, ProtocolError, ProtocolE
 import { createMcpHonoApp } from "@modelcontextprotocol/hono";
 import { z } from "zod";
 import { ApiService, ServiceError } from "./api-service";
-import { triggerConditionsTestSchema, triggerIdSchema, triggerInputSchema, fireTriggerInputSchema } from "./trigger-schemas";
+import { triggerConditionsTestSchema, triggerIdSchema, mcpTriggerInputSchema, fireTriggerInputSchema, type TriggerInput } from "./trigger-schemas";
 import type { Env, OAuthProps } from "./types";
 import { executeAuth, validBrowserOrigin } from "./auth-api";
 import { matchApiOperation } from "./api-contract";
@@ -213,8 +213,8 @@ function createMcpServer(service: ApiService, subscriptions = true): McpServer {
     tool("list_event_occurrences", "Read durable Event occurrences in reverse order.", z.object({eventId:z.uuid(),...eventOccurrenceQuery.shape}), ({eventId,limit,cursor}:any) => service.listEventOccurrences(eventId,limit,cursor));
                                 tool("list_triggers", "List triggers and their parent Events", z.object({}), () => service.listTriggers());
                                             tool("get_trigger", "Get a Trigger, its parent Event, and input configuration", triggerIdSchema, ({ triggerId }: any) => service.getTrigger(triggerId));
-    tool("create_trigger", "Create an input Trigger attached to an Event. Credentials are never accepted or returned.", triggerInputSchema, (input: any) => service.createTrigger(input));
-    tool("update_trigger", "Replace a Trigger's input configuration and Event parent.", triggerInputSchema.extend({ triggerId: z.string().min(1) }), ({ triggerId, ...input }: any) => service.updateTrigger(triggerId, input));
+    tool("create_trigger", "Create an input Trigger attached to an Event. Credentials are never accepted or returned.", mcpTriggerInputSchema, (input: TriggerInput) => service.createTrigger(input));
+    tool("update_trigger", "Replace a Trigger's input configuration and Event parent.", mcpTriggerInputSchema.extend({ triggerId: z.string().min(1) }), ({ triggerId, ...input }: TriggerInput & { triggerId: string }) => service.updateTrigger(triggerId, input));
     tool("delete_trigger", "Delete an input Trigger", triggerIdSchema, ({ triggerId }: any) => service.deleteTrigger(triggerId));
     tool("enable_trigger", "Enable a trigger", triggerIdSchema, ({ triggerId }: any) => service.setTriggerEnabled(triggerId, true));
     tool("disable_trigger", "Disable a trigger", triggerIdSchema, ({ triggerId }: any) => service.setTriggerEnabled(triggerId, false));
