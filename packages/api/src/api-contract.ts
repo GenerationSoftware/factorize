@@ -549,7 +549,7 @@ export const API_ROUTES: RouteContract[] = [
   ),
   route("PUT", "/api/v1/access/authorizations/{grantId}/permissions", "triggers:write", {
     summary: "Set an OAuth connection’s effective scopes and integration access",
-    description: "Interactive owner session required. Saving updates the connection immediately and can add scopes beyond the original OAuth request.",
+    description: "Interactive owner session required. Removing permissions takes effect immediately. A scope not carried by the current token requires a fresh OAuth authorization and token.",
     responses: {"200": {description: "Permissions saved", content: {"application/json": {schema: jsonSchema(okResult, "output")}}}},
   }, (service, {params, body}) => service.updateClientPermissions(params.grantId, body), {ownerSession: true, body: clientPermissionsUpdate}),
   route("GET", "/api/v1/vms", "vms:read", {

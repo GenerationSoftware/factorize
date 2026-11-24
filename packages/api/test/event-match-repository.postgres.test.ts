@@ -9,21 +9,25 @@ vi.mock("@cloudflare/workers-oauth-provider", () => ({ OAuthProvider: class {}, 
 
 const url = process.env.AUTH_TEST_DATABASE_URL;
 describe.skipIf(!url)("durable Event occurrences", () => {
-  it("lets owners add and remove standard and integration scopes for a connected client immediately", async () => {
+  it("applies connection permission edits within each OAuth credential’s scope limit", async () => {
     const f = await loadingFixture(url!);
     try {
       const grantId = "scope-grant";
       const now = Math.floor(Date.now()/1000);
-      f.env.OAUTH_PROVIDER = { listUserGrants: async () => ({items:[{id:grantId,clientId:"test-client",metadata:{tenantId:f.tenantId},scope:["triggers:read"],createdAt:now,expiresAt:null}]}), lookupClient: async () => ({clientId:"test-client",clientName:"Test client"}) } as any;
       const integrationId = crypto.randomUUID();
       await f.db.pool.query("INSERT INTO app.agent_integrations(tenant_id,id,kind,credential_id,name,available,policy,epoch) VALUES($1,$2,'bearer','test-secret','Test integration',true,'requestable',1)",[f.tenantId,integrationId]);
       const integrationScope = `integration:${integrationId}:1`;
+      const readOnly = ["triggers:read"];
+      const readWrite = [...readOnly,"triggers:write","proxy:use",integrationScope];
+      f.env.OAUTH_PROVIDER = { listUserGrants: async () => ({items:[{id:grantId,clientId:"test-client",metadata:{tenantId:f.tenantId},scope:readWrite,createdAt:now,expiresAt:null}]}), lookupClient: async () => ({clientId:"test-client",clientName:"Test client"}) } as any;
       const service = new ApiService(f.env,f.auth);
-      await service.updateClientPermissions(grantId,{scopes:["triggers:read","triggers:write","proxy:use",integrationScope],expectedRevision:0});
       const auth = {...f.auth,authMethod:"oauth" as const,oauthGrantId:grantId};
-      expect(await effectiveConnectionScopes(f.env,auth,["triggers:read"])).toEqual(["triggers:read","triggers:write","proxy:use",integrationScope]);
-      await service.updateClientPermissions(grantId,{scopes:["triggers:read"],expectedRevision:1});
-      expect(await effectiveConnectionScopes(f.env,auth,["triggers:read","triggers:write","proxy:use",integrationScope])).toEqual(["triggers:read"]);
+      await service.updateClientPermissions(grantId,{scopes:readWrite,expectedRevision:0});
+      expect(await effectiveConnectionScopes(f.env,auth,readOnly)).toEqual(readOnly);
+      expect(await effectiveConnectionScopes(f.env,auth,readWrite)).toEqual(readWrite);
+      await service.updateClientPermissions(grantId,{scopes:readOnly,expectedRevision:1});
+      expect(await effectiveConnectionScopes(f.env,auth,readOnly)).toEqual(readOnly);
+      expect(await effectiveConnectionScopes(f.env,auth,readWrite)).toEqual(readOnly);
     } finally { await f.cleanup(); }
   });
   it("deletes an Event with its Triggers, input sources, match state, and occurrence history", async () => {

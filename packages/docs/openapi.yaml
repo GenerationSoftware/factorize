@@ -4304,7 +4304,7 @@ paths:
     put:
       summary: Set an OAuth connection’s effective scopes and integration access
       description: |-
-        Interactive owner session required. Saving updates the connection immediately and can add scopes beyond the original OAuth request.
+        Interactive owner session required. Removing permissions takes effect immediately. A scope not carried by the current token requires a fresh OAuth authorization and token.
 
         Requires the triggers:write scope.
 
