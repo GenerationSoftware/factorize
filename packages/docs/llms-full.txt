@@ -635,6 +635,41 @@ Linear OAuth requires an authenticated owner, binds state to that user/workspace
 
 `npm run check` runs unit/contract tests and Postmark preflight tests. CI also runs the real PostgreSQL authentication suite against a disposable service. To run it locally, set `AUTH_TEST_DATABASE_URL` to an isolated PostgreSQL server whose user can create/drop test databases, then run `npm test --workspace=factorize -- --run test/native-auth.postgres.test.ts`. The suite creates and removes its own database and applies every migration, including a legacy connection fixture before the auth migration.
 
+## Configure Cloudflare REST OAuth
+
+Create a self-managed Cloudflare OAuth client with an authorization code grant,
+refresh tokens, and `client_secret_post`. Register exactly
+`<APP_ORIGIN>/oauth/cloudflare/callback`; the hosted callback is
+`https://app.factorize.sh/oauth/cloudflare/callback`. Verify the publisher
+domain and promote the application to public so customers outside your
+Cloudflare account can connect. Users never paste an API token.
+
+Set `CLOUDFLARE_OAUTH_CLIENT_ID` and `CLOUDFLARE_OAUTH_CLIENT_SECRET` on the
+Worker. Set `CLOUDFLARE_OAUTH_READ_SCOPES` to space-separated, registered
+Cloudflare read scopes, including `account.read`. Choose the read permission
+groups needed for the endpoints below, and verify OAuth scope keys against
+Cloudflare's List OAuth Scopes API rather than inferring them from their display
+names. Optionally configure `CLOUDFLARE_OAUTH_WRITE_SCOPES=dns.write` and
+register DNS Write as an optional scope on the Cloudflare client. Never set
+Cloudflare's write scopes as required for read-only connections. Normal
+deployment applies migration 0108.
+
+In Factorize, an owner authorizes on Cloudflare and then selects one account.
+The standard `request_api` tool uses the Cloudflare v4 REST API on
+`api.cloudflare.com`. Read-only access is the default. Supported read routes
+include selected account and zone metadata, DNS records and DNSSEC, zone
+settings, route metadata, and Workers, KV, R2, D1, Queues and Pages inventory.
+Cloudflare may deny routes not covered by the granted permission groups.
+DNS record creation, modification, and deletion require both Factorize's
+explicit opt-in and a confirmed Cloudflare DNS Write grant. Credential
+management, administrative account operations, other mutations, and
+unrecognized routes are denied. Disconnecting removes Factorize's saved
+credentials; revoke the OAuth grant in Cloudflare for provider-side removal.
+
+The legacy standalone Cloudflare Tail setup is retired. Already configured
+Tail webhooks and records are not deleted by this migration, and this
+integration does not add log streaming or new log triggers.
+
 ## Configure Linear
 
 Use authorization-code OAuth and enable **Webhooks** on the OAuth application. Configure:

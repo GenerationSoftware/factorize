@@ -1,3 +1,4 @@
+import { cloudflareCookieValue, cloudflareSelectInput, cloudflareStartInput, cloudflareStartResult, cloudflareStatus } from "./cloudflare-oauth";
 import { cloneInfo, gitCredential } from "./git-https-contracts";
 import { profileInput, profileResponse } from "./usernames";
 import {createPayloadInput,payloadReceipt,appendPayloadInput,finalizePayloadInput,attachmentInput} from "./proxy-payloads";
@@ -6,7 +7,7 @@ import {queryApiResponseInput,queryApiResponseResult} from "./agent-api-contract
 import { apiReflection, apiPolicyList, apiPolicyInput, requestApiInput, requestApiResponse, readApiResponseInput, apiResponseChunk } from "./agent-api-contracts";
 import { queryOf } from "./query-params";
 import { consentPreviewInput, consentPreviewResponse, consentDecisionInput, consentDecisionResponse } from "./consent-api";
-import { exeConnection, integrationStatus, clientPermissionsUpdate, clientNameInput, authorizedClient, accessToken, createdAccessToken, savedExe, savedAmp, savedTail, okResult, permissionPreset, permissionPresetInput, permissionPresetList } from "./settings-contracts";
+import { exeConnection, integrationStatus, clientPermissionsUpdate, clientNameInput, authorizedClient, accessToken, createdAccessToken, savedExe, savedAmp, okResult, permissionPreset, permissionPresetInput, permissionPresetList } from "./settings-contracts";
 import { eventAvailabilityResponse, namedOption, providerOptions, githubInstallation, githubRepository, tailIntegration } from "./editor-contracts";
 import { triggerResponse, triggerUpdateInput } from "./trigger-contracts";
 import { z } from "zod";
@@ -59,15 +60,7 @@ const ampBody = z.object({
   project: z.string().min(1).optional(),
   apiBaseUrl: z.url().optional(),
 });
-const tailBody = z.object({
-  integrationId: z.string().min(1).optional(),
-  name: z.string().trim().min(1).max(120),
-  signingSecret: z
-    .union([z.literal(""), z.string().min(16)])
-    .optional()
-    .meta({ writeOnly: true }),
-  generateSecret: z.boolean().optional(),
-});
+
 const deliveryQuery = z.object({
   provider: z.string().optional(),
   deliveryId: z.string().optional(),
@@ -174,6 +167,28 @@ function authRoute(method: string, path: string, action: AuthAction, summary: st
 }
 
 export const API_ROUTES: RouteContract[] = [
+  route("GET", "/api/v1/integrations/cloudflare", "integrations:read", {
+    summary: "Read Cloudflare connections and pending account options",
+    responses: { "200": { description: "Cloudflare OAuth metadata", content: { "application/json": { schema: jsonSchema(cloudflareStatus, "output") } } } },
+  }, (service, { request }) => service.cloudflareState(request!), { ownerSession: true }),
+  route("POST", "/api/v1/integrations/cloudflare/authorize", "integrations:write", {
+    summary: "Start Cloudflare account authorization",
+    responses: { "200": { description: "Cloudflare authorization URL", content: { "application/json": { schema: jsonSchema(cloudflareStartResult, "output") } } } },
+  }, async (service, { body }) => {
+    const started = await service.startCloudflare(body.enableWrites);
+    return Response.json({ authorizationUrl: started.authorizationUrl }, { headers: { "Set-Cookie": started.cookie } });
+  }, { ownerSession: true, body: cloudflareStartInput, maxBodyBytes: 1024 }),
+  route("POST", "/api/v1/integrations/cloudflare/select", "integrations:write", {
+    summary: "Connect exactly one authorized Cloudflare account",
+    responses: { "200": { description: "Cloudflare account connected", content: { "application/json": { schema: jsonSchema(okResult, "output") } } } },
+  }, async (service, { request, body }) => {
+    const result = await service.selectCloudflare(request!, body.accountId);
+    return Response.json(result, { headers: { "Set-Cookie": cloudflareCookieValue("") } });
+  }, { ownerSession: true, body: cloudflareSelectInput, maxBodyBytes: 1024 }),
+  route("DELETE", "/api/v1/integrations/cloudflare/{connectionId}", "integrations:write", {
+    summary: "Disconnect a Cloudflare account inside this workspace",
+    responses: { "200": { description: "Cloudflare account disconnected", content: { "application/json": { schema: jsonSchema(okResult, "output") } } } },
+  }, (service, { params }) => service.disconnectCloudflare(params.connectionId), { ownerSession: true, parameters: z.object({ connectionId: z.uuid() }) }),
   route("GET", "/api/v1/x/connections", "integrations:read", {
     summary: "List X connections",
     description: "Requires an interactive owner session. Returns named connection metadata, account identity, selected/granted scopes, and status. Client secrets and OAuth tokens are never returned.",
@@ -412,17 +427,6 @@ export const API_ROUTES: RouteContract[] = [
     { body: ampBody },
   ),
   route(
-    "POST",
-    "/api/v1/integrations/cloudflare-tail",
-    "integrations:write",
-    {
-      summary: "Create a Tail integration",
-      responses: { "201": { description: "Created", content: { "application/json": { schema: jsonSchema(savedTail, "output") } } } },
-    },
-    (service, { body }) => service.saveTailIntegration(body),
-    { body: tailBody },
-  ),
-  route(
     "GET",
     "/api/v1/providers/linear/projects",
     "integrations:read",
@@ -626,21 +630,6 @@ export const API_ROUTES: RouteContract[] = [
       service.removeIntegration("amp", params.connectionId),
   ),
   route(
-    "PUT",
-    "/api/v1/integrations/cloudflare-tail/{integrationId}",
-    "integrations:write",
-    {
-      summary: "Update a Tail integration",
-      responses: { "200": { description: "Updated", content: { "application/json": { schema: jsonSchema(savedTail, "output") } } } },
-    },
-    (service, { params, body }) =>
-      service.saveTailIntegration({
-        ...body,
-        integrationId: params.integrationId,
-      }),
-    { body: tailBody },
-  ),
-  route(
     "DELETE",
     "/api/v1/integrations/cloudflare-tail/{integrationId}",
     "integrations:write",
@@ -650,16 +639,6 @@ export const API_ROUTES: RouteContract[] = [
     },
     (service, { params }) =>
       service.removeTailIntegration(params.integrationId),
-  ),
-  route(
-    "POST",
-    "/api/v1/integrations/cloudflare-tail/{integrationId}/test",
-    "integrations:write",
-    {
-      summary: "Test a Tail integration",
-      responses: { "200": { description: "Test result", content: { "application/json": { schema: jsonSchema(okResult, "output") } } } },
-    },
-    (service, { params }) => service.testTailIntegration(params.integrationId),
   ),
   route(
     "GET",

@@ -1,5 +1,93 @@
 // Generated from packages/docs/openapi.yaml. Do not edit.
 export interface paths {
+    "/api/v1/integrations/cloudflare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Cloudflare connections and pending account options
+         * @description Requires the integrations:read scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        get: operations["get_api_v1_integrations_cloudflare"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integrations/cloudflare/authorize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start Cloudflare account authorization
+         * @description Requires the integrations:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        post: operations["post_api_v1_integrations_cloudflare_authorize"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integrations/cloudflare/select": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Connect exactly one authorized Cloudflare account
+         * @description Requires the integrations:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        post: operations["post_api_v1_integrations_cloudflare_select"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integrations/cloudflare/{connectionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Disconnect a Cloudflare account inside this workspace
+         * @description Requires the integrations:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        delete: operations["delete_api_v1_integrations_cloudflare_connectionId"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/x/connections": {
         parameters: {
             query?: never;
@@ -929,13 +1017,7 @@ export interface paths {
          */
         get: operations["get_api_v1_integrations_cloudflare_tail"];
         put?: never;
-        /**
-         * Create a Tail integration
-         * @description Requires the integrations:write scope.
-         *
-         *     Accepts a scoped bearer token or interactive owner session.
-         */
-        post: operations["post_api_v1_integrations_cloudflare_tail"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1548,13 +1630,7 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        /**
-         * Update a Tail integration
-         * @description Requires the integrations:write scope.
-         *
-         *     Accepts a scoped bearer token or interactive owner session.
-         */
-        put: operations["put_api_v1_integrations_cloudflare_tail_integrationId"];
+        put?: never;
         post?: never;
         /**
          * Remove a Tail integration
@@ -1563,28 +1639,6 @@ export interface paths {
          *     Accepts a scoped bearer token or interactive owner session.
          */
         delete: operations["delete_api_v1_integrations_cloudflare_tail_integrationId"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/integrations/cloudflare-tail/{integrationId}/test": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Test a Tail integration
-         * @description Requires the integrations:write scope.
-         *
-         *     Accepts a scoped bearer token or interactive owner session.
-         */
-        post: operations["post_api_v1_integrations_cloudflare_tail_integrationId_test"];
-        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -2699,6 +2753,157 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    get_api_v1_integrations_cloudflare: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cloudflare OAuth metadata */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        configured: boolean;
+                        writeAvailable: boolean;
+                        accounts: {
+                            id: string;
+                            name: string;
+                        }[];
+                        connections: {
+                            /** Format: uuid */
+                            id: string;
+                            accountId: string;
+                            name: string;
+                            writeEnabled: boolean;
+                            connected: boolean;
+                        }[];
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_integrations_cloudflare_authorize: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @default false */
+                    enableWrites?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Cloudflare authorization URL */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uri */
+                        authorizationUrl: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_integrations_cloudflare_select: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    accountId: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Cloudflare account connected */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ok: boolean;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    delete_api_v1_integrations_cloudflare_connectionId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                connectionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cloudflare account disconnected */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ok: boolean;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
     get_api_v1_x_connections: {
         parameters: {
             query?: never;
@@ -4719,52 +4924,6 @@ export interface operations {
             503: components["responses"]["Error503"];
         };
     };
-    post_api_v1_integrations_cloudflare_tail: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    integrationId?: string;
-                    name: string;
-                    signingSecret?: "" | string;
-                    generateSecret?: boolean;
-                };
-            };
-        };
-        responses: {
-            /** @description Created */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        integrationId: string;
-                        name: string;
-                        /** @constant */
-                        status: "connected";
-                        /** @constant */
-                        secretConfigured: true;
-                        generatedSecret?: string;
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            415: components["responses"]["Error415"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
     get_api_v1_integrations: {
         parameters: {
             query?: never;
@@ -5954,54 +6113,6 @@ export interface operations {
             503: components["responses"]["Error503"];
         };
     };
-    put_api_v1_integrations_cloudflare_tail_integrationId: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                integrationId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    integrationId?: string;
-                    name: string;
-                    signingSecret?: "" | string;
-                    generateSecret?: boolean;
-                };
-            };
-        };
-        responses: {
-            /** @description Updated */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        integrationId: string;
-                        name: string;
-                        /** @constant */
-                        status: "connected";
-                        /** @constant */
-                        secretConfigured: true;
-                        generatedSecret?: string;
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            415: components["responses"]["Error415"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
     delete_api_v1_integrations_cloudflare_tail_integrationId: {
         parameters: {
             query?: never;
@@ -6020,38 +6131,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": Record<string, never>;
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    post_api_v1_integrations_cloudflare_tail_integrationId_test: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                integrationId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Test result */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        ok: boolean;
-                    };
                 };
             };
             400: components["responses"]["Error400"];
@@ -6878,7 +6957,7 @@ export interface operations {
                             name: string;
                             description: string | null;
                             /** @enum {string} */
-                            kind: "bearer" | "github" | "linear" | "model" | "fly" | "exe" | "amp" | "clickup" | "x";
+                            kind: "bearer" | "github" | "linear" | "model" | "fly" | "exe" | "amp" | "clickup" | "x" | "cloudflare";
                             /** @enum {string} */
                             policy: "baseline" | "requestable" | "disabled";
                             available: boolean;
@@ -7702,7 +7781,7 @@ export interface operations {
                             name: string;
                             description: string | null;
                             /** @enum {string} */
-                            kind: "bearer" | "github" | "linear" | "model" | "fly" | "exe" | "amp" | "clickup" | "x";
+                            kind: "bearer" | "github" | "linear" | "model" | "fly" | "exe" | "amp" | "clickup" | "x" | "cloudflare";
                             /** @enum {string} */
                             policy: "baseline" | "requestable" | "disabled";
                             available: boolean;
@@ -7755,7 +7834,7 @@ export interface operations {
                             name: string;
                             description: string | null;
                             /** @enum {string} */
-                            kind: "bearer" | "github" | "linear" | "model" | "fly" | "exe" | "amp" | "clickup" | "x";
+                            kind: "bearer" | "github" | "linear" | "model" | "fly" | "exe" | "amp" | "clickup" | "x" | "cloudflare";
                             /** @enum {string} */
                             policy: "baseline" | "requestable" | "disabled";
                             available: boolean;

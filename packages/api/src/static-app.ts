@@ -19,7 +19,7 @@ export function securityHeaders(request: Request, response: Response) {
   const headers = new Headers(response.headers);
   if (!headers.has("Cache-Control")) headers.set("Cache-Control", "no-store");
   headers.set("Content-Security-Policy", STATIC_CSP);
-  headers.set("Referrer-Policy", ["/auth/google", "/oauth/google/sign-in/callback"].includes(new URL(request.url).pathname) ? "no-referrer" : "same-origin");
+  headers.set("Referrer-Policy", ["/auth/google", "/oauth/google/sign-in/callback", "/oauth/cloudflare/callback"].includes(new URL(request.url).pathname) ? "no-referrer" : "same-origin");
   headers.set("X-Content-Type-Options", "nosniff");
   headers.set("X-Frame-Options", "DENY");
   headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");

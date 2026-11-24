@@ -1,3 +1,4 @@
+import { cloudflareState, disconnectCloudflare, selectCloudflare, startCloudflare } from "./cloudflare-oauth";
 import { initialIntegrationOverrides, lockOAuthPolicy } from "./oauth-reconnect";
 import { lockMcpEventGrant } from "./postgres/mcp-event-outbox";
 import { eventPayloadSchema, occurrenceEventName, occurrenceInputSchema, type ReadEventOccurrencesInput, type subscribeEventInput, type unsubscribeEventInput, type setProcessingAcknowledgmentsInput, type acknowledgeEventsInput } from "./mcp-event-contracts";
@@ -337,6 +338,22 @@ export class ApiService {
   private integrations() { return new IntegrationService(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY); }
   private providers() { return new ProviderCatalog(databaseFor(this.env), this.env, this.auth.tenantId); }
 
+  async cloudflareState(request: Request) {
+    await this.authorizeOwnerSession("integrations:read");
+    return cloudflareState(this.env, this.auth, request);
+  }
+  async startCloudflare(writes: boolean) {
+    await this.authorizeOwnerSession("integrations:write");
+    return startCloudflare(this.env, this.auth, writes);
+  }
+  async selectCloudflare(request: Request, accountId: string) {
+    await this.authorizeOwnerSession("integrations:write");
+    return selectCloudflare(this.env, this.auth, request, accountId);
+  }
+  async disconnectCloudflare(id: string) {
+    await this.authorizeOwnerSession("integrations:write");
+    return disconnectCloudflare(this.env, this.auth, id);
+  }
   async integrationStatus() { await this.authorize("integrations:read"); return publicValue(integrationStatus, await this.integrations().status()); }
   async saveExeIntegration(input: any) { await this.authorize("integrations:write"); return this.integrations().saveExe(input); }
   async removeIntegration(kind: "exe" | "amp", id: string) { await this.authorize("integrations:write"); const result = await this.integrations().remove(kind, id); if (result.conflict) throw new ServiceError(409, "conflict", "This integration is used by a trigger."); if (!result.deleted) throw new ServiceError(404, "not_found", "Integration not found"); return { id, deleted: true }; }

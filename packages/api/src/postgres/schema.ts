@@ -45,6 +45,18 @@ export const oauthDeviceAuthorizations = app.table("oauth_device_authorizations"
 export const members = app.table("members", {
   tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }), userId: uuid("user_id").notNull().references(() => authUsers.id, { onDelete: "cascade" }), email: text("email").notNull(), role: text("role").$type<"owner" | "member">().notNull(), sessionVersion: integer("session_version").notNull().default(1), createdAt: createdAt(),
 }, t => [primaryKey({ columns: [t.tenantId, t.userId] }), check("members_role_check", sql`${t.role} in ('owner','member')`), check("members_session_version_check", sql`${t.sessionVersion} > 0`)]);
+export const cloudflareConnections = app.table("cloudflare_connections", {
+  tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  id: uuid("id").notNull(), accountId: text("account_id").notNull(), name: text("account_name").notNull(),
+  writeEnabled: boolean("write_enabled").notNull(), encryptedCredentials: text("encrypted_credentials"),
+}, t => [primaryKey({ columns: [t.tenantId, t.id] }), unique().on(t.tenantId, t.accountId)]);
+export const cloudflareOauthAttempts = app.table("cloudflare_oauth_attempts", {
+  tenantId: uuid("tenant_id").primaryKey().references(() => tenants.id, { onDelete: "cascade" }),
+  userId: uuid("user_id").notNull().references(() => authUsers.id, { onDelete: "cascade" }),
+  sessionVersion: integer("session_version").notNull(), state: uuid("state").notNull().unique(),
+  verifier: text("verifier"), scopes: text("scopes").array().notNull(), writeRequested: boolean("write_requested").notNull(),
+  encryptedPending: text("encrypted_pending"), expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+}, t => [index("cloudflare_oauth_expiry").on(t.expiresAt)]);
 export const authTotp = app.table("auth_totp", {
   userId: uuid("user_id").primaryKey().references(() => authUsers.id, { onDelete: "cascade" }), encryptedSecret: text("encrypted_secret").notNull(),
   lastCounter: bigint("last_counter", { mode: "bigint" }).notNull(), enabledAt: timestamp("enabled_at", { withTimezone: true }).notNull().defaultNow(),
@@ -98,7 +110,7 @@ export const xOAuthAttempts = app.table("x_oauth_attempts", {
 }, t => [primaryKey({ columns: [t.tenantId, t.nonce] }), foreignKey({ columns: [t.tenantId, t.connectionId], foreignColumns: [xConnections.tenantId, xConnections.id] }).onDelete("cascade"), index("x_oauth_attempt_expiry").on(t.expiresAt)]);
 export const agentIntegrations = app.table("agent_integrations", {
   tenantId: uuid("tenant_id").notNull().references(() => tenants.id, {onDelete:"cascade"}), id: uuid("id").notNull().defaultRandom(),
-  kind: text("kind").$type<"bearer"|"github"|"linear"|"fly"|"exe"|"amp"|"clickup"|"x">().notNull(), credentialId: text("credential_id").notNull(), name:text("name").notNull(), description:text("description"), available:boolean("available").notNull(),
+  kind: text("kind").$type<"bearer"|"github"|"linear"|"fly"|"exe"|"amp"|"clickup"|"x"|"cloudflare">().notNull(), credentialId: text("credential_id").notNull(), name:text("name").notNull(), description:text("description"), available:boolean("available").notNull(),
   policy:text("policy").$type<"baseline"|"requestable"|"disabled">().notNull().default("requestable"),epoch:integer("epoch").notNull().default(1),revision:integer("revision").notNull().default(1),
 },t=>[primaryKey({columns:[t.tenantId,t.id]}),unique().on(t.tenantId,t.kind,t.credentialId)]);
 export const agentIdentities = app.table("agent_identities", {
@@ -230,7 +242,7 @@ export const triggerSourceRelations = relations(triggerSources, ({ one }) => ({
 }));
 
 export const databaseSchema = {
-  teamSettings, schemaMigrations, tenants, oauthConnections, googleSignInAttempts, oauthConsentPreviews, authUsers, authAccounts, authResetTokens, authSessions, oauthDeviceAuthorizations, members, authTotp, authTotpRecoveryCodes, authTotpEnrollments, authTotpChallenges, authTotpLimits, accessTokens,
+  teamSettings, schemaMigrations, tenants, oauthConnections, googleSignInAttempts, oauthConsentPreviews, authUsers, authAccounts, authResetTokens, authSessions, oauthDeviceAuthorizations, members, cloudflareConnections, cloudflareOauthAttempts, authTotp, authTotpRecoveryCodes, authTotpEnrollments, authTotpChallenges, authTotpLimits, accessTokens,
   connections, agentIntegrations, agentIdentities, agentProxyResponses, integrationCollections, integrationRecords, integrationChanges, linearWorkspaces, githubInstallations, githubSetupStates, eventDefinitions, eventDefinitionRevisions, eventOccurrences, mcpEventSubscriptions, mcpEventDeliveries, triggerMatches, triggers, triggerSources, webhookConditionsCutover,
   scheduleState, triggerEditDeliveries, triggerEvents, webhookDeliveries, webhookDeliveryEvents, pendingVerifications, tailFingerprints, wakeHints,
   tenantRelations, triggerRelations, triggerSourceRelations,

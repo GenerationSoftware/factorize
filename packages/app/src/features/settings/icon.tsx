@@ -9,6 +9,7 @@ const icons: Record<string, ReactNode> = {
   fly: <svg aria-hidden="true" viewBox="0 0 24 24" className="h-7 w-7" fill="none" stroke="currentColor" strokeWidth="2"><path d="m3 5 18 7-18 7 4-7-4-7Zm4 7h14"/></svg>,
   bearer: <svg aria-hidden="true" viewBox="0 0 24 24" className="h-7 w-7" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="8" cy="9" r="5"/><path d="m12 13 8 8m-4-4 3-3m-6 0 3-3"/></svg>,
   model: <svg aria-hidden="true" viewBox="0 0 24 24" className="h-7 w-7" fill="none" stroke="currentColor" strokeWidth="2"><path d="m12 2 3 7 7 3-7 3-3 7-3-7-7-3 7-3 3-7Z"/></svg>,
+  cloudflare: <svg aria-hidden="true" viewBox="0 0 24 24" className="h-7 w-7" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 18h12a4 4 0 0 0 1-8 7 7 0 0 0-13-1 4.6 4.6 0 0 0 0 9Z"/></svg>,
   tail: <svg aria-hidden="true" viewBox="0 0 24 24" className="h-7 w-7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M6.5 18h11a4 4 0 0 0 .5-7.97A6.5 6.5 0 0 0 5.8 8.2 5 5 0 0 0 6.5 18Z"/><path d="M8 14h8"/></svg>,
 };
 export function IntegrationIcon({ kind }: { kind: string }) { return <span aria-hidden="true" className="flex size-10 items-center justify-center rounded-xl bg-factorize-50 text-factorize-700 dark:bg-factorize-500/10 dark:text-factorize-500">{icons[kind]}</span>; }

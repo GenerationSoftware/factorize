@@ -22,3 +22,9 @@ GOOGLE_SIGN_IN_CLIENT_SECRET=
 
 # Optional TOTP secret encryption. Use a separate 32-byte base64 key.
 TOTP_ENCRYPTION_KEY=
+
+# Optional hosted Cloudflare REST OAuth (operator-managed web client).
+CLOUDFLARE_OAUTH_CLIENT_ID=
+CLOUDFLARE_OAUTH_CLIENT_SECRET=
+CLOUDFLARE_OAUTH_READ_SCOPES=account.read
+CLOUDFLARE_OAUTH_WRITE_SCOPES=
