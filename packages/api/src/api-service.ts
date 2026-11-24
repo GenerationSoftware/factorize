@@ -1,6 +1,6 @@
 import { initialIntegrationOverrides, lockOAuthPolicy } from "./oauth-reconnect";
 import { lockMcpEventGrant } from "./postgres/mcp-event-outbox";
-import { eventPayloadSchema, eventProtocolName, type ReadEventOccurrencesInput, type subscribeEventInput, type unsubscribeEventInput } from "./mcp-event-contracts";
+import { eventPayloadSchema, occurrenceEventName, occurrenceInputSchema, type ReadEventOccurrencesInput, type subscribeEventInput, type unsubscribeEventInput } from "./mcp-event-contracts";
 import { subscribeMcpEvent, unsubscribeMcpEvent } from "./mcp-event-subscriptions";
 import { vmGrantInput, vmGrantList, vmGrantResult, vmRevokeResult } from "./vm-grant-contracts";
 import { VmGrantRepository, vmGrantActor, type VmGrant } from "./postgres/vm-grant-repository";
@@ -207,19 +207,17 @@ export class ApiService {
   async updateEvent(id: string, input: unknown) { await this.authorize("triggers:write"); const parsed = eventDefinitionUpdate.parse(input); try { const result = await this.eventDefinitions().update(id, parsed, parsed.expectedRevision); if (!result) throw new ServiceError(404, "not_found", "Event not found"); return publicValue(eventDefinitionResponse, result); } catch (error) { if (error instanceof EventDefinitionConflict) throw new ServiceError(409, "stale_event", "Event changed since it was loaded."); throw error; } }
   async deleteEvent(id: string) { await this.authorize("triggers:write"); if (!await this.eventDefinitions().delete(id)) throw new ServiceError(404, "not_found", "Event not found"); return { id, deleted: true as const }; }
   async listEventOccurrences(id: string, limit: number, cursor?: string) { await this.authorize("triggers:read"); const result = await this.eventDefinitions().occurrences(id, limit, cursor); if (!result) throw new ServiceError(404, "not_found", "Event not found"); return publicValue(eventOccurrencePage, result); }
-  async mcpEventCatalog(cursor?: string) {
+  async mcpEventCatalog() {
     await this.authorize("triggers:read");
-    const page = await this.eventDefinitions().mcpCatalog(cursor);
     return {
-      events: page.events.map(event => ({
-        name: eventProtocolName(event.id),
-        title: event.name,
-        description: event.description,
+      events: [{
+        name: occurrenceEventName,
+        title: "Factorize occurrence",
+        description: "A new occurrence for the selected Factorize Event. Use its UUID as event_id.",
         delivery: ["webhook"],
-        inputSchema: { type: "object", properties: {}, additionalProperties: false },
+        inputSchema: occurrenceInputSchema,
         payloadSchema: eventPayloadSchema,
-      })),
-      nextCursor: page.nextCursor,
+      }],
     };
   }
   async mcpSubscribeEvent(input: z.infer<typeof subscribeEventInput>) {

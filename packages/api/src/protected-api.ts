@@ -168,7 +168,7 @@ function createMcpServer(service: ApiService, subscriptions = true): McpServer {
         throw new ProtocolError(ProtocolErrorCode.InternalError, "Factorize could not complete this Events request.");
       }
     };
-    server.server.setRequestHandler("events/list", { params: listEventsInput }, params => eventAction(() => service.mcpEventCatalog(params.cursor)));
+    server.server.setRequestHandler("events/list", { params: listEventsInput }, () => eventAction(() => service.mcpEventCatalog()));
     server.server.setRequestHandler("events/subscribe", { params: subscribeEventInput }, params => eventAction(() => service.mcpSubscribeEvent(params)));
     server.server.setRequestHandler("events/unsubscribe", { params: unsubscribeEventInput }, params => eventAction(() => service.mcpUnsubscribeEvent(params)));
     server.server.setRequestHandler("skills/list",{params:z.object({cursor:z.guid().optional(),_meta:z.record(z.string(),z.unknown()).optional()})},params=>resourceAction(()=>service.mcpListSkills(params.cursor)));

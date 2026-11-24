@@ -55,17 +55,6 @@ export class EventDefinitionRepository {
     return rows.rows.map(row => ({ id: row.id, name: row.name, description: row.description, revision: row.current_revision, payloadSchema: row.payload_schema, triggerCount: row.trigger_count, occurrenceCount: row.occurrence_count, createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString() }));
   }
 
-  async mcpCatalog(cursor?: string) {
-    const limit = 100;
-    const rows = (await this.database.pool.query<{ id: string; name: string; description: string }>(
-      `SELECT id,name,description FROM app.event_definitions
-       WHERE tenant_id=$1 AND ($2::uuid IS NULL OR id>$2) ORDER BY id LIMIT $3`,
-      [this.tenantId, cursor ?? null, limit + 1],
-    )).rows;
-    const events = rows.slice(0, limit);
-    return { events, nextCursor: rows.length > limit ? events.at(-1)?.id : undefined };
-  }
-
   async occurrence(id: string) {
     const row = (await this.database.pool.query<RecordedOccurrence>(
       `SELECT ${recordedFields} FROM app.event_occurrences WHERE tenant_id=$1 AND id=$2`, [this.tenantId, id],

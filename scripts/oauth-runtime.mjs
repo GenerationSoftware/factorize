@@ -119,8 +119,9 @@ export async function checkOAuth({ read: send, stream, db, tenantId, userId, coo
   const discovery = await modernRpc("server/discover", {});
   assert.deepEqual(discovery.capabilities.events, {});
   const catalog = await modernRpc("events/list", {});
-  assert.ok(catalog.events.some(definition => definition.name === `factorize.event.${event.id}` &&
-    definition.title === "review.requested" && definition.delivery.includes("webhook")));
+  assert.deepEqual(catalog.events.map(definition => definition.name), ["factorize.occurrence"]);
+  assert.deepEqual(catalog.events[0].inputSchema.required, ["event_id"]);
+  assert.equal(catalog.events[0].inputSchema.properties.event_id.format, "uuid");
   const trigger = await tool("create_trigger", {
     name: "manual-review", eventId: event.id, sources: [{ kind: "manual", config: {} }],
   });
