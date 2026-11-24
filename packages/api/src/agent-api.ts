@@ -1,3 +1,4 @@
+import { initialIntegrationOverrides } from "./oauth-reconnect";
 import { activeVmAuthorization } from "./vm-auth";
 import { connectionAccess, requiredIntegrationScope, type AgentIntegration, type ConnectionPolicy } from "./agent-integration-access";
 export { connectionAccess, requiredIntegrationScope, type AgentIntegration } from "./agent-integration-access";
@@ -78,9 +79,9 @@ export class AgentApiService {
     if (auth.authMethod === "oauth" && auth.oauthGrantId && auth.oauthClientId && auth.oauthExpiresAt && auth.oauthExpiresAt > Date.now()/1000) {
       kind = "oauth"; subject = auth.oauthGrantId;
     } else throw invalidIdentity();
-    const row = (await this.database.pool.query<ConnectionPolicy & {id: string; user_id: string; session_version: number; revoked_at: Date | null}>(`INSERT INTO app.agent_identities(tenant_id,kind,subject,user_id,session_version)
-      VALUES($1,$2,$3,$4,$5) ON CONFLICT(tenant_id,kind,subject) DO UPDATE SET subject=excluded.subject
-      RETURNING id,user_id,session_version,revoked_at,integration_overrides,disabled_scopes`, [auth.tenantId, kind, subject, auth.userId, auth.sessionVersion])).rows[0]!;
+    const row = (await this.database.pool.query<ConnectionPolicy & {id: string; user_id: string; session_version: number; revoked_at: Date | null}>(`INSERT INTO app.agent_identities(tenant_id,kind,subject,user_id,session_version,integration_overrides)
+      VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(tenant_id,kind,subject) DO UPDATE SET subject=excluded.subject
+      RETURNING id,user_id,session_version,revoked_at,integration_overrides,disabled_scopes`, [auth.tenantId, kind, subject, auth.userId, auth.sessionVersion, JSON.stringify(initialIntegrationOverrides(auth.initialIntegrationDenials))])).rows[0]!;
     if (row.revoked_at || row.user_id !== auth.userId || row.session_version !== auth.sessionVersion) throw invalidIdentity();
     return {id: row.id, kind, policy: row, scopes: auth.scopes};
   }

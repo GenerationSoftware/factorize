@@ -3,7 +3,7 @@ import { integrationConsentLabels } from "./agent-api";
 import { ACCESS_SCOPES } from "./access-tokens";
 import { connectionFor, originalBrowser, startConnection, connectionDestination } from "./oauth-continuation";
 import { inspectDevice, decideDevice, deviceConsentSignature, safeEqual } from "./device-oauth";
-import { consentPreview, consentDecision, consentPreviewInput, consentDecisionInput } from "./consent-api";
+import { ConsentPreviewError, consentPreview, consentDecision, consentPreviewInput, consentDecisionInput } from "./consent-api";
 import { serialize } from "hono/utils/cookie";
 import { z } from "zod";
 import { AuthRepository } from "./postgres/auth-repository";
@@ -135,8 +135,11 @@ export async function executeAuth(action: AuthAction, request: Request, env: Env
       if (!session) return failure(401, "Sign in before authorizing a client.");
       try {
         const data = action === "consent-preview" ? await consentPreview(env, session, consentPreviewInput.parse(input), request) : await consentDecision(env, session, consentDecisionInput.parse(input));
-        return data ? authJson(data) : failure(400, "This authorization request is invalid, expired, or already completed. Start a new connection from your MCP client.");
-      } catch { return failure(400, "This authorization request could not be validated. Return to the browser where you started connecting, or start a new connection from your MCP client."); }
+        return data ? authJson(data) : failure(400, "This approval is no longer current. Reload the request and review the permissions again. If the connection link has expired or was already used, start Reconnect in your MCP client.");
+      } catch (error) {
+        if (error instanceof ConsentPreviewError) return failure(400, error.message);
+        return failure(400, "Factorize couldn't validate this connection. Start Reconnect in your MCP client and use the fresh authorization link.");
+      }
     }
     if (action === "logout") {
       if (session) await new IdentityRepository(databaseFor(env), session.tenantId).revoke(session.userId);

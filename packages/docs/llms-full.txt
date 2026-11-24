@@ -197,6 +197,8 @@ Source: https://docs.factorize.sh/troubleshooting/connection
 | Symptom | Action |
 | --- | --- |
 | Browser consent fails or is cancelled | Sign in to the intended Factorize account, restart authorization from the client, and approve the requested scopes. |
+| The authorization link expired or was used | Start **Reconnect** in the MCP client and open its new authorization link. Keep approval in the same browser and Factorize account. If only the consent form expired, reload it and review the choices again. |
+| Saved permissions are missing from consent | Open **Clients → Edit permissions** to save your choices, then reconnect the same registered client. If it explicitly requests a scope list, add the missing scopes to that client request. If it omits scope, choose from the Factorize API scopes in the browser. Existing access and refresh tokens cannot gain permissions. |
 | Client never connects | Confirm `https://app.factorize.sh/mcp`, remote Streamable HTTP and OAuth support. Open the client's MCP status view and authenticate; see [client-specific instructions](https://docs.factorize.sh/mcp/overview). |
 | `invalid_token` or access disappears | Reauthorize the client. Password reset, password change, or sign-out can invalidate delegated credentials. |
 | `insufficient_scope` | Reconnect and grant `triggers:read` to discover Events and occurrences, or `triggers:write` to manage Events and Triggers. Add integration scopes only when needed. |

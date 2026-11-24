@@ -176,8 +176,9 @@ export async function checkOAuth({ read: send, stream, db, tenantId, userId, coo
   const clients = await send('/api/v1/access/authorized-clients', 'GET', undefined, owner);
   const connection = clients.json.find(client => client.clientId === clientId);
   assert.equal(connection.clientName, 'Release assistant');
-  const integrationId = randomUUID();
+  const integrationId = randomUUID(), deniedIntegrationId = randomUUID();
   await db.query("INSERT INTO app.agent_integrations(tenant_id,id,kind,credential_id,name,available) VALUES ($1,$2,'linear','linear','Linear',true)", [tenantId,integrationId]);
+  await db.query("INSERT INTO app.agent_integrations(tenant_id,id,kind,credential_id,name,available,policy) VALUES ($1,$2,'github','local-fixture','Blocked fixture',true,'baseline')", [tenantId,deniedIntegrationId]);
   const permissionsPath = '/api/v1/access/authorizations/' + connection.grantId + '/permissions';
   const change = (edit, headers = owner) => send(permissionsPath, 'PUT', JSON.stringify(edit), {...headers, 'Content-Type':'application/json'});
   const integrationKey = 'integration:' + integrationId + ':1';
@@ -198,11 +199,18 @@ export async function checkOAuth({ read: send, stream, db, tenantId, userId, coo
   freshQuery.set('scope', [...edit.scopes, 'proxy:use'].join(' '));
   freshQuery.set('state', 'fixture-reauthorize');
   freshQuery.set('code_challenge', createHash('sha256').update(freshVerifier).digest('base64url'));
-  const freshPreview = await json('/api/v1/oauth/consent/preview', {authorizationQuery: freshQuery.toString()}, owner);
+  const freshScreen = await send('/authorize?' + freshQuery, 'GET', undefined, owner);
+  assert.equal(freshScreen.status, 302, freshScreen.text);
+  const freshUrl = new URL(freshScreen.headers.location);
+  const freshCookie = freshScreen.headers['set-cookie'][0].split(';')[0];
+  const freshOwner = { ...owner, Cookie: cookie + '; ' + freshCookie };
+  const freshPreview = await json('/api/v1/oauth/consent/preview', {authorizationQuery: freshUrl.search.slice(1)}, freshOwner);
   assert.equal(freshPreview.status, 200, freshPreview.text);
+  assert.equal(freshPreview.json.reconnect, true);
+  assert.deepEqual(freshPreview.json.selectedScopes, edit.scopes);
   const freshConsent = await json('/api/v1/oauth/consent/decision', {
-    request: freshPreview.json.request, signature: freshPreview.json.signature, decision: 'allow', scopes: [...edit.scopes, 'proxy:use'],
-  }, owner);
+    request: freshPreview.json.request, signature: freshPreview.json.signature, decision: 'allow', scopes: [...freshPreview.json.selectedScopes, 'proxy:use'],
+  }, freshOwner);
   assert.equal(freshConsent.status, 200, freshConsent.text);
   const freshDestination = new URL(freshConsent.json.redirectTo);
   assert.equal(freshDestination.searchParams.get('state'), 'fixture-reauthorize');
@@ -212,6 +220,8 @@ export async function checkOAuth({ read: send, stream, db, tenantId, userId, coo
   });
   assert.equal(freshExchange.status, 200, freshExchange.text);
   const freshBearer = { Authorization: 'Bearer '+freshExchange.json.access_token };
+  const reflected = await reflect(freshBearer);
+  assert.equal(reflected.integrations.find(row => row.id === deniedIntegrationId).access, 'unavailable');
   assert.equal((await reflect(freshBearer)).integrations.find(row => row.id === integrationId).access, 'granted');
   assert.equal((await change({scopes: originalScopes, expectedRevision: 1})).status, 200);
   assert.equal((await reflect()).integrations.find(row => row.id === integrationId).access, 'unavailable');

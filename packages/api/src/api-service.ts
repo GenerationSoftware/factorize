@@ -1,3 +1,4 @@
+import { initialIntegrationOverrides } from "./oauth-reconnect";
 import { lockMcpEventGrant } from "./postgres/mcp-event-outbox";
 import { eventPayloadSchema, eventProtocolName, type ReadEventOccurrencesInput, type subscribeEventInput, type unsubscribeEventInput } from "./mcp-event-contracts";
 import { subscribeMcpEvent, unsubscribeMcpEvent } from "./mcp-event-subscriptions";
@@ -645,16 +646,17 @@ export class ApiService {
     const scopeLabels = Object.fromEntries(integrations.map(row => [row.requiredScope, `${row.name} integration access`]));
     return publicValue(z.array(authorizedClient), grants.map(grant => {
       const row = byGrant.get(grant.id), grantedScopes = normalizeScopes(grant.scope);
+      const integrationOverrides = row?.integration_overrides ?? initialIntegrationOverrides(grant.metadata?.initialIntegrationDenials);
       const baseScopes = row?.scope_overrides ?? grantedScopes.filter(scope => !row?.disabled_scopes.includes(scope));
       const baselineScopes = integrations.filter(integration => integration.policy === "baseline" && integration.available).map(integration => integration.requiredScope);
       const scopes = [...new Set([...baseScopes,...baselineScopes])].filter(scope => {
         const id = scope.match(integrationScopePattern)?.[1];
-        return !row?.disabled_scopes.includes(scope) && (!id || row?.integration_overrides?.[id] !== false);
+        return !row?.disabled_scopes.includes(scope) && (!id || integrationOverrides[id] !== false);
       });
       const availableScopes = [...new Set([...globallyAvailable, ...scopes])];
       return { grantId: grant.id, clientId: grant.clientId, clientName: row?.display_name ?? byId.get(grant.clientId)?.clientName ?? grant.clientId, appName: byId.get(grant.clientId)?.clientName ?? grant.clientId,
         availableScopes, scopeLabels, scopes, revision: row?.permissions_revision ?? 0,
-        integrationOverrides: row?.integration_overrides ?? {}, authorizationDate: new Date(grant.createdAt * 1000).toISOString(),
+        integrationOverrides, authorizationDate: new Date(grant.createdAt * 1000).toISOString(),
         expiresAt: grant.expiresAt ? new Date(grant.expiresAt * 1000).toISOString() : null, lastUsedAt: null };
     }));
   }

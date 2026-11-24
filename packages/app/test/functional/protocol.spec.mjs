@@ -63,3 +63,37 @@ test("device code entry recovers from an expired attempt with a new client code 
   await page.getByRole("button", { name: "Deny device" }).click(); await page.getByRole("status").filter({ hasText: "Authorization denied" }).waitFor();
   assert.deepEqual(decision, { userCode: "ABCD-2345", signature: "new-signature", decision: "deny" }); await context.close();
 });
+
+test("failed reconnect approval reloads the review and never submits a new consent automatically", async () => {
+  const { context, page } = await setup();
+  try {
+    let previewCount = 0;
+    const approvals = [];
+    await page.route("**/api/v1/oauth/consent/preview", route => route.fulfill({ json: {
+      clientName: "External CLI", reconnect: true, scopes: ["team:read", "triggers:write"], selectedScopes: ["team:read"],
+      unavailableSavedScopes: ["triggers:read"], request: `request-${++previewCount}`, signature: "signature",
+      expiresAt: "2026-10-09T12:00:00Z",
+    } }));
+    await page.route("**/api/v1/oauth/consent/decision", route => {
+      approvals.push(route.request().postDataJSON());
+      return approvals.length === 1 ? route.fulfill({ status: 400, json: { error: { code: "invalid_request", message: "Reload the request and review the permissions again." } } })
+        : route.fulfill({ json: { redirectTo: origin + "/completed?code=issued" } });
+    });
+    await page.goto(origin + "/authorize?client_id=client&state=fresh&code_challenge=challenge");
+    await page.getByRole("heading", { name: "Reconnect External CLI" }).waitFor();
+    await page.getByRole("status").filter({ hasText: "The client did not request these saved permissions: triggers:read" }).waitFor();
+    await page.getByLabel("triggers:write").check();
+    await page.getByRole("button", { name: "Allow", exact: true }).click();
+    await page.getByRole("alert").waitFor();
+    await page.getByRole("button", { name: "Reload authorization request" }).click();
+    assert.equal(await page.getByLabel("triggers:write").isChecked(), false);
+    assert.equal(approvals.length, 1);
+    await page.getByRole("button", { name: "Allow", exact: true }).click();
+    await page.waitForURL("**/completed?code=issued");
+    assert.deepEqual(approvals.map(({ request, scopes }) => [request, scopes]), [
+      ["request-1", ["team:read", "triggers:write"]], ["request-2", ["team:read"]],
+    ]);
+  } finally {
+    await context.close();
+  }
+});

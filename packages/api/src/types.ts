@@ -40,6 +40,8 @@ export type OAuthProps = {
   /** Stable identifier for the OAuth authorization grant; never a bearer token. */
   oauthGrantId?: string;
   oauthClientId?: string;
+  /** Explicit integration denials carried to this grant at browser consent. */
+  initialIntegrationDenials?: string[];
   /** Expiry of the presented, verified OAuth access token. */
   oauthExpiresAt?: number;
   vmGrantId?: string;

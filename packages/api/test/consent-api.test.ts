@@ -4,10 +4,18 @@ import { decideDevice, deviceAuthorization, inspectDevice } from "../src/device-
 import type { Env } from "../src/types";
 const session = { tenantId: "tenant", userId: "owner", email: "owner@example.test", sessionVersion: 2, exp: Math.floor(Date.now() / 1000) + 3600 };
 const parsed = { responseType: "code", clientId: "client", redirectUri: "https://client.test/callback", scope: ["team:read", "triggers:read", "integrations:read", "triggers:read", "triggers:write", "triggers:write", "triggers:write"], state: "state", codeChallenge: "challenge", codeChallengeMethod: "S256", resource: "https://factorize.test/mcp", issuer: "https://factorize.test" };
-function fixture(defaultPreset?: string[]) {
+const queryWithScope = { authorizationQuery: "client_id=client&scope=fixture" };
+const deniedId = "18a2410e-ea09-4fe0-af8a-719c0c91e6e2";
+const integrationScope = `integration:${deniedId}:1`;
+function fixture(defaultPreset?: string[], reconnect?: { approved: string[]; saved: string[]; denied?: boolean }) {
   const values = new Map<string, string>();
   const used = new Set<string>();
   const query = vi.fn(async (sql: string, args: unknown[]) => {
+    if (sql.includes("FROM app.agent_identities")) return { rows: reconnect ? [{
+      subject: "previous-grant", scope_overrides: reconnect.saved, disabled_scopes: [], integration_overrides: reconnect.denied ? { [deniedId]: false } : {}, revoked_at: null,
+    }] : [] };
+    if (sql.includes("FROM app.agent_integrations")) return { rows: [{ id: deniedId, epoch: 1, available: true, policy: "baseline", name: "Fixture integration", description: null }] };
+    if (sql.includes("FROM app.oauth_connections")) return { rows: [] };
     if (sql.startsWith("SELECT scopes FROM app.permission_presets")) return { rows: defaultPreset ? [{ scopes: defaultPreset }] : [] };
     if (sql.startsWith("INSERT INTO app.oauth_consent_previews") ||
         sql.startsWith("DELETE FROM app.oauth_consent_previews")) return { rows: [] };
@@ -17,13 +25,15 @@ function fixture(defaultPreset?: string[]) {
     used.add(id);
     return { rows: [{ id }] };
   });
-  const oauth = { parseAuthRequest: vi.fn(async () => parsed), lookupClient: vi.fn(async () => ({ clientId: "client", clientName: "External client", redirectUris: [parsed.redirectUri], tokenEndpointAuthMethod: "none" })), completeAuthorization: vi.fn(async (_options: unknown) => ({ redirectTo: parsed.redirectUri + "?code=authorized&state=state" })) };
+  const oauth = { parseAuthRequest: vi.fn(async () => parsed), listUserGrants: vi.fn(async () => ({ items: reconnect ? [{
+    id: "previous-grant", clientId: parsed.clientId, userId: session.userId, metadata: { tenantId: session.tenantId }, redirectUri: parsed.redirectUri, scope: reconnect.approved, createdAt: Math.floor(Date.now() / 1000) - 60,
+  }] : [] })), lookupClient: vi.fn(async () => ({ clientId: "client", clientName: "External client", redirectUris: [parsed.redirectUri], tokenEndpointAuthMethod: "none" })), completeAuthorization: vi.fn(async (_options: unknown) => ({ redirectTo: parsed.redirectUri + "?code=authorized&state=state" })) };
   const env = { DATABASE: { pool: { query }, transaction: async (work: any) => work({ query }) }, APP_ORIGIN: "https://factorize.test", SESSION_SIGNING_SECRET: "test-signing", OAUTH_PROVIDER: oauth, OAUTH_KV: { get: async (key: string, type?: string) => { const value = values.get(key); return value ? type === "json" ? JSON.parse(value) : value : null; }, put: async (key: string, value: string) => { values.set(key, value); }, delete: async (key: string) => { values.delete(key); } } } as unknown as Env;
   return { env, oauth };
 }
 describe("static consent support", () => {
   it("binds expiring decisions to owner, tenant and session version; enforces requested scopes and current registered redirects", async () => {
-    const { env, oauth } = fixture(), preview = (await consentPreview(env, session, { authorizationQuery: "client_id=client&redirect_uri=https%3A%2F%2Fclient.test%2Fcallback" }))!;
+    const { env, oauth } = fixture(), preview = (await consentPreview(env, session, queryWithScope))!;
     expect(preview.clientName).toBe("External client");
     expect(preview.selectedScopes).toEqual(preview.scopes);
     const input = { request: preview.request, signature: preview.signature, decision: "allow" as const, scopes: ["team:read", "triggers:read", "integrations:read"] };
@@ -38,7 +48,7 @@ describe("static consent support", () => {
   });
   it("issues the approved default preset scopes", async () => {
     const { env, oauth } = fixture(["team:read"]);
-    const preview = (await consentPreview(env, session, { authorizationQuery: "client_id=client" }))!;
+    const preview = (await consentPreview(env, session, queryWithScope))!;
     expect(preview.selectedScopes).toEqual(["team:read"]);
     const input = { request: preview.request, signature: preview.signature, decision: "allow" as const, scopes: preview.selectedScopes };
     expect((await consentDecision(env, session, input))?.redirectTo).toContain("code=authorized");
@@ -49,12 +59,67 @@ describe("static consent support", () => {
   it("expires consent bindings and preserves state and issuer on denial", async () => {
     const { env } = fixture();
     vi.useFakeTimers();
-    try { const preview = (await consentPreview(env, session, { authorizationQuery: "client_id=client" }))!;
+    try { const preview = (await consentPreview(env, session, queryWithScope))!;
       const input = { request: preview.request, signature: preview.signature, decision: "deny" as const, scopes: [] };
       const redirect = new URL((await consentDecision(env, session, input))!.redirectTo); expect(redirect.searchParams.get("state")).toBe("state"); expect(redirect.searchParams.get("iss")).toBe(env.APP_ORIGIN); expect(redirect.searchParams.get("error")).toBe("access_denied");
       vi.advanceTimersByTime(601_000); expect(await consentDecision(env, session, input)).toBeNull();
     } finally { vi.useRealTimers(); }
   });
+  it("carries saved scope additions into a new owner-approved grant without replacing the old grant", async () => {
+    const reconnect = { approved: ["team:read"], saved: ["team:read", "triggers:write"] };
+    const { env, oauth } = fixture(["integrations:read"], reconnect);
+    const preview = (await consentPreview(env, session, queryWithScope))!;
+    expect(preview).toMatchObject({ reconnect: true, selectedScopes: ["team:read", "triggers:write"], unavailableSavedScopes: [] });
+    const input = { request: preview.request, signature: preview.signature, decision: "allow" as const, scopes: preview.selectedScopes };
+    expect((await consentDecision(env, session, input))?.redirectTo).toContain("code=authorized");
+    expect(oauth.completeAuthorization).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      scope: ["team:read", "triggers:write"], props: expect.objectContaining({ scopes: ["team:read", "triggers:write"] }), revokeExistingGrants: false,
+    }));
+    expect(reconnect.approved).toEqual(["team:read"]);
+  });
+
+  it("limits explicit requests and offers owner choices when the client omits scope", async () => {
+    const { env, oauth } = fixture(undefined, { approved: ["team:read"], saved: ["team:read", "triggers:write"] });
+    oauth.parseAuthRequest.mockResolvedValue({ ...parsed, scope: ["team:read"] });
+    const limited = (await consentPreview(env, session, queryWithScope))!;
+    expect(limited).toMatchObject({ scopes: ["team:read"], selectedScopes: ["team:read"], unavailableSavedScopes: ["triggers:write"] });
+    oauth.parseAuthRequest.mockResolvedValue({ ...parsed, scope: [] });
+    const selectable = (await consentPreview(env, session, { authorizationQuery: "client_id=client" }))!;
+    expect(selectable.scopes).toEqual(expect.arrayContaining(["team:read", "triggers:read", "triggers:write"]));
+    expect(selectable.selectedScopes).toEqual(["team:read", "triggers:write"]);
+    const chosen = ["team:read", "triggers:read", "triggers:write"];
+    await consentDecision(env, session, { request: selectable.request, signature: selectable.signature, decision: "allow", scopes: chosen });
+    expect(oauth.completeAuthorization).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      request: expect.objectContaining({ scope: [] }), scope: chosen, props: expect.objectContaining({ scopes: chosen }),
+    }));
+  });
+
+  it("carries an explicit integration block through reconnect until the owner selects its scope", async () => {
+    const { env, oauth } = fixture(undefined, { approved: ["proxy:use", integrationScope], saved: ["proxy:use", integrationScope], denied: true });
+    oauth.parseAuthRequest.mockResolvedValue({ ...parsed, scope: ["proxy:use", integrationScope] });
+    const unchanged = (await consentPreview(env, session, queryWithScope))!;
+    expect(unchanged.scopes).toContain(integrationScope);
+    expect(unchanged.selectedScopes).toEqual(["proxy:use"]);
+    await consentDecision(env, session, { request: unchanged.request, signature: unchanged.signature, decision: "allow", scopes: unchanged.selectedScopes });
+    expect(oauth.completeAuthorization).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      scope: ["proxy:use"], metadata: { tenantId: session.tenantId, initialIntegrationDenials: [deniedId] },
+      props: expect.objectContaining({ initialIntegrationDenials: [deniedId] }),
+    }));
+    const changed = (await consentPreview(env, session, queryWithScope))!;
+    await consentDecision(env, session, { request: changed.request, signature: changed.signature, decision: "allow", scopes: changed.scopes });
+    expect(oauth.completeAuthorization).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      scope: ["proxy:use", integrationScope], metadata: { tenantId: session.tenantId },
+    }));
+  });
+
+  it("gives an actionable expired-link response and accepts a fresh authorization", async () => {
+    const { env } = fixture();
+    await expect(consentPreview(env, session, {
+      authorizationQuery: queryWithScope.authorizationQuery + "&connection=ab57c1b7-bdeb-45ae-a933-45686266070f",
+    })).rejects.toThrow("Start Reconnect in your MCP client");
+    await expect(consentPreview(env, session, queryWithScope)).resolves.toMatchObject({ clientName: "External client" });
+  });
+
   it("inspects only public device metadata and keeps grant/code state server-owned", async () => {
     const { env, oauth } = fixture(); delete env.DATABASE; const form = new FormData(); form.set("client_id", "client"); form.set("scope", "team:read triggers:read integrations:read");
     const issued = await (await deviceAuthorization(new Request(env.APP_ORIGIN + "/oauth/device_authorization", { method: "POST", body: form }), env, oauth as any, ["team:read", "triggers:read", "integrations:read"])).json() as any;
