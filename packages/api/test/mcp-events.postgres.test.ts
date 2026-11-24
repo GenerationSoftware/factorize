@@ -225,8 +225,8 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("MCP event webhook lifecycl
     const crossTenant = await diagnosis(otherMatch.occurrence!.id);
     expect(crossTenant.isError).toBe(true);
     expect(crossTenant.content).toEqual(missing.content);
-    expect((await diagnosis(empty, { ...auth, scopes: [] })).isError).toBe(true);
-    expect((await diagnosis(empty, { ...auth, userId: crypto.randomUUID() })).isError).toBe(true);
+    expect((await request("tools/call", { name: "read_event_delivery_diagnostics", arguments: { occurrenceId: empty } }, { ...auth, scopes: [] })).status).toBe(403);
+    expect((await request("tools/call", { name: "read_event_delivery_diagnostics", arguments: { occurrenceId: empty } }, { ...auth, userId: crypto.randomUUID() })).status).toBe(401);
 
     const subscriptionId = (await subscribe()).message.result.id;
     expect(subscriptionId).toMatch(/^sub_/);
@@ -622,13 +622,16 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("MCP event webhook lifecycl
     await new IdentityRepository(f.db, f.otherTenant).upsertOwner(f.userId, "owner@example.test");
     const other = { ...f.auth, tenantId: f.otherTenant };
     expect((await read({ occurrenceId: rotated.occurrenceId }, other)).isError).toBe(true);
-    expect((await read({ occurrenceId: rotated.occurrenceId }, { ...auth, scopes: [] })).isError).toBe(true);
+    expect((await request("tools/call", { name: "read_event_occurrences", arguments: { occurrenceId: rotated.occurrenceId } }, { ...auth, scopes: [] })).status).toBe(403);
   });
 
   it("rejects failed verification, forbidden destinations, unauthorized calls and cross-tenant names", async () => {
     const input = { name, delivery: { mode: "webhook", url: receiver, secret: secret(key) } };
-    expect((await request("events/list", {}, { ...auth, scopes: [] })).message.error.code).toBe(-32024);
-    expect((await request("events/subscribe", input, { ...auth, scopes: [] })).message.error.code).toBe(-32024);
+    for (const [method, params] of [["events/list", {}], ["events/subscribe", input]] as const) {
+      const denied = await request(method, params, { ...auth, scopes: [] });
+      expect(denied.status).toBe(403);
+      expect(denied.message.error.code).toBe("insufficient_scope");
+    }
     const other = await f.seedEventTrigger(f.otherTenant);
     expect((await request("events/subscribe", { ...input, name: `factorize.event.${other.definitionId}` })).message.error).toMatchObject({ code: -32023 });
     expect((await request("events/list", {}, auth, { "Mcp-Method": "events/unsubscribe" })).status).toBe(400);

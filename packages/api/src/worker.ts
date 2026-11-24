@@ -1,3 +1,4 @@
+import { mcpOAuthChallenge, withRefreshAdmission } from "./mcp-oauth-auth";
 import { pruneTotp } from "./totp";
 import { googleSignInCallback } from "./auth-api";
 import { clearExpiredGoogleSignIns, googleCallbackPath } from "./google-sign-in";
@@ -152,8 +153,18 @@ const backend = { async fetch(request: Request, env: Env, ctx: ExecutionContext)
     const clone = request.clone();
     const form = await clone.formData().catch(() => null);
     if (form?.get("grant_type") === DEVICE_GRANT) return deviceToken(request, env, oauth, ctx);
+    return withRefreshAdmission(env, tokenExchangeCallback =>
+      new OAuthProvider<Env>({ ...providerOptions(env), tokenExchangeCallback }).fetch(request, env, ctx),
+      form?.get("grant_type") === "refresh_token");
   }
   const response = await oauth.fetch(request, env, ctx);
+  if (url.pathname === "/mcp" && response.status === 401) {
+    // The provider rejects these before handing off to Factorize. Only its
+    // fixed OAuth fields are inspected, not any credential or arbitrary error.
+    const error = await response.clone().json<{error?: unknown; error_description?: unknown}>().catch(() => null);
+    if (error?.error === "invalid_token") return mcpOAuthChallenge(env, error.error_description === "Access token expired" ? "token_expired" : "invalid_token");
+    if (!request.headers.has("Authorization")) return mcpOAuthChallenge(env);
+  }
   if (url.pathname === "/.well-known/oauth-authorization-server") return addDeviceMetadata(response, env.APP_ORIGIN);
   return response;
 } } satisfies ExportedHandler<Env>;

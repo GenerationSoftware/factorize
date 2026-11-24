@@ -1,3 +1,7 @@
+import { mcpOAuthChallenge, oauthResourceAuthorization } from "./mcp-oauth-auth";
+import { mcpMissingScopes } from "./mcp-oauth-scopes";
+import { applyConnectionScopes } from "./oauth-connection-settings";
+import { initialIntegrationOverrides } from "./oauth-reconnect";
 import { listEventsInput, getProcessingAcknowledgmentsInput, setProcessingAcknowledgmentsInput, acknowledgeEventsInput, replayUnacknowledgedEventsInput, readEventDeliveryDiagnosticsInput, readEventOccurrencesInput, subscribeEventInput, unsubscribeEventInput } from "./mcp-event-contracts";
 import { appRegistrationInput, appRegistrationUpdate } from "./apps-contracts";
 import {createPayloadInput,appendPayloadInput,finalizePayloadInput,attachmentInput} from "./proxy-payloads";
@@ -70,12 +74,18 @@ export async function protectedApiFetch(request: Request, env: Env, auth: OAuthP
     };
     try {
       const url = new URL(request.url), path = url.pathname;
-      if (auth?.oauthGrantId) {
+      let oauthPolicy: Awaited<ReturnType<typeof oauthResourceAuthorization>>["policy"];
+      if (auth?.authMethod === "oauth" && auth.oauthGrantId && path === "/mcp") {
+        const status = await oauthResourceAuthorization(env, auth, auth.oauthGrantId);
+        if ("reason" in status && status.reason) return timed(mcpOAuthChallenge(env, status.reason));
+        oauthPolicy = status.policy;
+        auth = { ...auth, scopes: applyConnectionScopes(auth.scopes, oauthPolicy) };
+      } else if (auth?.oauthGrantId) {
         auth = { ...auth, scopes: await effectiveConnectionScopes(env, auth, auth.scopes) };
         if (path.startsWith("/api/v1/agent/") && !auth.scopes.includes("proxy:use")) throw new ServiceError(403, "insufficient_scope", "The proxy:use scope is required.");
       }
       if (path === "/mcp") {
-        if (!auth) throw new ServiceError(401, "invalid_token", "Unauthorized");
+        if (!auth) return timed(mcpOAuthChallenge(env));
         const mcpService = new ApiService(env, auth);
         mcpSignals.set(mcpService,request.signal);
         if (request.method === "POST") {
@@ -85,6 +95,12 @@ export async function protectedApiFetch(request: Request, env: Env, auth: OAuthP
           }));
           let body: any;
           try { body = await new Response(limited).json(); } catch(error) { if(error instanceof ServiceError) throw error; throw new ServiceError(400,"invalid_request","Request body must be valid JSON."); }
+          if (auth.authMethod === "oauth" && auth.oauthGrantId) {
+            const missing = await mcpMissingScopes(env, auth, body, oauthPolicy ?? {
+              disabled_scopes: [], integration_overrides: initialIntegrationOverrides(auth.initialIntegrationDenials),
+            });
+            if (missing) return timed(mcpOAuthChallenge(env, undefined, missing));
+          }
           mcpBodies.set(request,body);
           if (body?.method === "subscriptions/listen" && body.params?.notifications?.resourceSubscriptions) {
             const listenerAuth = auth;
@@ -96,8 +112,10 @@ export async function protectedApiFetch(request: Request, env: Env, auth: OAuthP
               if (listenerAuth.oauthGrantId) {
                 const token = await env.OAUTH_PROVIDER?.unwrapToken<OAuthProps>(request.headers.get("Authorization")?.slice(7) ?? "");
                 if (token?.grantId !== listenerAuth.oauthGrantId || token.expiresAt <= Date.now()/1000) return false;
-                const tokenScopes = normalizeScopes(token.scope).filter(scope => normalizeScopes(listenerAuth.scopes).includes(scope));
-                return (await effectiveConnectionScopes(env, listenerAuth, tokenScopes)).includes(requiredScope);
+                const status = await oauthResourceAuthorization(env, { ...listenerAuth, oauthExpiresAt: token.expiresAt }, token.grantId);
+                if ("reason" in status && status.reason) return false;
+                const tokenScopes = normalizeScopes(token.scope).filter(scope => listenerAuth.scopes.includes(scope));
+                return applyConnectionScopes(tokenScopes, status.policy).includes(requiredScope);
               }
               return listenerAuth.scopes.includes(requiredScope); // The database read rechecks owner membership and key activity.
             };
@@ -286,7 +304,10 @@ export class ProtectedApiHandler extends WorkerEntrypoint<Env, OAuthProps> {
     if (auth.authMethod === "oauth" || auth.authMethod === undefined) {
       const authorization = request.headers.get("Authorization"), credential = authorization?.startsWith("Bearer ") ? authorization.slice(7) : "";
       const token = credential && this.env.OAUTH_PROVIDER ? await this.env.OAUTH_PROVIDER.unwrapToken<OAuthProps>(credential) : null;
-      if (!token || token.userId !== auth.userId || !token.grant?.clientId) return Response.json({error:{code:"invalid_token",message:"Invalid OAuth authorization"}}, {status:401});
+      if (!token || token.userId !== auth.userId || !token.grant?.clientId) {
+        if (new URL(request.url).pathname === "/mcp") return mcpOAuthChallenge(this.env, "invalid_token");
+        return Response.json({error:{code:"invalid_token",message:"Invalid OAuth authorization"}}, {status:401});
+      }
       // Props describe original consent. The presented token may be narrowed.
       const tokenScopes = normalizeScopes(token.scope).filter(scope => normalizeScopes(auth.scopes).includes(scope));
       auth = {...auth, authMethod: "oauth", scopes: tokenScopes, oauthGrantId: token.grantId, oauthClientId: token.grant.clientId, oauthExpiresAt: token.expiresAt};
