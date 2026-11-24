@@ -1,6 +1,6 @@
 # Factorize Tail Relay
 
-This Cloudflare Tail Worker sanitizes trace events, signs them with HMAC-SHA256, and forwards them to a Factorize Cloudflare Tail flow.
+This Cloudflare Tail Worker sanitizes trace events, signs them with HMAC-SHA256, and forwards them to a Factorize Cloudflare Tail Trigger.
 
 ## Usage
 

@@ -16,19 +16,19 @@ type EventData = {
 };
 type LinearEvent = { type?: string; action?: string; data?: EventData; updatedFrom?: { stateId?: string; assigneeId?: string; creatorId?: string; ownerId?: string; labelIds?: string[]; [key: string]: unknown } };
 
-export type FlowMatcher = { projectId: string; matchRules: MatchRule[] };
+export type TriggerMatcher = { projectId: string; matchRules: MatchRule[] };
 
-/** Returns the issue to enqueue only when a webhook is relevant to a flow. */
-export function matchingIssue(event: LinearEvent, flow: FlowMatcher): string | null {
+/** Returns the issue to enqueue only when a webhook is relevant to a Trigger. */
+export function matchingIssue(event: LinearEvent, trigger: TriggerMatcher): string | null {
   // IssueLabel events often nest the complete issue under `issue`; normalize
   // that shape so composite rules can use status, people, and labels too.
   const data = { ...(event.data?.issue ?? {}), ...(event.data ?? {}) } as EventData;
   const issueId = data.issueId ?? data.issue?.id ?? (event.type === "Issue" ? data.id : undefined);
   const projectId = data.project?.id ?? data.issue?.project?.id;
-  const rules = flow.matchRules;
-  if (!issueId || projectId !== flow.projectId || !rules.length) return null;
+  const rules = trigger.matchRules;
+  if (!issueId || projectId !== trigger.projectId || !rules.length) return null;
 
-  // A flow starts on issue creation, or when a rule changes and the issue now
+  // A Trigger starts on issue creation, or when a rule changes and the issue now
   // satisfies every configured rule. This makes multiple rules an AND filter.
   const isCreation = event.type === "Issue" && event.action === "create";
   const changed = (rule: MatchRule) => {

@@ -10,7 +10,7 @@ const decodeHtmlEntities = (value: string): string => value.replace(/&(?:#(\d+)|
 const text = (value: unknown): string => typeof value === "string" ? decodeHtmlEntities(value) : "";
 
 export const DEFAULT_CONTEXT_TEMPLATE = `---
-pipe: "{{{flow.name}}}"
+pipe: "{{{trigger.name}}}"
 issue: "{{{ticket.identifier}}}"
 url: "{{{ticket.url}}}"
 {{#ticket.project.name}}project: "{{{ticket.project.name}}}"
@@ -25,7 +25,7 @@ url: "{{{ticket.url}}}"
 
 export interface SourceAdapter<TPayload> {
   toWorkItem(payload: TPayload, claimKey: string, event: Record<string, unknown>): WorkItem;
-  renderPrompt(template: string, payload: TPayload, flowName: string): string;
+  renderPrompt(template: string, payload: TPayload, triggerName: string): string;
 }
 
 export class LinearSourceAdapter implements SourceAdapter<Record<string, any>> {
@@ -38,8 +38,8 @@ export class LinearSourceAdapter implements SourceAdapter<Record<string, any>> {
     };
   }
 
-  renderPrompt(template: string, payload: Record<string, any>, flowName: string): string {
-    return renderContextTemplate(template, payload, flowName);
+  renderPrompt(template: string, payload: Record<string, any>, triggerName: string): string {
+    return renderContextTemplate(template, payload, triggerName);
   }
 }
 
@@ -48,7 +48,7 @@ export function linearIssueUrl(data: Record<string, any>, issueId: string): stri
   return candidate.startsWith("https://linear.app/") ? candidate : `https://linear.app/issue/${encodeURIComponent(issueId)}`;
 }
 
-export function renderContextTemplate(template: string, payload: Record<string, unknown>, flowName: string): string {
+export function renderContextTemplate(template: string, payload: Record<string, unknown>, triggerName: string): string {
   const issue = object(payload.issue);
   const ticket = text(issue.title) || text(issue.description) ? issue : payload;
   const project = object(ticket.project), assignee = object(ticket.assignee), state = object(ticket.state), labelsValue = object(ticket.labels);
@@ -59,7 +59,7 @@ export function renderContextTemplate(template: string, payload: Record<string, 
     title: text(ticket.title) || "Untitled Linear issue", description: text(ticket.description).trim() || "No description provided.",
     project, assignee, state, labels: labels.map((name, index) => ({ name, last: index === labels.length - 1 })),
   };
-  return renderTextTemplate(template || DEFAULT_CONTEXT_TEMPLATE, { ...payload, ticket: normalizedTicket, flow: { name: flowName } });
+  return renderTextTemplate(template || DEFAULT_CONTEXT_TEMPLATE, { ...payload, ticket: normalizedTicket, trigger: { name: triggerName } });
 }
 
-export const linearTicketPrompt = (payload: Record<string, unknown>, flowName: string) => renderContextTemplate(DEFAULT_CONTEXT_TEMPLATE, payload, flowName);
+export const linearTicketPrompt = (payload: Record<string, unknown>, triggerName: string) => renderContextTemplate(DEFAULT_CONTEXT_TEMPLATE, payload, triggerName);

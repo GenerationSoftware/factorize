@@ -45,10 +45,10 @@ components:
           type: string
           format: uuid
           pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
-        events:
+        sources:
           default:
             - kind: manual
-              slug: event-1
+              slug: source-1
               enabled: true
               config: {}
           minItems: 1
@@ -7006,7 +7006,7 @@ paths:
                       type: string
                       format: uuid
                       pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
-                    events:
+                    sources:
                       type: array
                       items:
                         oneOf:
@@ -7300,7 +7300,7 @@ paths:
                     - description
                     - enabled
                     - eventId
-                    - events
+                    - sources
                     - createdAt
                     - updatedAt
                   additionalProperties: false
@@ -7356,7 +7356,7 @@ paths:
                     type: string
                     format: uuid
                     pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
-                  events:
+                  sources:
                     type: array
                     items:
                       oneOf:
@@ -7650,7 +7650,7 @@ paths:
                   - description
                   - enabled
                   - eventId
-                  - events
+                  - sources
                   - createdAt
                   - updatedAt
                 additionalProperties: false
@@ -9988,7 +9988,7 @@ paths:
                     type: string
                     format: uuid
                     pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
-                  events:
+                  sources:
                     type: array
                     items:
                       oneOf:
@@ -10282,7 +10282,7 @@ paths:
                   - description
                   - enabled
                   - eventId
-                  - events
+                  - sources
                   - createdAt
                   - updatedAt
                 additionalProperties: false
@@ -10324,7 +10324,7 @@ paths:
     put:
       summary: Replace trigger
       description: |-
-        Supply expectedUpdatedAt from GET for atomic optimistic concurrency. Stale edits return 409 stale_trigger. Omission uses last-writer-wins updates. Event identity is preserved.
+        Supply expectedUpdatedAt from GET for atomic optimistic concurrency. Stale edits return 409 stale_trigger. Omission uses last-writer-wins updates. Retain each source ID to preserve its identity when its kind stays the same.
 
         Requires the triggers:write scope.
 
@@ -10351,7 +10351,7 @@ paths:
                     type: string
                     format: uuid
                     pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
-                  events:
+                  sources:
                     type: array
                     items:
                       oneOf:
@@ -10645,7 +10645,7 @@ paths:
                   - description
                   - enabled
                   - eventId
-                  - events
+                  - sources
                   - createdAt
                   - updatedAt
                 additionalProperties: false
@@ -10697,10 +10697,10 @@ paths:
                   type: string
                   format: uuid
                   pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
-                events:
+                sources:
                   default:
                     - kind: manual
-                      slug: event-1
+                      slug: source-1
                       enabled: true
                       config: {}
                   minItems: 1

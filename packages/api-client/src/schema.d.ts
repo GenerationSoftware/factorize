@@ -2068,7 +2068,7 @@ export interface paths {
         get: operations["get_api_v1_triggers_triggerId"];
         /**
          * Replace trigger
-         * @description Supply expectedUpdatedAt from GET for atomic optimistic concurrency. Stale edits return 409 stale_trigger. Omission uses last-writer-wins updates. Event identity is preserved.
+         * @description Supply expectedUpdatedAt from GET for atomic optimistic concurrency. Stale edits return 409 stale_trigger. Omission uses last-writer-wins updates. Retain each source ID to preserve its identity when its kind stays the same.
          *
          *     Requires the triggers:write scope.
          *
@@ -2340,13 +2340,13 @@ export interface components {
              * @default [
              *       {
              *         "kind": "manual",
-             *         "slug": "event-1",
+             *         "slug": "source-1",
              *         "enabled": true,
              *         "config": {}
              *       }
              *     ]
              */
-            events: ({
+            sources: ({
                 id?: string;
                 slug?: string;
                 /** @constant */
@@ -6057,7 +6057,7 @@ export interface operations {
                         enabled: boolean;
                         /** Format: uuid */
                         eventId: string;
-                        events: ({
+                        sources: ({
                             /** Format: uuid */
                             id: string;
                             slug: string;
@@ -6197,7 +6197,7 @@ export interface operations {
                         enabled: boolean;
                         /** Format: uuid */
                         eventId: string;
-                        events: ({
+                        sources: ({
                             /** Format: uuid */
                             id: string;
                             slug: string;
@@ -7445,7 +7445,7 @@ export interface operations {
                         enabled: boolean;
                         /** Format: uuid */
                         eventId: string;
-                        events: ({
+                        sources: ({
                             /** Format: uuid */
                             id: string;
                             slug: string;
@@ -7577,13 +7577,13 @@ export interface operations {
                      * @default [
                      *       {
                      *         "kind": "manual",
-                     *         "slug": "event-1",
+                     *         "slug": "source-1",
                      *         "enabled": true,
                      *         "config": {}
                      *       }
                      *     ]
                      */
-                    events?: ({
+                    sources?: ({
                         id?: string;
                         slug?: string;
                         /** @constant */
@@ -7681,7 +7681,7 @@ export interface operations {
                         enabled: boolean;
                         /** Format: uuid */
                         eventId: string;
-                        events: ({
+                        sources: ({
                             /** Format: uuid */
                             id: string;
                             slug: string;

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { CONDITION_LIMITS, evaluateWebhookConditions, validateConditions } from "../src/webhook-conditions";
-import { webhookEventConfigSchema } from "../src/trigger-schemas";
+import { webhookSourceConfigSchema } from "../src/trigger-schemas";
 const build = JSON.parse(readFileSync(new URL("../migrations/build-manager-conditions.json", import.meta.url), "utf8"));
 export const leaf = (path: string, operator: string, value: unknown) => ({ fact: "webhook", path, operator, value });
 const decision = async (conditions: unknown, webhook: Record<string, unknown>) => (await evaluateWebhookConditions(conditions, webhook)).decision;
@@ -71,8 +71,8 @@ describe("shared webhook conditions", () => {
   it("validates conditions for every provider and rejects legacy requests", () => {
     const configs = [{ provider: "linear", projectId: "p", matchRules: [{ type: "status", targetId: "done" }] }, { provider: "clickup", listId: "l", matchRules: [{ type: "status", targetId: "done" }] }, { provider: "github", installationId: 1, repositoryId: 2, event: "check_suite", action: "completed" }, { provider: "cloudflareTail", integrationId: "tail" }];
     for (const config of configs) {
-      expect(webhookEventConfigSchema.parse({ ...config, conditions: build })).toEqual({ ...config, conditions: build });
-      expect(() => webhookEventConfigSchema.parse({ ...config, handlerCode: "removed" })).toThrow();
+      expect(webhookSourceConfigSchema.parse({ ...config, conditions: build })).toEqual({ ...config, conditions: build });
+      expect(() => webhookSourceConfigSchema.parse({ ...config, handlerCode: "removed" })).toThrow();
     }
   });
 });

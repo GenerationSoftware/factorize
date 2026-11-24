@@ -21,10 +21,10 @@ export interface MatchResult {
   pendingReason?: string;
   occurrence: null | { id: string; definitionId: string; definitionRevision: number; occurredAt: string; payload: Record<string, unknown> };
 }
-const eventSchemaValidator = new Ajv({ allErrors: true, strict: false });
+const eventPayloadValidator = new Ajv({ allErrors: true, strict: false });
 
 export function validAgainstSchema(value: unknown, schema: object, path = "payload"): void {
-  const validate = eventSchemaValidator.compile(schema);
+  const validate = eventPayloadValidator.compile(schema);
   if (validate(value)) return;
   const error = validate.errors?.[0];
   const location = `${path}${error?.instancePath ?? ""}`;

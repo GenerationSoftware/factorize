@@ -9,9 +9,9 @@ provider events, and explicit fire requests. A match produces a durable
 occurrence of the parent Event; it does not start an agent execution.
 
 Use the browser or MCP `create_trigger` and `update_trigger` tools. Each Trigger
-has a name, Event ID, source kind and source configuration. Updates replace the
-configuration, so read the current Trigger first and include the intended full
-configuration. Credentials are configured through integrations and are never
+has a name, an `eventId`, and a `sources` array with a kind and configuration for
+each source. Updates replace the configuration, so read the current Trigger
+first and include the intended full configuration. Credentials are configured through integrations and are never
 accepted in Trigger input.
 
 ## Sources and delivery

@@ -16,7 +16,7 @@ export class WebhookService {
   }
   private async candidates(provider: WebhookProvider): Promise<Array<{ trigger: Trigger; triggerRevision: number; eventId: string; eventSlug: string; config: WebhookEventConfig }>> {
     const rows = await this.database.pool.query<any>(`SELECT j.id,j.event_definition_id,j.name,j.description,j.slug,j.revision,j.enabled,j.created_at,j.updated_at,t.id event_id,t.slug event_slug,t.config event_config FROM app.triggers j JOIN app.events t ON t.tenant_id=j.tenant_id AND t.trigger_id=j.id WHERE j.tenant_id=$1 AND j.enabled AND t.enabled AND t.removed_at IS NULL AND t.kind='webhook' AND t.config->>'provider'=$2`, [this.tenantId, provider]);
-    return rows.rows.map(row => ({ trigger: { id: row.id, eventId:row.event_definition_id, name: row.name, description:row.description, slug: row.slug, revision:row.revision, enabled: row.enabled, events: [], createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString() }, triggerRevision: row.revision ?? 1, eventId: row.event_id, eventSlug: row.event_slug, config: row.event_config }));
+    return rows.rows.map(row => ({ trigger: { id: row.id, eventId:row.event_definition_id, name: row.name, description:row.description, slug: row.slug, revision:row.revision, enabled: row.enabled, sources: [], createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString() }, triggerRevision: row.revision ?? 1, eventId: row.event_id, eventSlug: row.event_slug, config: row.event_config }));
   }
   private async ensure(provider: string, deliveryId: string, type: unknown, action: unknown) {
     const id = crypto.randomUUID();

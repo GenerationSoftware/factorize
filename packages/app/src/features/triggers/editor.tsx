@@ -5,17 +5,17 @@ import { api, type components } from "factorize-api-client";
 import { Button, Input, Label, Page, Select, Textarea } from "../../shared/ui";
 import { messageOf } from "../auth/session";
 import { eventsQuery, triggerQuery } from "./queries";
-type InputEvent = components["schemas"]["TriggerInput"]["events"][number];
+type InputSource = components["schemas"]["TriggerInput"]["sources"][number];
 export function TriggerEditor() {
   const params = useParams({ strict: false }), id = params.triggerId; const navigate = useNavigate(), cache = useQueryClient();
   const current = useQuery({ ...triggerQuery(id ?? ""), enabled: !!id }), events = useQuery(eventsQuery());
   const [name, setName] = useState(""), [eventId, setEventId] = useState(""), [kind, setKind] = useState<"manual" | "schedule" | "webhook">("manual"), [cron, setCron] = useState("0 * * * *"), [timezone, setTimezone] = useState("UTC"), [webhook, setWebhook] = useState('{"provider":"linear","projectId":"","matchRules":[]}');
   const [initialized, setInitialized] = useState(false);
-  if (current.data && !initialized) { setName(current.data.name); setEventId(current.data.eventId ?? ""); const source = current.data.events[0]; if (source?.kind === "schedule") { setKind("schedule"); setCron(source.config.cron); setTimezone(source.config.timezone); } else if (source?.kind === "webhook") { setKind("webhook"); setWebhook(JSON.stringify(source.config, null, 2)); } setInitialized(true); }
-  const sourceEvent: InputEvent | undefined = kind === "manual" ? { kind, slug: "event-1", enabled: true, config: {} } : kind === "schedule" ? { kind, slug: "event-1", enabled: true, config: { cron, timezone } } : (() => { try { const config = JSON.parse(webhook); return { kind, slug: "event-1", enabled: true, config } as InputEvent; } catch { return undefined; } })();
+  if (current.data && !initialized) { setName(current.data.name); setEventId(current.data.eventId ?? ""); const source = current.data.sources[0]; if (source?.kind === "schedule") { setKind("schedule"); setCron(source.config.cron); setTimezone(source.config.timezone); } else if (source?.kind === "webhook") { setKind("webhook"); setWebhook(JSON.stringify(source.config, null, 2)); } setInitialized(true); }
+  const inputSource: InputSource | undefined = kind === "manual" ? { kind, enabled: true, config: {} } : kind === "schedule" ? { kind, enabled: true, config: { cron, timezone } } : (() => { try { const config = JSON.parse(webhook); return { kind, enabled: true, config } as InputSource; } catch { return undefined; } })();
   const save = useMutation({ mutationFn: async () => {
-    if (!sourceEvent) throw new Error("Webhook configuration must be valid JSON.");
-    const body = { name, eventId, events: [sourceEvent] };
+    if (!inputSource) throw new Error("Webhook configuration must be valid JSON.");
+    const body = { name, eventId, sources: [inputSource] };
     const result = id ? await api.PUT("/api/v1/triggers/{triggerId}", { params: { path: { triggerId: id } }, body }) : await api.POST("/api/v1/triggers", { body });
     if (!result.data || result.error) throw new Error(messageOf(result.error)); return result.data;
   }, onSuccess: async trigger => { await Promise.all([cache.invalidateQueries({ queryKey: ["triggers"] }), cache.invalidateQueries({ queryKey: ["events"] })]); await navigate({ to: "/triggers/$triggerId", params: { triggerId: trigger.id } }); } });

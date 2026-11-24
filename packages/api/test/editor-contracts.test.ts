@@ -17,7 +17,13 @@ describe("public editor contracts", () => {
       expect(schema.type === "array" ? schema.items.required.length : schema.required.length).toBeGreaterThan(0);
     }
     const schema = document.paths["/api/v1/triggers"].post.responses[201].content["application/json"].schema;
-    expect(schema.required).toContain("updatedAt"); expect(schema.required).toContain("events");
+    expect(schema.required).toContain("updatedAt");
+    expect(schema.required).toContain("sources");
+    expect(schema.properties).not.toHaveProperty("events");
+    expect(document.paths["/api/v1/triggers"].post.requestBody.content["application/json"].schema.$ref).toBe("#/components/schemas/TriggerInput");
+    const input = document.components.schemas.TriggerInput;
+    expect(input.properties.sources.type).toBe("array");
+    expect(input.properties).not.toHaveProperty("events");
     expect(triggerResponse.safeParse({ id: "not-a-trigger" }).success).toBe(false);
   });
 });

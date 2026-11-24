@@ -79,9 +79,9 @@ input, or manual fire request. Duplicate deliveries are deduplicated. Reuse the
 same `idempotencyKey` after an uncertain manual fire. Webhook activity tools
 show safe processing outcomes without exposing secrets or raw payloads.
 
-`create_trigger` and `update_trigger` accept a parent `eventId` and source
-configuration. Read a Trigger before replacing its configuration. Skills remain
-standalone and are not part of a Trigger's execution configuration.
+`create_trigger` and `update_trigger` accept a parent `eventId` and a
+`sources` array of input configurations. Read a Trigger before replacing its
+configuration. Skills remain standalone and are not part of a Trigger's execution configuration.
 
 ## Skills and integration APIs
 

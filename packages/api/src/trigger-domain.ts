@@ -1,10 +1,10 @@
-export type EventKind = "manual" | "schedule" | "webhook";
+export type TriggerSourceKind = "manual" | "schedule" | "webhook";
 
 /** A Trigger's input source configuration. */
-export interface Event {
+export interface TriggerSource {
   id: string;
   triggerId: string;
-  kind: EventKind;
+  kind: TriggerSourceKind;
   slug: string;
   enabled: boolean;
   config: Record<string, unknown>;
@@ -22,7 +22,7 @@ export interface Trigger {
   slug: string;
   revision: number;
   enabled: boolean;
-  events: Event[];
+  sources: TriggerSource[];
   createdAt: string;
   updatedAt: string;
 }

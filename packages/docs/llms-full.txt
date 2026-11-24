@@ -125,9 +125,9 @@ provider events, and explicit fire requests. A match produces a durable
 occurrence of the parent Event; it does not start an agent execution.
 
 Use the browser or MCP `create_trigger` and `update_trigger` tools. Each Trigger
-has a name, Event ID, source kind and source configuration. Updates replace the
-configuration, so read the current Trigger first and include the intended full
-configuration. Credentials are configured through integrations and are never
+has a name, an `eventId`, and a `sources` array with a kind and configuration for
+each source. Updates replace the configuration, so read the current Trigger
+first and include the intended full configuration. Credentials are configured through integrations and are never
 accepted in Trigger input.
 
 ## Sources and delivery
@@ -309,6 +309,9 @@ subscription support. After a resource-updated notification, read the resource
 to retrieve durable data. `list_event_occurrences` lets a reconnecting client
 recover stored records.
 
+`delete_event` permanently removes the Event, all attached Triggers and input
+configurations, and all stored occurrences.
+
 ## Triggers
 
 A Trigger belongs to one Event and watches a schedule, signed webhook/provider
@@ -316,9 +319,9 @@ input, or manual fire request. Duplicate deliveries are deduplicated. Reuse the
 same `idempotencyKey` after an uncertain manual fire. Webhook activity tools
 show safe processing outcomes without exposing secrets or raw payloads.
 
-`create_trigger` and `update_trigger` accept a parent `eventId` and source
-configuration. Read a Trigger before replacing its configuration. Skills remain
-standalone and are not part of a Trigger's execution configuration.
+`create_trigger` and `update_trigger` accept a parent `eventId` and a
+`sources` array of input configurations. Read a Trigger before replacing its
+configuration. Skills remain standalone and are not part of a Trigger's execution configuration.
 
 ## Skills and integration APIs
 
@@ -387,6 +390,10 @@ Scopes are independent; write does not imply read. Integration-specific scopes
 are granted separately. Owner-only operations require an interactive browser
 session.
 
+Owners can edit the effective scopes of an existing MCP connection in Settings;
+saved scope additions and removals apply immediately. Team permission presets
+can preselect scopes during new client authorization.
+
 ## OAuth clients
 
 Authorization-code clients must use PKCE S256. Implicit and plain PKCE are
@@ -419,7 +426,7 @@ The definition is generated from the executable route catalog in `packages/api/s
 npm run generate:openapi
 ```
 
-Commit `packages/docs/openapi.yaml` with the change. CI regenerates it and rejects a diff; parsed contract tests also require exact method/path equality with the executable catalog. Shared schemas and general API metadata live beside the catalog in `flow-schemas.ts`, `trace-replay-schemas.ts`, and `api-document.json`.
+Commit `packages/docs/openapi.yaml` with the change. CI regenerates it and rejects a diff; parsed contract tests also require exact method/path equality with the executable catalog. Shared schemas and general API metadata live beside the catalog in `trigger-schemas.ts`, `trace-replay-schemas.ts`, and `api-document.json`.
 
 Run `npm run validate --workspace=factorize-docs` to verify the generated artifact, parsed operation contract, and Mintlify configuration before publishing.
 

@@ -805,7 +805,7 @@ export const API_ROUTES: RouteContract[] = [
     "triggers:write",
     {
       summary: "Replace trigger",
-      description: "Supply expectedUpdatedAt from GET for atomic optimistic concurrency. Stale edits return 409 stale_trigger. Omission uses last-writer-wins updates. Event identity is preserved.",
+      description: "Supply expectedUpdatedAt from GET for atomic optimistic concurrency. Stale edits return 409 stale_trigger. Omission uses last-writer-wins updates. Retain each source ID to preserve its identity when its kind stays the same.",
       responses: { "200": { description: "Updated", content: { "application/json": { schema: jsonSchema(triggerResponse, "output") } } }, "409": { description: "stale_trigger: reload and reconcile before retrying" } },
     },
     (service, { params, body }) => service.updateTrigger(params.triggerId, body),

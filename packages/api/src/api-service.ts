@@ -40,7 +40,7 @@ import { CredentialRepository, IntegrationIdempotencyConflictError, IntegrationV
 import { XConnectionRepository } from "./postgres/x-connection-repository";
 import { createXPKCE, signXOAuthState, validateXOAuthScopes, type XOAuthScope } from "./x-oauth";
 import { decrypt, encrypt } from "./crypto";
-import { type Trigger, type Event } from "./trigger-domain";
+import { type Trigger, type TriggerSource } from "./trigger-domain";
 import { GitHubRepository } from "./postgres/github-repository";
 import { IntegrationService } from "./postgres/integration-service";
 import { OperationsRepository } from "./postgres/operations-repository";
@@ -90,25 +90,25 @@ export class ApiService {
   private flyConnections() { return new FlyConnectionRepository(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY); }
   private skills() { return new SkillRepository(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY, undefined, new SkillContent(this.env.SKILL_ARTIFACTS,new PostgresSkillContentCache(databaseFor(this.env),this.auth.tenantId,this.env.CREDENTIAL_ENCRYPTION_KEY))); }
 
-  private normalizedEvents(input: TriggerInput["events"], existing: Event[] = []): Event[] {
-    const source = input.some(event => event.kind === "manual") ? input : [{ kind: "manual" as const, enabled: true, config: {} }, ...input];
-    const prior = new Map(existing.map(event => [event.id, event])), used = new Set(existing.map(event => event.slug));
+  private normalizedSources(input: TriggerInput["sources"], existing: TriggerSource[] = []): TriggerSource[] {
+    const sources = input.some(source => source.kind === "manual") ? input : [{ kind: "manual" as const, enabled: true, config: {} }, ...input];
+    const prior = new Map(existing.map(source => [source.id, source])), used = new Set(existing.map(source => source.slug));
     let next = 1, timestamp = new Date().toISOString();
-    return source.map(event => {
-      // A event's kind is part of its identity. Changing kind is a removal
+    return sources.map(source => {
+      // A source's kind is part of its identity. Changing kind is a removal
       // plus an insertion, never an in-place mutation of historical identity.
-      const candidate = event.id ? prior.get(event.id) : undefined;
-      const old = candidate?.kind === event.kind ? candidate : undefined;
-      while (used.has(`event-${next}`)) next++;
-      const slug = old?.slug ?? event.slug ?? `event-${next++}`; used.add(slug);
-      return { id: old?.id ?? crypto.randomUUID(), triggerId: old?.triggerId ?? "", kind: event.kind, slug, enabled: event.enabled !== false, config: event.config, template:event.template, createdAt: old?.createdAt ?? timestamp, updatedAt: timestamp };
+      const candidate = source.id ? prior.get(source.id) : undefined;
+      const old = candidate?.kind === source.kind ? candidate : undefined;
+      while (used.has(`source-${next}`)) next++;
+      const slug = old?.slug ?? source.slug ?? `source-${next++}`; used.add(slug);
+      return { id: old?.id ?? crypto.randomUUID(), triggerId: old?.triggerId ?? "", kind: source.kind, slug, enabled: source.enabled !== false, config: source.config, template:source.template, createdAt: old?.createdAt ?? timestamp, updatedAt: timestamp };
     });
   }
 
 
 
   private async presentTrigger(trigger: Trigger) {
-    return publicValue(triggerResponse, { ...trigger, eventId: trigger.eventId ?? null, events: trigger.events.map(event => ({ ...event, config: event.kind === "webhook" ? { ...event.config, ...(event.config.signingSecret || event.config.secret ? { secretConfigured: true } : {}), ...(event.config.provider === "cloudflareTail" ? { destination: this.env.APP_ORIGIN + "/webhooks/cloudflare/" + encodeURIComponent(this.auth.tenantId) + "/" + encodeURIComponent(trigger.id) } : {}) } : event.config })) });
+    return publicValue(triggerResponse, { ...trigger, eventId: trigger.eventId ?? null, sources: trigger.sources.map(source => ({ ...source, config: source.kind === "webhook" ? { ...source.config, ...(source.config.signingSecret || source.config.secret ? { secretConfigured: true } : {}), ...(source.config.provider === "cloudflareTail" ? { destination: this.env.APP_ORIGIN + "/webhooks/cloudflare/" + encodeURIComponent(this.auth.tenantId) + "/" + encodeURIComponent(trigger.id) } : {}) } : source.config })) });
   }
   async skillCloneInfo() { await this.authorize("skills:read"); return skillCloneInfo(this.env,this.auth.tenantId); }
   async issueGitCredential() { await this.authorizeOwnerSession("skills:write"); return issueGitCredential(this.env,this.auth); }
@@ -257,8 +257,8 @@ export class ApiService {
     await this.authorize("triggers:write");
     if (!await this.eventDefinitions().get(request.eventId)) throw new ServiceError(404, "not_found", "Event not found");
     const id = crypto.randomUUID(), timestamp = new Date().toISOString();
-    const events = this.normalizedEvents(request.events).map(event => ({ ...event, triggerId: id }));
-    const trigger: Trigger = { id, eventId: request.eventId, name: request.name, description: "", slug: request.name, revision: 1, enabled: true, events, createdAt: timestamp, updatedAt: timestamp };
+    const sources = this.normalizedSources(request.sources).map(source => ({ ...source, triggerId: id }));
+    const trigger: Trigger = { id, eventId: request.eventId, name: request.name, description: "", slug: request.name, revision: 1, enabled: true, sources, createdAt: timestamp, updatedAt: timestamp };
     try { const saved = await this.triggers().create(trigger); await this.wakeScheduler(); return this.presentTrigger(saved); }
     catch (error: any) { if ((error?.code ?? error?.cause?.code) === "23505") throw new ServiceError(409, "conflict", "Trigger name is already in use"); throw error; }
   }
@@ -268,8 +268,8 @@ export class ApiService {
     if (!current) throw new ServiceError(404, "not_found", "Trigger not found");
     const eventId = request.eventId;
     if (!await this.eventDefinitions().get(eventId)) throw new ServiceError(404, "not_found", "Event not found");
-    const events = this.normalizedEvents(request.events, current.events).map(event => ({ ...event, triggerId }));
-    try { const saved = await repository.update({ ...current, eventId, name: request.name, slug: request.name, events, updatedAt: new Date().toISOString() }, request.expectedUpdatedAt); await this.wakeScheduler(); return this.presentTrigger(saved); }
+    const sources = this.normalizedSources(request.sources, current.sources).map(source => ({ ...source, triggerId }));
+    try { const saved = await repository.update({ ...current, eventId, name: request.name, slug: request.name, sources, updatedAt: new Date().toISOString() }, request.expectedUpdatedAt); await this.wakeScheduler(); return this.presentTrigger(saved); }
     catch (error) { if ((error as any)?.code === "23505") throw new ServiceError(409, "conflict", "Trigger name is already in use"); if (error instanceof StaleTriggerEdit) throw new ServiceError(409, "stale_trigger", "This Trigger changed. Reload it before saving."); throw error; }
   }
 
@@ -286,9 +286,9 @@ export class ApiService {
   async getTeam() { await this.authorize("team:read"); const team = await new TeamRepository(databaseFor(this.env), this.auth.tenantId).get(); if (!team) throw new ServiceError(404, "not_found", "Team not found"); return team; }
   async fireTrigger(triggerId: string, input: FireTriggerInput) {
     await this.authorize("triggers:write"); const trigger = await this.triggers().getTrigger(triggerId); if (!trigger) throw new ServiceError(404, "not_found", "Trigger not found");
-    const event = trigger.events.find(value => value.kind === "manual" && value.enabled); if (!event) throw new ServiceError(409, "operation_failed", "The manual event is disabled");
+    const source = trigger.sources.find(value => value.kind === "manual" && value.enabled); if (!source) throw new ServiceError(409, "operation_failed", "The manual Trigger source is disabled");
     const deduplicationKey = input.idempotencyKey ?? crypto.randomUUID();
-    const result = await new EventMatchRepository(databaseFor(this.env)).match({ tenantId: this.auth.tenantId, triggerId, triggerRevision: trigger.revision, sourceIdentity: `manual:${event.id}`, deduplicationKey, evidence: input.data ?? {}, decision: "matched" });
+    const result = await new EventMatchRepository(databaseFor(this.env)).match({ tenantId: this.auth.tenantId, triggerId, triggerRevision: trigger.revision, sourceIdentity: `manual:${source.id}`, deduplicationKey, evidence: input.data ?? {}, decision: "matched" });
     return { occurrenceId: result.occurrence?.id ?? null, duplicate: result.duplicate };
   }
   async listTriggerEventAvailability() { await this.authorize("triggers:read"); const [kinds, installations] = await Promise.all([this.connections().kinds(), new GitHubRepository(databaseFor(this.env),this.auth.tenantId).installations()]), states=installations.map((x:any)=>x.state); return installedEventAvailability(kinds.includes("linear"),kinds.includes("clickup"),states,kinds.filter(x=>x.startsWith("cloudflare-tail:")).length); }
