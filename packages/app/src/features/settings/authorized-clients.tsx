@@ -3,7 +3,9 @@ import { Link, useParams } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "factorize-api-client";
 import { Dialog } from "../../shared/dialog";
-import { Button, Input, Label, Page } from "../../shared/ui";
+import {
+  Button, Input, Label, Page, PageHeader, Table, tableCellClasses, tableHeadClasses, tableRowClasses,
+} from "../../shared/ui";
 import { messageOf } from "../auth/session";
 import { ClientPermissions, type AuthorizedClient } from "./client-permissions";
 import { clientsQuery } from "./queries";
@@ -63,31 +65,30 @@ function RevokeConnection({ client }: { client: AuthorizedClient }) {
   </>;
 }
 
+function ConnectionDate({ value }: { value: string | null }) {
+  return value ? <time dateTime={value}>{new Date(value).toLocaleString()}</time> : "No expiration";
+}
+
 export function ClientsPage() {
   const clients = useQuery(clientsQuery);
-  const [editing, setEditing] = useState<AuthorizedClient | null>(null);
   return <Page>
-    <h1 className="mb-4">Clients</h1>
+    <PageHeader title="Clients" description="All of the connected MCP clients" />
     {clients.isPending && <p role="status">Loading clients…</p>}
     {clients.error && <p role="alert">{clients.error.message}</p>}
     {clients.data?.length === 0 && <p>No authorized clients.</p>}
-    {!!clients.data?.length && <div className="overflow-x-auto"><table aria-label="MCP connections" className="w-full text-left text-sm">
-      <thead><tr>
-        <th className="px-2 py-3">Connection</th>
-        <th className="px-2 py-3">App</th>
-        <th className="px-2 py-3">Authorized</th>
-        <th className="px-2 py-3">Actions</th>
+    {!!clients.data?.length && <Table aria-label="MCP connections">
+      <thead className={tableHeadClasses}><tr>
+        {["Username", "Connection", "App", "Authorized", "Expires"].map(label =>
+          <th scope="col" className={tableCellClasses} key={label}>{label}</th>)}
       </tr></thead>
-      <tbody>{clients.data.map(client => <tr className="border-t border-stone-200 dark:border-slate-800" key={client.grantId}>
-        <th scope="row" className="px-2 py-3 font-medium"><Link className="underline" to="/clients/$grantId" params={{ grantId: client.grantId }}>{client.clientName}</Link></th>
-        <td className="px-2 py-3">{client.appName ?? client.clientName}</td>
-        <td className="px-2 py-3">{new Date(client.authorizationDate).toLocaleString()}</td>
-        <td className="px-2 py-3"><div className="flex flex-wrap gap-2">
-          <Button onClick={() => setEditing(client)}>Edit permissions</Button><RenameConnection client={client} /><RevokeConnection client={client} />
-        </div></td>
+      <tbody>{clients.data.map(client => <tr className={tableRowClasses} key={client.grantId}>
+        <td className={tableCellClasses}>{client.ownerUsername ?? "—"}</td>
+        <th scope="row" className={`${tableCellClasses} font-medium`}><Link className="underline" to="/clients/$grantId" params={{ grantId: client.grantId }}>{client.clientName}</Link></th>
+        <td className={tableCellClasses}>{client.appName ?? client.clientName}</td>
+        <td className={`${tableCellClasses} whitespace-nowrap`}><ConnectionDate value={client.authorizationDate} /></td>
+        <td className={`${tableCellClasses} whitespace-nowrap`}><ConnectionDate value={client.expiresAt} /></td>
       </tr>)}</tbody>
-    </table></div>}
-    {editing && <ClientPermissions client={editing} close={() => setEditing(null)} />}
+    </Table>}
   </Page>;
 }
 
@@ -97,12 +98,21 @@ export function ClientPage() {
   const client = clients.data?.find(item => item.grantId === grantId);
   const [editing, setEditing] = useState(false);
   return <Page>
-    <Link to="/clients" className="underline">Clients</Link>
-    <h1 className="my-4">{client?.clientName ?? "Client connection"}</h1>
+    <PageHeader title={client?.clientName ?? "Client connection"} />
+    {clients.isPending && <p role="status">Loading client…</p>}
     {clients.error && <p role="alert">{clients.error.message}</p>}
-    {client && <div className="mb-4 flex flex-wrap gap-2">
-      <Button onClick={() => setEditing(true)}>Edit permissions</Button><RenameConnection client={client} /><RevokeConnection client={client} />
-    </div>}
+    {!clients.isPending && !clients.error && !client && <p>Client connection not found.</p>}
+    {client && <>
+      <dl className="mb-5 grid gap-4 text-sm sm:grid-cols-2 lg:grid-cols-4">
+        <div><dt className="font-semibold">Username</dt><dd>{client.ownerUsername ?? "—"}</dd></div>
+        <div><dt className="font-semibold">Client</dt><dd>{client.appName ?? client.clientName}</dd></div>
+        <div><dt className="font-semibold">Authorized</dt><dd><ConnectionDate value={client.authorizationDate} /></dd></div>
+        <div><dt className="font-semibold">Expires</dt><dd><ConnectionDate value={client.expiresAt} /></dd></div>
+      </dl>
+      <div className="mb-4 flex flex-wrap gap-2">
+        <Button onClick={() => setEditing(true)}>Edit permissions</Button><RenameConnection client={client} /><RevokeConnection client={client} />
+      </div>
+    </>}
     {editing && client && <ClientPermissions client={client} close={() => setEditing(false)} />}
   </Page>;
 }

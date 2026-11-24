@@ -26,7 +26,7 @@ export function ConnectedAppsPage() {
     },
     onSuccess: () => cache.invalidateQueries({ queryKey: connectedKey }),
   });
-  return <Page><PageHeader title="Connected apps" />
+  return <Page><PageHeader title="Apps" description="Apps connected to this Team" />
     {connected.isPending && <p role="status">Loading connected apps…</p>}
     {connected.error && <p role="alert">{connected.error.message}</p>}
     {revoke.error && <p role="alert">{revoke.error.message}</p>}
