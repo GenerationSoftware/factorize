@@ -88,7 +88,8 @@ same `idempotencyKey` after an uncertain manual fire. Webhook activity tools
 show safe processing outcomes without exposing secrets or raw payloads.
 
 `create_trigger` and `update_trigger` accept a parent `eventId` and a
-`sources` array of input configurations. Read a Trigger before replacing its
+`sources` array of input configurations. Older MCP clients may send `events`
+instead; send only one of the two fields. Read a Trigger before replacing its
 configuration.
 
 ## Integration APIs
