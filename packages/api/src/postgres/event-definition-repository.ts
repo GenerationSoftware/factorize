@@ -66,13 +66,20 @@ export class EventDefinitionRepository {
   }
 
   async list() {
+    // Aggregate each child table independently so trigger and history rows never multiply.
     const rows = await this.database.pool.query<any>(`SELECT d.id,d.name,d.description,d.current_revision,d.created_at,d.updated_at,
-        r.payload_schema,count(DISTINCT t.id)::int trigger_count,count(DISTINCT o.id)::int occurrence_count
+        r.payload_schema,coalesce(t.trigger_count,0) AS trigger_count,coalesce(o.occurrence_count,0) AS occurrence_count
       FROM app.event_definitions d JOIN app.event_definition_revisions r
         ON r.tenant_id=d.tenant_id AND r.definition_id=d.id AND r.revision=d.current_revision
-      LEFT JOIN app.triggers t ON t.tenant_id=d.tenant_id AND t.event_definition_id=d.id
-      LEFT JOIN app.event_occurrences o ON o.tenant_id=d.tenant_id AND o.definition_id=d.id
-      WHERE d.tenant_id=$1 GROUP BY d.tenant_id,d.id,d.name,d.description,d.current_revision,d.created_at,d.updated_at,r.revision,r.payload_schema ORDER BY d.name,d.id`, [this.tenantId]);
+      LEFT JOIN (
+        SELECT event_definition_id,count(*)::int AS trigger_count
+        FROM app.triggers WHERE tenant_id=$1 GROUP BY event_definition_id
+      ) t ON t.event_definition_id=d.id
+      LEFT JOIN (
+        SELECT definition_id,count(*)::int AS occurrence_count
+        FROM app.event_occurrences WHERE tenant_id=$1 GROUP BY definition_id
+      ) o ON o.definition_id=d.id
+      WHERE d.tenant_id=$1 ORDER BY d.name,d.id`, [this.tenantId]);
     return rows.rows.map(row => ({ id: row.id, name: row.name, description: row.description, revision: row.current_revision, payloadSchema: row.payload_schema, triggerCount: row.trigger_count, occurrenceCount: row.occurrence_count, createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString() }));
   }
 
