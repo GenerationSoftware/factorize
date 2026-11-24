@@ -102,6 +102,7 @@ describe("public auth API and cookie security", () => {
   it("creates an HttpOnly Secure Lax cookie, returns a safe destination and never exposes signing/session data", async () => {
     vi.spyOn(AuthRepository.prototype, "login").mockResolvedValue({ status: 200, body: identity });
     vi.spyOn(IdentityRepository.prototype, "member").mockResolvedValue(member);
+    vi.mocked(env.DATABASE!.pool.query).mockResolvedValueOnce({ rows: [] } as never);
     const response = await call("/api/v1/auth/login", { email: "owner@test.com", password: "long-test-password", returnTo: "https://evil.test/" });
     expect(response.status).toBe(200);
     expect(response.headers.get("Set-Cookie")).toMatch(/factorize_session=.*HttpOnly/);

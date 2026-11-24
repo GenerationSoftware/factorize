@@ -456,6 +456,126 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/two-factor": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read your two-factor settings
+         * @description Cookie-only browser operation. Mutations require an exact app Origin and reject cross-site requests. Authorization headers are rejected. Responses are never cached.
+         */
+        get: operations["get_api_v1_auth_two_factor"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/two-factor/google": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm a linked Google account for a two-factor settings change
+         * @description Cookie-only browser operation. Mutations require an exact app Origin and reject cross-site requests. Authorization headers are rejected. Responses are never cached.
+         */
+        post: operations["post_api_v1_auth_two_factor_google"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/two-factor/enrollment": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create a short-lived authenticator setup secret
+         * @description Cookie-only browser operation. Mutations require an exact app Origin and reject cross-site requests. Authorization headers are rejected. Responses are never cached.
+         */
+        post: operations["post_api_v1_auth_two_factor_enrollment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/two-factor/enable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Enable two-factor authentication and show recovery codes once
+         * @description Cookie-only browser operation. Mutations require an exact app Origin and reject cross-site requests. Authorization headers are rejected. Responses are never cached.
+         */
+        post: operations["post_api_v1_auth_two_factor_enable"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/two-factor/disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Disable two-factor authentication using primary and second factors
+         * @description Cookie-only browser operation. Mutations require an exact app Origin and reject cross-site requests. Authorization headers are rejected. Responses are never cached.
+         */
+        post: operations["post_api_v1_auth_two_factor_disable"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/two-factor/challenge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Finish a browser sign-in using a fresh authenticator or recovery code
+         * @description Cookie-only browser operation. Mutations require an exact app Origin and reject cross-site requests. Authorization headers are rejected. Responses are never cached.
+         */
+        post: operations["post_api_v1_auth_two_factor_challenge"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/login": {
         parameters: {
             query?: never;
@@ -3598,6 +3718,250 @@ export interface operations {
             403: components["responses"]["Error403"];
             404: components["responses"]["Error404"];
             409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    get_api_v1_auth_two_factor: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    /** @description Conditions-only webhook runtime deployment marker. */
+                    "X-Factorize-Webhook-Conditions"?: "v1";
+                    /** @description Deployment compatibility marker for the complete GEN-2157 static-client API contract. Deploy this API stage before static frontend cutover. */
+                    "X-Factorize-Contract"?: "gen-2157-static-v1";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        enabled: boolean;
+                        available: boolean;
+                        /** @enum {string} */
+                        method: "password" | "google" | "unavailable";
+                        googleVerified: boolean;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_auth_two_factor_google: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    /** @description Conditions-only webhook runtime deployment marker. */
+                    "X-Factorize-Webhook-Conditions"?: "v1";
+                    /** @description Deployment compatibility marker for the complete GEN-2157 static-client API contract. Deploy this API stage before static frontend cutover. */
+                    "X-Factorize-Contract"?: "gen-2157-static-v1";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uri */
+                        authorizationUrl: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_auth_two_factor_enrollment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    password?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    /** @description Conditions-only webhook runtime deployment marker. */
+                    "X-Factorize-Webhook-Conditions"?: "v1";
+                    /** @description Deployment compatibility marker for the complete GEN-2157 static-client API contract. Deploy this API stage before static frontend cutover. */
+                    "X-Factorize-Contract"?: "gen-2157-static-v1";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        secret: string;
+                        uri: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_auth_two_factor_enable: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    code: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    /** @description Conditions-only webhook runtime deployment marker. */
+                    "X-Factorize-Webhook-Conditions"?: "v1";
+                    /** @description Deployment compatibility marker for the complete GEN-2157 static-client API contract. Deploy this API stage before static frontend cutover. */
+                    "X-Factorize-Contract"?: "gen-2157-static-v1";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        ok: true;
+                        recoveryCodes: string[];
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_auth_two_factor_disable: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    password?: string;
+                    code: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    /** @description Conditions-only webhook runtime deployment marker. */
+                    "X-Factorize-Webhook-Conditions"?: "v1";
+                    /** @description Deployment compatibility marker for the complete GEN-2157 static-client API contract. Deploy this API stage before static frontend cutover. */
+                    "X-Factorize-Contract"?: "gen-2157-static-v1";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        ok: true;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_auth_two_factor_challenge: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    code: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    /** @description Conditions-only webhook runtime deployment marker. */
+                    "X-Factorize-Webhook-Conditions"?: "v1";
+                    /** @description Deployment compatibility marker for the complete GEN-2157 static-client API contract. Deploy this API stage before static frontend cutover. */
+                    "X-Factorize-Contract"?: "gen-2157-static-v1";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        ok: true;
+                        returnTo: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
             429: components["responses"]["Error429"];
             500: components["responses"]["Error500"];
             503: components["responses"]["Error503"];

@@ -24,5 +24,5 @@ export function authRoutes(rootRoute: AnyRootRoute) {
       } } : {}),
     });
   }
-  return [createRoute({ getParentRoute: () => rootRoute, path: "/auth/google", validateSearch: (input: Record<string, unknown>) => ({ token: typeof input.token === "string" ? input.token : undefined }), component: lazyRouteComponent(() => import("./google-sign-in"), "GoogleSignInScreen") }), route("/auth/login", "login"), route("/auth/signup", "signup"), route("/auth/password-reset", "reset"), route("/auth/verify", "verify"), route("/auth/verify/request", "verify-request")];
+  return [createRoute({ getParentRoute: () => rootRoute, path: "/auth/two-factor", component: lazyRouteComponent(() => import("./two-factor"), "TwoFactorChallenge") }), createRoute({ getParentRoute: () => rootRoute, path: "/auth/google", validateSearch: (input: Record<string, unknown>) => ({ token: typeof input.token === "string" ? input.token : undefined }), component: lazyRouteComponent(() => import("./google-sign-in"), "GoogleSignInScreen") }), route("/auth/login", "login"), route("/auth/signup", "signup"), route("/auth/password-reset", "reset"), route("/auth/verify", "verify"), route("/auth/verify/request", "verify-request")];
 }

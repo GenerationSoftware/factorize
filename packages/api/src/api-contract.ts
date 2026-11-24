@@ -20,7 +20,7 @@ import {
 
 import { X_OAUTH_SCOPES } from "./x-oauth";
 import document from "./api-document.json";
-import { authInputs, authSuccess, continuationSuccess, connectionStartInput, connectionStartSuccess, connectionResumeInput, loginSuccess, sessionResponse, googleAvailability, googleStartResult, googlePendingResult, googleUsernameResult, type AuthAction } from "./auth-api";
+import { authInputs, authSuccess, continuationSuccess, connectionStartInput, connectionStartSuccess, connectionResumeInput, loginSuccess, sessionResponse, googleAvailability, googleStartResult, googlePendingResult, googleUsernameResult, totpStatusResponse, totpSetupResponse, totpEnabledResponse, type AuthAction } from "./auth-api";
 import { flyConnectionInput, flyConnectionMetadata } from "./fly-account-client";
 import { eventDefinitionInput, eventDefinitionUpdate, eventDefinitionResponse, eventDefinitionList, eventOccurrenceQuery, eventOccurrencePage } from "./event-contracts";
 import { vmGrantInput, vmGrantList, vmGrantRef, vmGrantResult, vmRevokeResult } from "./vm-grant-contracts";
@@ -241,6 +241,12 @@ export const API_ROUTES: RouteContract[] = [
   authRoute("POST", "/api/v1/auth/google/password/complete", "google-password-complete", "Set the Factorize password with fresh Google proof and email confirmation", loginSuccess, authInputs.reset),
   authRoute("POST", "/api/v1/auth/google/finish", "google-finish", "Choose a username or confirm your existing Factorize password", loginSuccess, authInputs.googleFinish),
   {...authRoute("POST", "/api/v1/auth/password/set-request", "password-set-request", "Start fresh Google verification before setting or recovering a password", googleStartResult),ownerSession:true},
+  {...authRoute("GET", "/api/v1/auth/two-factor", "totp-status", "Read your two-factor settings", totpStatusResponse), ownerSession:true},
+  {...authRoute("POST", "/api/v1/auth/two-factor/google", "totp-google", "Confirm a linked Google account for a two-factor settings change", googleStartResult), ownerSession:true},
+  {...authRoute("POST", "/api/v1/auth/two-factor/enrollment", "totp-begin", "Create a short-lived authenticator setup secret", totpSetupResponse, authInputs.totpBegin), ownerSession:true},
+  {...authRoute("POST", "/api/v1/auth/two-factor/enable", "totp-enable", "Enable two-factor authentication and show recovery codes once", totpEnabledResponse, authInputs.totpEnroll), ownerSession:true},
+  {...authRoute("POST", "/api/v1/auth/two-factor/disable", "totp-disable", "Disable two-factor authentication using primary and second factors", authSuccess, authInputs.totpDisable), ownerSession:true},
+  authRoute("POST", "/api/v1/auth/two-factor/challenge", "totp-challenge", "Finish a browser sign-in using a fresh authenticator or recovery code", loginSuccess, authInputs.totpCode),
   authRoute("POST", "/api/v1/auth/login", "login", "Sign in", loginSuccess, authInputs.login),
   authRoute("POST", "/api/v1/auth/signup", "signup", "Request signup; existing accounts return the same accepted response", authSuccess, authInputs.signup, 202),
   authRoute("POST", "/api/v1/auth/email-verification/request", "verification-request", "Request email verification", authSuccess, authInputs.request),

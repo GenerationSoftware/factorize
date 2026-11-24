@@ -19,3 +19,6 @@ POSTMARK_MESSAGE_STREAM=outbound
 # Register <APP_ORIGIN>/oauth/google/sign-in/callback with Google.
 GOOGLE_SIGN_IN_CLIENT_ID=
 GOOGLE_SIGN_IN_CLIENT_SECRET=
+
+# Optional TOTP secret encryption. Use a separate 32-byte base64 key.
+TOTP_ENCRYPTION_KEY=
