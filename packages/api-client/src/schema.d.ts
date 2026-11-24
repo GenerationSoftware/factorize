@@ -1732,6 +1732,52 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/event-subscriptions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the signed-in owner's Event subscriptions in the current workspace
+         * @description Shows registration lifecycle, not current delivery capability. Does not expose webhook configuration.
+         *
+         *     Requires the triggers:read scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        get: operations["get_api_v1_event_subscriptions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/event-subscriptions/{subscriptionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a signed-in owner's Event subscription in the current workspace
+         * @description Requires the triggers:read scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        get: operations["get_api_v1_event_subscriptions_subscriptionId"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/events": {
         parameters: {
             query?: never;
@@ -1783,8 +1829,8 @@ export interface paths {
         put: operations["put_api_v1_events_eventId"];
         post?: never;
         /**
-         * Delete an Event and its Triggers and occurrences
-         * @description Permanently deletes the Event, all attached Triggers, their input configurations, and the Event's occurrence history.
+         * Delete an Event, its Triggers, subscriptions, and occurrences
+         * @description Permanently deletes the Event, all attached Triggers, their input configurations, subscriptions, and the Event's occurrence history.
          *
          *     Requires the triggers:write scope.
          *
@@ -6280,6 +6326,89 @@ export interface operations {
             400: components["responses"]["Error400"];
             401: components["responses"]["Error401"];
             403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    get_api_v1_event_subscriptions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Event subscriptions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        id: string;
+                        /** Format: uuid */
+                        eventId: string;
+                        eventName: string;
+                        grantId: string;
+                        /** @enum {string} */
+                        status: "active" | "expired" | "stopped";
+                        /** @enum {string} */
+                        acknowledgmentMode: "required" | "off";
+                        /** Format: date-time */
+                        expiresAt: string;
+                    }[];
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    get_api_v1_event_subscriptions_subscriptionId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                subscriptionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Event subscription */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        id: string;
+                        /** Format: uuid */
+                        eventId: string;
+                        eventName: string;
+                        grantId: string;
+                        /** @enum {string} */
+                        status: "active" | "expired" | "stopped";
+                        /** @enum {string} */
+                        acknowledgmentMode: "required" | "off";
+                        /** Format: date-time */
+                        expiresAt: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            /** @description Event subscription not found */
             404: components["responses"]["Error404"];
             409: components["responses"]["Error409"];
             429: components["responses"]["Error429"];

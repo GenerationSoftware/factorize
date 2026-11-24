@@ -6837,6 +6837,164 @@ paths:
         - cookieAuth: []
       x-required-scope: team:read
       x-owner-session-required: false
+  /api/v1/event-subscriptions:
+    get:
+      summary: List the signed-in owner's Event subscriptions in the current workspace
+      description: |-
+        Shows registration lifecycle, not current delivery capability. Does not expose webhook configuration.
+
+        Requires the triggers:read scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      responses:
+        "200":
+          description: Event subscriptions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                      pattern: ^sub_[a-f0-9]{64}$
+                    eventId:
+                      type: string
+                      format: uuid
+                      pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                    eventName:
+                      type: string
+                    grantId:
+                      type: string
+                    status:
+                      type: string
+                      enum:
+                        - active
+                        - expired
+                        - stopped
+                    acknowledgmentMode:
+                      type: string
+                      enum:
+                        - required
+                        - off
+                    expiresAt:
+                      type: string
+                      format: date-time
+                      pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z))$
+                  required:
+                    - id
+                    - eventId
+                    - eventName
+                    - grantId
+                    - status
+                    - acknowledgmentMode
+                    - expiresAt
+                  additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: get_api_v1_event_subscriptions
+      tags:
+        - event-subscriptions
+      security:
+        - cookieAuth: []
+      x-required-scope: triggers:read
+      x-owner-session-required: true
+  /api/v1/event-subscriptions/{subscriptionId}:
+    get:
+      summary: Get a signed-in owner's Event subscription in the current workspace
+      responses:
+        "200":
+          description: Event subscription
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    pattern: ^sub_[a-f0-9]{64}$
+                  eventId:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                  eventName:
+                    type: string
+                  grantId:
+                    type: string
+                  status:
+                    type: string
+                    enum:
+                      - active
+                      - expired
+                      - stopped
+                  acknowledgmentMode:
+                    type: string
+                    enum:
+                      - required
+                      - off
+                  expiresAt:
+                    type: string
+                    format: date-time
+                    pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z))$
+                required:
+                  - id
+                  - eventId
+                  - eventName
+                  - grantId
+                  - status
+                  - acknowledgmentMode
+                  - expiresAt
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+          description: Event subscription not found
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the triggers:read scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      operationId: get_api_v1_event_subscriptions_subscriptionId
+      tags:
+        - event-subscriptions
+      security:
+        - cookieAuth: []
+      x-required-scope: triggers:read
+      x-owner-session-required: true
+      parameters:
+        - name: subscriptionId
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: ^sub_[a-f0-9]{64}$
   /api/v1/events:
     get:
       summary: List Events
@@ -7197,9 +7355,9 @@ paths:
                 - expectedRevision
               additionalProperties: false
     delete:
-      summary: Delete an Event and its Triggers and occurrences
+      summary: Delete an Event, its Triggers, subscriptions, and occurrences
       description: |-
-        Permanently deletes the Event, all attached Triggers, their input configurations, and the Event's occurrence history.
+        Permanently deletes the Event, all attached Triggers, their input configurations, subscriptions, and the Event's occurrence history.
 
         Requires the triggers:write scope.
 

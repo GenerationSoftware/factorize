@@ -16,3 +16,10 @@ idempotent. Inspect safe outcomes with `list_trigger_webhook_activity` and
 MCP subscribers receive resource update notifications after an occurrence is
 stored. Notifications indicate that the resource changed; clients read the
 resource or list occurrences to obtain durable data.
+
+In the Factorize dashboard, open **Events** to see event definitions and their
+subscriber counts. Select an event to see its payload schema, occurrence
+history, and subscriptions. The **Subscriptions** sidebar shows registration
+status and acknowledgment mode for your MCP connections in the current
+workspace. The subscriber count includes active registrations only; an active
+registration does not guarantee that the client can receive deliveries.
