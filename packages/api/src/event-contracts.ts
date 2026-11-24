@@ -19,3 +19,15 @@ export function parseOccurrenceCursor(cursor: string, definitionId: string, sinc
   } catch { /* The caller converts malformed cursors to a validation error. */ }
   return null;
 }
+
+export const eventSubscriptionId = z.string().regex(/^sub_[a-f0-9]{64}$/);
+export const eventSubscription = z.object({
+  id: eventSubscriptionId,
+  eventId: z.uuid(),
+  eventName: z.string(),
+  grantId: z.string(),
+  status: z.enum(["active", "expired", "stopped"]),
+  acknowledgmentMode: z.enum(["required", "off"]),
+  expiresAt: z.iso.datetime(),
+});
+export const eventSubscriptionList = z.array(eventSubscription);

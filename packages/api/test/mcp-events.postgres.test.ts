@@ -326,6 +326,52 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("MCP event webhook lifecycl
   const makeRecoveryDue = (occurrenceId: string) => f.db.pool.query(
     "UPDATE app.mcp_event_deliveries SET ack_due_at=now()-interval '1 second' WHERE occurrence_id=$1", [occurrenceId]);
 
+  it("lists only the signed-in owner's workspace subscriptions and redacts their transport configuration", async () => {
+    const active = (await subscribe()).message.result.id as string;
+    const expired = (await subscribe(otherReceiver)).message.result.id as string;
+    await configure(active, true);
+    await f.db.pool.query("UPDATE app.mcp_event_subscriptions SET expires_at=now()-interval '1 hour' WHERE tenant_id=$1 AND id=$2", [f.tenantId, expired]);
+
+    const secondUser = crypto.randomUUID();
+    const member = await new IdentityRepository(f.db, f.tenantId).upsertOwner(secondUser, "other@example.test");
+    const otherOwner = await new IdentityRepository(f.db, f.otherTenant).upsertOwner(f.userId, "owner@example.test");
+    const otherDefinition = await f.seedEventTrigger(f.otherTenant);
+    const hiddenInWorkspace = "sub_" + "1".repeat(64), hiddenInOtherWorkspace = "sub_" + "2".repeat(64);
+    for (const [tenantId, userId, definitionId, id] of [
+      [f.tenantId, secondUser, source.definitionId, hiddenInWorkspace],
+      [f.otherTenant, f.userId, otherDefinition.definitionId, hiddenInOtherWorkspace],
+    ]) {
+      await f.db.pool.query(`INSERT INTO app.mcp_event_subscriptions
+        (tenant_id,id,user_id,session_version,grant_id,client_id,definition_id,arguments,callback_url,
+         encrypted_secret,secret_fingerprint,verified_at,generation,status,expires_at)
+        SELECT $1,$2,$3,session_version,grant_id,client_id,$4,arguments,callback_url,encrypted_secret,
+         secret_fingerprint,verified_at,generation,status,expires_at
+        FROM app.mcp_event_subscriptions WHERE tenant_id=$5 AND id=$6`, [tenantId, id, userId, definitionId, f.tenantId, active]);
+    }
+    const cookieFor = async (tenantId: string, userId: string, sessionVersion: number) => "factorize_session=" + await signSession({
+      ...f.auth, tenantId, userId, sessionVersion, email: "owner@example.test", exp: Math.floor(Date.now() / 1000) + 60,
+    }, f.env.SESSION_SIGNING_SECRET);
+    const list = "/api/v1/event-subscriptions";
+    const response = await f.request(list);
+    expect(response.status).toBe(200);
+    const rows = await response.json() as Record<string, unknown>[];
+    const expected = { eventId: source.definitionId, eventName: "fixture-event", grantId: "grant-1", expiresAt: expect.any(String) };
+    expect(rows).toHaveLength(2);
+    expect(rows).toEqual(expect.arrayContaining([
+      { ...expected, id: active, status: "active", acknowledgmentMode: "required" },
+      { ...expected, id: expired, status: "expired", acknowledgmentMode: "off" },
+    ]));
+    expect(await (await f.request(list + "/" + active)).json()).toEqual(rows.find(row => row.id === active));
+    expect((await f.request(list, "")).status).toBe(401);
+    expect((await f.request(list, await cookieFor(f.tenantId, secondUser, member.sessionVersion))).status).toBe(401);
+    expect((await f.request(list + "/" + active, await cookieFor(f.otherTenant, f.userId, otherOwner.sessionVersion))).status).toBe(404);
+    expect((await f.request(list + "/" + hiddenInWorkspace)).status).toBe(404);
+    expect((await f.request(list + "/" + hiddenInOtherWorkspace)).status).toBe(404);
+    expect((await f.request(list + "/malformed")).status).toBe(400);
+    expect((await unsubscribe()).message.result).toBeDefined();
+    expect(await (await f.request(list + "/" + active)).json()).toMatchObject({ status: "stopped" });
+  });
+
   it("acknowledges exact durable work and recovers only the unresolved original occurrence", async () => {
     const id = (await subscribe()).message.result.id;
     expect((await processing("get_event_processing_acknowledgments", id)).structuredContent.enabled).toBe(false);

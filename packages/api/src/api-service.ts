@@ -53,7 +53,8 @@ import { ACCESS_SCOPES, AGENT_SCOPES, accessTokenDigest, issueAccessToken, norma
 
 import { EventMatchRepository, wakeMcpDeliveries } from "./postgres/event-match-repository";
 import { EventDefinitionRepository, EventDefinitionConflict } from "./postgres/event-definition-repository";
-import { parseOccurrenceCursor, eventDefinitionInput, eventDefinitionUpdate, eventDefinitionResponse, eventDefinitionList, eventOccurrencePage } from "./event-contracts";
+import { readEventSubscriptions } from "./postgres/event-subscription-repository";
+import { eventSubscription, eventSubscriptionList, parseOccurrenceCursor, eventDefinitionInput, eventDefinitionUpdate, eventDefinitionResponse, eventDefinitionList, eventOccurrencePage } from "./event-contracts";
 import { createFlyAccountClient, FlyAccountError, flyConnectionInput } from "./fly-account-client";
 import { FlyConnectionRepository } from "./postgres/fly-connection-repository";
 
@@ -210,6 +211,16 @@ export class ApiService {
   async eventContextMetadata() { await this.authorize("triggers:read"); return eventContextCatalog; }
   private eventDefinitions() { return new EventDefinitionRepository(databaseFor(this.env), this.auth.tenantId); }
   async listEvents() { await this.authorize("triggers:read"); return publicValue(eventDefinitionList, await this.eventDefinitions().list()); }
+  async listDashboardEventSubscriptions() {
+    await this.authorizeOwnerSession("triggers:read");
+    return publicValue(eventSubscriptionList, await readEventSubscriptions(databaseFor(this.env), this.auth.tenantId, this.auth.userId));
+  }
+  async getDashboardEventSubscription(id: string) {
+    await this.authorizeOwnerSession("triggers:read");
+    const [result] = await readEventSubscriptions(databaseFor(this.env), this.auth.tenantId, this.auth.userId, id);
+    if (!result) throw new ServiceError(404, "not_found", "Event subscription not found");
+    return publicValue(eventSubscription, result);
+  }
   async getEvent(id: string) { await this.authorize("triggers:read"); const event = await this.eventDefinitions().get(id); if (!event) throw new ServiceError(404, "not_found", "Event not found"); return publicValue(eventDefinitionResponse, event); }
   async createEvent(input: unknown) { await this.authorize("triggers:write"); return publicValue(eventDefinitionResponse, await this.eventDefinitions().create(eventDefinitionInput.parse(input))); }
   async updateEvent(id: string, input: unknown) { await this.authorize("triggers:write"); const parsed = eventDefinitionUpdate.parse(input); try { const result = await this.eventDefinitions().update(id, parsed, parsed.expectedRevision); if (!result) throw new ServiceError(404, "not_found", "Event not found"); return publicValue(eventDefinitionResponse, result); } catch (error) { if (error instanceof EventDefinitionConflict) throw new ServiceError(409, "stale_event", "Event changed since it was loaded."); throw error; } }

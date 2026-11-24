@@ -9,6 +9,8 @@ import {
 import { messageOf } from "../auth/session";
 import { ClientPermissions, type AuthorizedClient } from "./client-permissions";
 import { clientsQuery } from "./queries";
+import { EventSubscriptions } from "../events/subscriptions-table";
+import { subscriptionsQuery } from "../events/queries";
 
 function RenameConnection({ client }: { client: AuthorizedClient }) {
   const cache = useQueryClient();
@@ -55,6 +57,7 @@ function RevokeConnection({ client }: { client: AuthorizedClient }) {
     },
     onSuccess: () => Promise.all([
       cache.invalidateQueries({ queryKey: clientsQuery.queryKey }),
+      cache.invalidateQueries({ queryKey: subscriptionsQuery.queryKey }),
     ]),
   });
   return <>
@@ -112,6 +115,7 @@ export function ClientPage() {
       <div className="mb-4 flex flex-wrap gap-2">
         <Button onClick={() => setEditing(true)}>Edit permissions</Button><RenameConnection client={client} /><RevokeConnection client={client} />
       </div>
+      <section><h2 className="mb-3">Subscriptions</h2><EventSubscriptions grantId={client.grantId} /></section>
     </>}
     {editing && client && <ClientPermissions client={client} close={() => setEditing(false)} />}
   </Page>;

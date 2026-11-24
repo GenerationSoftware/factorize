@@ -23,7 +23,7 @@ import { X_OAUTH_SCOPES } from "./x-oauth";
 import document from "./api-document.json";
 import { authInputs, authSuccess, continuationSuccess, connectionStartInput, connectionStartSuccess, connectionResumeInput, loginSuccess, sessionResponse, googleAvailability, googleStartResult, googlePendingResult, googleUsernameResult, totpStatusResponse, totpSetupResponse, totpEnabledResponse, type AuthAction } from "./auth-api";
 import { flyConnectionInput, flyConnectionMetadata } from "./fly-account-client";
-import { eventDefinitionInput, eventDefinitionUpdate, eventDefinitionResponse, eventDefinitionList, eventOccurrenceQuery, eventOccurrencePage } from "./event-contracts";
+import { eventSubscription, eventSubscriptionId, eventSubscriptionList, eventDefinitionInput, eventDefinitionUpdate, eventDefinitionResponse, eventDefinitionList, eventOccurrenceQuery, eventOccurrencePage } from "./event-contracts";
 import { vmGrantInput, vmGrantList, vmGrantRef, vmGrantResult, vmRevokeResult } from "./vm-grant-contracts";
 
 type JsonSchema = Record<string, any>;
@@ -689,11 +689,21 @@ export const API_ROUTES: RouteContract[] = [
     summary: "Get the current team",
     responses: { "200": { description: "Team", content: { "application/json": { schema: jsonSchema(teamResponse, "output") } } } },
   }, service => service.getTeam()),
+  route("GET", "/api/v1/event-subscriptions", "triggers:read", {
+    summary: "List the signed-in owner's Event subscriptions in the current workspace",
+    description: "Shows registration lifecycle, not current delivery capability. Does not expose webhook configuration.",
+    responses: { "200": { description: "Event subscriptions", content: { "application/json": { schema: jsonSchema(eventSubscriptionList, "output") } } } },
+  }, service => service.listDashboardEventSubscriptions(), { ownerSession: true }),
+  route("GET", "/api/v1/event-subscriptions/{subscriptionId}", "triggers:read", {
+    summary: "Get a signed-in owner's Event subscription in the current workspace",
+    responses: { "200": { description: "Event subscription", content: { "application/json": { schema: jsonSchema(eventSubscription, "output") } } }, "404": { description: "Event subscription not found" } },
+  }, (service, { params }) => service.getDashboardEventSubscription(params.subscriptionId),
+  { ownerSession: true, parameters: z.object({ subscriptionId: eventSubscriptionId }) }),
   route("GET", "/api/v1/events", "triggers:read", { summary: "List Events", responses: { "200": { description: "Events and current revisions", content: { "application/json": { schema: jsonSchema(eventDefinitionList, "output") } } } } }, service => service.listEvents()),
   route("POST", "/api/v1/events", "triggers:write", { summary: "Create an Event", responses: { "201": { description: "Created Event", content: { "application/json": { schema: jsonSchema(eventDefinitionResponse, "output") } } } } }, (service, { body }) => service.createEvent(body), { body: eventDefinitionInput }),
   route("GET", "/api/v1/events/{eventId}", "triggers:read", { summary: "Get an Event", responses: { "200": { description: "Event", content: { "application/json": { schema: jsonSchema(eventDefinitionResponse, "output") } } } } }, (service, { params }) => service.getEvent(params.eventId), { parameters: z.object({ eventId: z.uuid() }) }),
   route("PUT", "/api/v1/events/{eventId}", "triggers:write", { summary: "Update an Event payload schema", responses: { "200": { description: "Updated Event", content: { "application/json": { schema: jsonSchema(eventDefinitionResponse, "output") } } } } }, (service, { params, body }) => service.updateEvent(params.eventId, body), { parameters: z.object({ eventId: z.uuid() }), body: eventDefinitionUpdate }),
-  route("DELETE", "/api/v1/events/{eventId}", "triggers:write", { summary: "Delete an Event and its Triggers and occurrences", description:"Permanently deletes the Event, all attached Triggers, their input configurations, and the Event's occurrence history.", responses: { "200": { description: "Deleted" } } }, (service, { params }) => service.deleteEvent(params.eventId), { parameters: z.object({ eventId: z.uuid() }) }),
+  route("DELETE", "/api/v1/events/{eventId}", "triggers:write", { summary: "Delete an Event, its Triggers, subscriptions, and occurrences", description:"Permanently deletes the Event, all attached Triggers, their input configurations, subscriptions, and the Event's occurrence history.", responses: { "200": { description: "Deleted" } } }, (service, { params }) => service.deleteEvent(params.eventId), { parameters: z.object({ eventId: z.uuid() }) }),
   route("GET", "/api/v1/events/{eventId}/occurrences", "triggers:read", { summary: "List durable Event occurrences", responses: { "200": { description: "Occurrences", content: { "application/json": { schema: jsonSchema(eventOccurrencePage, "output") } } } } }, (service, { params, query }) => service.listEventOccurrences(params.eventId, query.limit, query.cursor), { parameters: z.object({ eventId: z.uuid() }), query: eventOccurrenceQuery }),
   route(
     "GET",

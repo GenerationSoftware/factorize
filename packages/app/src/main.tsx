@@ -36,7 +36,7 @@ const router = createRouter({
     </Card></Page>
   ),
   defaultNotFoundComponent: () => <Page><Card><h1>Page not found</h1><p className="text-sm text-slate-600 dark:text-slate-400">Check the address or return to your software factory.</p><a href="/" className="mt-4 inline-block rounded-lg bg-factorize-500 px-4 py-2 text-sm font-semibold text-slate-950">Go to Factorize</a></Card></Page>,
-  routeTree: rootRoute.addChildren([indexRoute, ...authRoutes(rootRoute), ...protocolRoutes(rootRoute), ...triggersRoutes(rootRoute), eventRoutes(rootRoute), ...workloadRoutes(rootRoute), ...appRoutes(rootRoute), ...settingsRoutes(rootRoute)]),
+  routeTree: rootRoute.addChildren([indexRoute, ...authRoutes(rootRoute), ...protocolRoutes(rootRoute), ...triggersRoutes(rootRoute), ...eventRoutes(rootRoute), ...workloadRoutes(rootRoute), ...appRoutes(rootRoute), ...settingsRoutes(rootRoute)]),
 });
 declare module "@tanstack/react-router" {
   interface Register { router: typeof router }
