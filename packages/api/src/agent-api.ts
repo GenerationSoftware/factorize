@@ -1,3 +1,6 @@
+import { activeVmAuthorization } from "./vm-auth";
+import { connectionAccess, requiredIntegrationScope, type AgentIntegration, type ConnectionPolicy } from "./agent-integration-access";
+export { connectionAccess, requiredIntegrationScope, type AgentIntegration } from "./agent-integration-access";
 import {proxyRequestBody} from "./proxy-payloads";
 import {search} from "@jmespath-community/jmespath";
 import {proxyResultSize,proxyReceipt} from "./proxy-result";
@@ -16,14 +19,6 @@ import { XConnectionRepository, XReconnectRequiredError } from "./postgres/x-con
 import type { z } from "zod";
 
 
-export type AgentIntegration = {id: string; kind: "bearer" | "model" | "github" | "linear" | "fly" | "exe" | "amp" | "clickup" | "x"; credential_id: string; name: string; description: string | null; available: boolean; policy: "baseline" | "requestable" | "disabled"; epoch: number; revision: number};
-export const requiredIntegrationScope = (row: AgentIntegration) => `integration:${row.id}:${row.epoch}`;
-type ConnectionPolicy = { integration_overrides: Record<string, string | false>; disabled_scopes: string[] };
-export function connectionAccess(row: AgentIntegration, scopes: string[], policy: ConnectionPolicy) {
-  const scope = requiredIntegrationScope(row);
-  if (policy.disabled_scopes.includes("proxy:use") || policy.integration_overrides[row.id] === false || row.policy === "disabled" || !row.available) return "blocked";
-  return row.policy === "baseline" || policy.integration_overrides[row.id] === scope || scopes.includes(scope) ? "granted" : "requestable";
-}
 const STORAGE_BLOCK_BYTES = 1024 * 1024;
 const forbidden = () => new AgentApiError(403, "forbidden", "This integration is not authorized.");
 const invalidIdentity = () => new AgentApiError(401, "invalid_token", "The agent authorization is no longer active.");
@@ -65,6 +60,18 @@ export class AgentApiService {
   private get database() { return databaseFor(this.env); }
   async identity() {
     const auth = this.auth;
+    if (auth.authMethod === "vm") {
+      const scopes = await activeVmAuthorization(this.env, auth);
+      if (!scopes || !auth.vmGrantId) throw invalidIdentity();
+      if (!scopes.includes("proxy:use")) throw new AgentApiError(403, "insufficient_scope", "The proxy:use scope is required.", "proxy:use");
+      await this.database.pool.query(
+        `INSERT INTO app.agent_identities(tenant_id,id,kind,subject,user_id,session_version)
+         VALUES($1,$2,'vm',$2::uuid::text,$2,0) ON CONFLICT(tenant_id,id) DO NOTHING`,
+        [auth.tenantId, auth.vmGrantId],
+      );
+      const policy: ConnectionPolicy = { disabled_scopes: [], integration_overrides: {} };
+      return { id: auth.vmGrantId, kind: "vm" as const, policy, scopes };
+    }
     const member = await new IdentityRepository(this.database, auth.tenantId).member(auth.userId);
     if (member?.role !== "owner" || member.sessionVersion !== auth.sessionVersion) throw invalidIdentity();
     let kind: "oauth", subject: string;
@@ -75,13 +82,14 @@ export class AgentApiService {
       VALUES($1,$2,$3,$4,$5) ON CONFLICT(tenant_id,kind,subject) DO UPDATE SET subject=excluded.subject
       RETURNING id,user_id,session_version,revoked_at,integration_overrides,disabled_scopes`, [auth.tenantId, kind, subject, auth.userId, auth.sessionVersion])).rows[0]!;
     if (row.revoked_at || row.user_id !== auth.userId || row.session_version !== auth.sessionVersion) throw invalidIdentity();
-    return {id: row.id, kind, policy: row};
+    return {id: row.id, kind, policy: row, scopes: auth.scopes};
   }
   async authorize(integration: string) {
     const identity = await this.identity();
     const row = (await this.database.pool.query<AgentIntegration>("SELECT * FROM app.agent_integrations WHERE tenant_id=$1 AND id=$2", [this.auth.tenantId, integration])).rows[0];
     if (!row || row.policy==="disabled") throw forbidden();
-    const access = connectionAccess(row, this.auth.scopes, identity.policy);
+    if (identity.kind === "vm" && (!row.available || !identity.scopes.includes(requiredIntegrationScope(row)))) throw forbidden();
+    const access = connectionAccess(row, identity.scopes, identity.policy);
     if (access === "blocked") throw forbidden();
     if (access === "requestable") throw new AgentApiError(403, "insufficient_scope", "Approve this integration before making the request.", requiredIntegrationScope(row));
     return {identity, integration: row};
@@ -91,7 +99,7 @@ export class AgentApiService {
     const rows = (await this.database.pool.query<AgentIntegration>("SELECT * FROM app.agent_integrations WHERE tenant_id=$1 ORDER BY name,id", [this.auth.tenantId])).rows;
     const result = [];
     for (const row of rows) {
-      if (row.policy === "disabled") continue;
+      if (row.policy === "disabled" || (identity.kind === "vm" && !identity.scopes.includes(requiredIntegrationScope(row)))) continue;
       let access: "granted" | "requestable" | "unavailable" = "granted";
       try { await this.authorize(row.id); } catch (error) {
         if (!(error instanceof AgentApiError) || error.status === 401) throw error;
@@ -102,7 +110,7 @@ export class AgentApiService {
       const requestExample = {integration:row.id,method,path,...(row.kind === "linear" ? {headers:{"Content-Type":"application/json"},body:JSON.stringify({query:"query { viewer { id name } }"})} : row.kind === "exe" ? {headers:{"Content-Type":"text/plain"},body:"help"} : {})};
       result.push({...publicIntegration(row), access, requestExample, instructions: "Call MCP request_api with this integration ID and requestExample; no shell, local VM, raw HTTP client or access token is needed. Read retained results with read_api_response. " + (row.kind === "x" ? "Use the HTTP request endpoint with an X API v2 path, such as /2/users/me. Only granted OAuth scopes and supported resources are available." : row.kind === "linear" ? "Use the HTTP request endpoint with path /graphql and a JSON GraphQL body." : row.kind === "exe" ? "Use the HTTP request endpoint with POST /exec and a text/plain exe.dev command body." : row.kind === "amp" ? "Use the HTTP request endpoint with a path relative to the configured Amp API base." : row.kind === "clickup" ? "Use the HTTP request endpoint with a path relative to /api/v2." : row.kind === "fly" ? "Use the HTTP request endpoint with a Fly Machines API path, such as /v1/apps." : row.kind === "model" ? "Use the HTTP request endpoint with an OpenAI-compatible path relative to /v1." : "Use the HTTP request endpoint with a relative API path and query. Access covers this integration, bounded by the upstream credential permissions.")});
     }
-    return {identity: {id: identity.id, kind: identity.kind}, scopes: normalizeScopes(this.auth.scopes).filter(scope => !identity.policy.disabled_scopes.includes(scope)), proxy: {
+    return {identity: {id: identity.id, kind: identity.kind}, scopes: normalizeScopes(identity.scopes).filter(scope => !identity.policy.disabled_scopes.includes(scope)), proxy: {
       requestUrl: this.env.APP_ORIGIN + "/api/v1/agent/requests",
       readResponseUrl: this.env.APP_ORIGIN + "/api/v1/agent/responses/read",
       requestTool: "request_api", readResponseTool: "read_api_response",

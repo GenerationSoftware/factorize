@@ -6,6 +6,7 @@ const tabs = [
   ["/skills", "skills", "Skills"],
   ["/events", "integrations", "Events"],
   ["/clients", "users", "Clients"],
+  ["/vms", "key", "VMs"],
   ["/settings/permissions", "settings", "Settings"],
 ] as const;
 

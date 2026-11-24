@@ -1,3 +1,9 @@
+import { vmGrantInput, vmGrantList, vmGrantResult, vmRevokeResult } from "./vm-grant-contracts";
+import { VmGrantRepository, vmGrantActor, type VmGrant } from "./postgres/vm-grant-repository";
+import { provisionVmGrant } from "./vm-enrollment";
+import { vmGrantAudience } from "./vm-grant-provider";
+import { writeVmPermissionSnapshot } from "./vm-permissions";
+import { activeVmAuthorization } from "./vm-auth";
 import { skillCloneInfo, issueGitCredential } from "./git-https";
 import {builtinSkillDocuments,builtinSkillEntry,builtinSkill,builtinSkillResource} from "./builtin-skills";
 import { readSkillDefinition, writeSkillDefinition, type SkillDefinition } from "./skill-definition";
@@ -74,7 +80,7 @@ export function publicValue<T extends z.ZodType>(schema: T, value: unknown): z.o
   return result.data;
 }
 
-type Scope = "apps:manage" | "team:read" | "team:write" | "triggers:read" | "triggers:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write";
+type Scope = (typeof AGENT_SCOPES)[number];
 
 export class ApiService {
   authorizationDuration = 0;
@@ -162,10 +168,24 @@ export class ApiService {
 
 
   private async authorize(scope: Scope): Promise<void> {
+    if (this.auth.authMethod === "vm") {
+      const current = await this.authorizeVmIdentity();
+      if (!current.includes(scope)) throw new ServiceError(403, "insufficient_scope", `The ${scope} scope is required.`);
+      return;
+    }
     if (!(this.auth.oauthGrantId ? this.auth.scopes : normalizeScopes(this.auth.scopes)).includes(scope)) throw new ServiceError(403, "insufficient_scope", `The ${scope} scope is required.`);
     await this.authorizeIdentity();
   }
+  private async authorizeVmIdentity() {
+    const current = await activeVmAuthorization(this.env, this.auth);
+    if (!current) throw new ServiceError(401, "invalid_token", "The VM authorization is no longer active.");
+    return current;
+  }
   private async authorizeIdentity(): Promise<void> {
+    if (this.auth.authMethod === "vm") {
+      await this.authorizeVmIdentity();
+      return;
+    }
     const started = performance.now();
     try {
       const database = databaseFor(this.env);
@@ -489,6 +509,51 @@ export class ApiService {
     await this.authorizeOwnerSession("team:write");
     if (!await this.apps().revoke(this.auth.userId, id)) throw new ServiceError(404, "not_found", "App connection not found.");
     return { ok: true };
+  }
+
+  private vmGrantView(row: VmGrant) {
+    return {
+      id: row.id, providerId: row.provider_id, provider: row.provider_kind === "fly" ? "fly.io" : "exe.dev",
+      vm: row.vm, app: row.vm_app || null, scopes: row.scopes, presetId: row.preset_id,
+      presetName: row.preset_name ?? null, revision: row.revision,
+      createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString(),
+    };
+  }
+
+  async listVmGrants() {
+    await this.authorize("vms:read");
+    const repository = new VmGrantRepository(databaseFor(this.env).pool, this.auth.tenantId);
+    return publicValue(vmGrantList, (await repository.list()).map(row => this.vmGrantView(row)));
+  }
+
+  async grantVmPermissions(value: unknown) {
+    await this.authorize("vms:edit");
+    const { target, permissions } = vmGrantInput.parse(value);
+    const database = databaseFor(this.env);
+    const row = target.kind === "machine"
+      ? await provisionVmGrant(this.env, this.auth, { ...target, permissions })
+      : await writeVmPermissionSnapshot(database, this.auth, permissions, async (db, snapshot) => {
+        const repository = new VmGrantRepository(db, this.auth.tenantId);
+        const updated = await repository.replace(target.grantId, target.expectedRevision, snapshot.scopes, snapshot.presetId, vmGrantActor(this.auth));
+        if (updated) return updated;
+        const current = await repository.get(target.grantId);
+        if (!current?.activated_at || current.revoked_at) throw new ServiceError(404, "not_found", "Active VM grant not found.");
+        throw new ServiceError(409, "stale_revision", "The VM grant changed. Refresh it and retry.");
+      });
+    return publicValue(vmGrantResult, {
+      ...this.vmGrantView(row),
+      authentication: { audience: vmGrantAudience(row.id), guestKeyPath: `.factorize-vm-grants/${row.id}.pem` },
+    });
+  }
+
+  async revokeVmPermissions(id: string) {
+    await this.authorize("vms:edit");
+    const repository = new VmGrantRepository(databaseFor(this.env).pool, this.auth.tenantId);
+    if (!await repository.revoke(id, vmGrantActor(this.auth))) {
+      const row = await repository.get(id);
+      if (!row?.revoked_at) throw new ServiceError(404, "not_found", "VM grant not found.");
+    }
+    return publicValue(vmRevokeResult, { id, revoked: true });
   }
 
   async renameMcpClient(input: unknown) {

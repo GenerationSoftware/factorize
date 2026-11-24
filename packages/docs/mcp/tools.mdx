@@ -35,6 +35,7 @@ its input and enforces the operation's required scope.
 | `get_skill` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `get_trigger` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `get_webhook_delivery` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
+| `grant_vm_permissions` | `vms:edit` | Machine or existing grant, plus a preset ID or explicit scopes |
 | `import_attachment` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `list_apps` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `list_cloudflare_tail_integrations` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
@@ -45,12 +46,14 @@ its input and enforces the operation's required scope.
 | `list_skills` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `list_trigger_webhook_activity` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `list_triggers` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
+| `list_vms` | `vms:read` | Empty object |
 | `list_webhook_deliveries` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `query_api_response` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `read_api_operation` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `read_api_response` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `rename_mcp_client` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `request_api` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
+| `revoke_vm_permissions` | `vms:edit` | Grant ID |
 | `test_trigger_webhook_conditions` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `update_app` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `update_event` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
@@ -90,3 +93,61 @@ use server-held credentials and current authorization; credentials are never
 returned. `get_api_reflection` describes available integrations and safe request
 examples before `request_api` is used. See [REST reference](/api/reference) for
 exact request and response schemas.
+
+## VM permissions
+
+Use `grant_vm_permissions` to enroll an existing Machine through a team VM
+provider connection. Supply the team's integration ID as `providerId`, the
+Machine ID as `vm`, and the Fly app name as `app`. Create a request key once and
+reuse it for retries. Initial enrollment requires a running Machine with
+`curl`, `openssl`, and permission to use the Fly OIDC socket in the guest.
+
+```json
+{
+  "target": {
+    "kind": "machine",
+    "providerId": "9dd924e0-3a35-48d5-bcd1-56e4b0922265",
+    "vm": "1234abcd",
+    "app": "my-app",
+    "requestKey": "my-app-workload-1"
+  },
+  "permissions": { "scopes": ["triggers:read"] }
+}
+```
+
+Use `permissions.presetId` to apply a preset. Factorize saves its current
+scopes and rejects the entire request if any requested scope is outside the
+caller's effective access. To replace permissions, supply a `target` with
+`kind: "existing"`, `grantId`, and `expectedRevision` from `list_vms`. Revoking
+a grant removes its Factorize permissions while the workload keeps running.
+Enrollment is available only for providers enabled after identity validation.
+
+### Authenticate from an enrolled Machine
+
+On Fly.io, request an OIDC token through the `/.fly/api` Unix socket. POST
+`{"aud":"<grant authentication.audience>"}` to `http://localhost/v1/tokens/oidc`.
+Keep the private key in the guest at the returned `authentication.guestKeyPath`,
+relative to the enrollment user's home directory.
+
+For each REST or MCP HTTP request, set these headers:
+
+- `Authorization: Bearer <provider OIDC token>`
+- `X-Factorize-VM-Grant: <grant ID>`
+- `X-Factorize-VM-Proof: <signed proof JWT>`
+
+Sign the proof with the enrolled P-256 private key. Use JWT header fields
+`alg: "ES256"` and `typ: "factorize-vm-proof+jwt"`, and encode the signature in
+the 64-byte JWS format. Include these claims:
+
+| Claim | Value |
+| --- | --- |
+| `grant` | Grant ID |
+| `ath` | Unpadded base64url SHA-256 of the provider token |
+| `htm` | HTTP method |
+| `htu` | Absolute request URL, including its query string |
+| `jti` | A new UUID for each HTTP request |
+| `iat` | Current Unix time in seconds |
+
+Send the proof within 60 seconds and sign a fresh proof for every retry. MCP
+workloads need a transport that can set dynamic HTTP headers. The VM uses
+the scopes in its saved grant and refreshes its provider token before expiry.

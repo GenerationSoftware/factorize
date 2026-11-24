@@ -1,9 +1,10 @@
 import Mustache from "mustache";
 import { z } from "zod";
+import { ACCESS_SCOPES } from "./access-tokens";
 import { resourceName } from "./resource-names";
 import { conditionsSchema, preparedWebhookSchema } from "./webhook-conditions";
 
-export const scopeSchema = z.enum(["team:read", "team:write", "triggers:read", "triggers:write", "integrations:read", "integrations:write", "skills:read", "skills:write"]);
+export const scopeSchema = z.enum(ACCESS_SCOPES);
 export const matchRuleSchema = z.object({ type: z.enum(["owner", "creator", "status", "label", "assignee"]), targetId: z.string().min(1) });
 const webhookCommonSchema = z.object({ conditions: conditionsSchema.optional() });
 export const webhookSourceConfigSchema = z.discriminatedUnion("provider", [

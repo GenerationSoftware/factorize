@@ -16,6 +16,7 @@ import { databaseFor } from "./postgres/database";
 import { IdentityRepository } from "./postgres/identity-repository";
 import { oidcApiAuth, oidcRequest } from "./oidc-provider";
 import { xOAuthCallback } from "./x-oauth-callback";
+import { authenticateVmRequest, VM_GRANT_HEADER, VM_PROOF_HEADER } from "./vm-auth";
 
 const scopes = [...ACCESS_SCOPES, "apps:manage"];
 // Keep accepting grants issued by the pre-resource-scope protocol. New
@@ -97,6 +98,14 @@ const backend = { async fetch(request: Request, env: Env, ctx: ExecutionContext)
   const url = new URL(request.url);
   const apiEnv = { ...env, OAUTH_PROVIDER: env.OAUTH_PROVIDER ?? getOAuthApi(providerOptions(env), env) };
   if (url.pathname.startsWith("/internal/")) return new Response("Not found", {status: 404});
+  if ((url.pathname === "/mcp" || url.pathname.startsWith("/api/v1/")) &&
+      (request.headers.has(VM_GRANT_HEADER) || request.headers.has(VM_PROOF_HEADER))) {
+    const auth = await authenticateVmRequest(apiEnv, request);
+    if (!auth) return Response.json({ error: { code: "invalid_token", message: "Invalid VM authorization." } }, {
+      status: 401, headers: { "WWW-Authenticate": 'Bearer error="invalid_token"', "Cache-Control": "no-store" },
+    });
+    return protectedApiFetch(request, apiEnv, auth, ctx);
+  }
   if (url.pathname.startsWith("/api/v1/") && /^Bearer fza_/i.test(request.headers.get("Authorization") ?? "")) {
     const auth = await oidcApiAuth(request, env);
     if (!auth) return Response.json({ error: { code: "invalid_token" } }, {status: 401, headers: { "WWW-Authenticate": 'Bearer error="invalid_token"', "Cache-Control": "no-store" } });
@@ -145,6 +154,11 @@ export default {
   async scheduled(_event: ScheduledController, env: Env) {
     // Retry missed deliveries and refresh managed remotes in oldest-checked order.
     const db = databaseFor(env);
+    await db.pool.query(`DELETE FROM app.vm_permission_proofs WHERE (tenant_id,grant_id,proof_id) IN
+      (SELECT tenant_id,grant_id,proof_id FROM app.vm_permission_proofs WHERE expires_at<now() ORDER BY expires_at LIMIT 5000)`);
+    await db.pool.query(`UPDATE app.vm_permission_grants SET revoked_at=now(),updated_at=now(),updated_by='system:enrollment-timeout',
+      cleaned_at=CASE WHEN provider_kind='fly' THEN now() ELSE NULL END
+      WHERE activated_at IS NULL AND revoked_at IS NULL AND created_at<now()-interval '1 hour'`);
     if (env.SKILL_ARTIFACTS) {
       const pending = await db.pool.query("SELECT tenant_id FROM app.skill_library_backfill ORDER BY attempted_at NULLS FIRST,tenant_id LIMIT 5");
       for (const row of pending.rows) {

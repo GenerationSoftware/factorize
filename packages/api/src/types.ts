@@ -1,6 +1,7 @@
 export type FilterType = "owner" | "creator" | "status" | "label" | "assignee";
 export interface MatchRule { type: FilterType; targetId: string; }
 export interface Env {
+  FLY_VM_GRANTS_ENABLED?: string;
   SCHEDULER?: DurableObjectNamespace;
   ASSETS: Fetcher;
   APP_ORIGIN: string;
@@ -42,7 +43,9 @@ export type OAuthProps = {
   oauthClientId?: string;
   /** Expiry of the presented, verified OAuth access token. */
   oauthExpiresAt?: number;
-  authMethod?: "session" | "oauth" | "access_token";
+  vmGrantId?: string;
+  vmTokenExpiresAt?: number;
+  authMethod?: "session" | "oauth" | "access_token" | "vm";
 };
 
 export interface WorkItem {

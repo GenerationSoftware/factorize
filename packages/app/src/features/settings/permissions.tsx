@@ -7,7 +7,7 @@ import { messageOf } from "../auth/session";
 import { integrationPoliciesQuery } from "./queries";
 
 const key = ["settings", "permission-presets"];
-const standardScopes = ["team:read","team:write","triggers:read","triggers:write","integrations:read","integrations:write","skills:read","skills:write","proxy:use","apps:manage"];
+const standardScopes = ["team:read","team:write","triggers:read","triggers:write","integrations:read","integrations:write","skills:read","skills:write","proxy:use","apps:manage","vms:read","vms:edit"];
 type Preset = {id:string;name:string;scopes:string[];isDefault:boolean;revision:number};
 export function Permissions() {
   const cache = useQueryClient();

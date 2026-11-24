@@ -978,6 +978,76 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/vms": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List VMs with active Factorize permission grants
+         * @description Requires the vms:read scope.
+         *
+         *     Accepts a scoped bearer token or interactive owner session.
+         */
+        get: operations["get_api_v1_vms"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/vms/grants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Grant or replace Factorize permissions for an existing VM
+         * @description Supply a preset ID or an explicit scope list. Factorize saves the resolved scope snapshot and rejects the entire request if any scope exceeds the caller's effective access. Use one requestKey per initial enrollment and reuse it for a retry. Supply the current revision when editing an existing grant.
+         *
+         *     Requires the vms:edit scope.
+         *
+         *     Accepts a scoped bearer token or interactive owner session.
+         */
+        post: operations["post_api_v1_vms_grants"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/vms/grants/{grantId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke a VM's Factorize permission grant
+         * @description Factorize immediately denies access under this grant. The VM keeps running. Retrying the same revocation is safe.
+         *
+         *     Requires the vms:edit scope.
+         *
+         *     Accepts a scoped bearer token or interactive owner session.
+         */
+        delete: operations["delete_api_v1_vms_grants_grantId"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/permission-presets": {
         parameters: {
             query?: never;
@@ -1679,7 +1749,7 @@ export interface paths {
         put?: never;
         /**
          * Make an authorized credential-injected API request
-         * @description OAuth requires proxy:use. An external VM sends its short-lived provider OIDC bearer token, X-Factorize-VM-Grant and X-Factorize-VM-Proof. Only server-selected origins are used. Integration-wide grants are bounded by upstream credential permissions. Missing requestable access returns HTTP 403 with WWW-Authenticate insufficient_scope, scope and resource_metadata. Upstream status is returned in the result, including non-2xx. Text is UTF-8; other bodies are base64. Responses above 32 KiB are retained for 30 minutes and read in chunks. Revocation prevents subsequent calls and reads, but cannot undo upstream side effects.
+         * @description OAuth requires proxy:use. An enrolled VM sends its short-lived provider OIDC bearer token, X-Factorize-VM-Grant, and a fresh signed request proof in X-Factorize-VM-Proof. Only server-selected origins are used. Integration-wide grants are bounded by upstream credential permissions. Missing requestable access returns HTTP 403 with WWW-Authenticate insufficient_scope, scope and resource_metadata. Upstream status is returned in the result, including non-2xx. Text is UTF-8; other bodies are base64. Responses above 32 KiB are retained for 30 minutes and read in chunks. Revocation prevents subsequent calls and reads, but cannot undo upstream side effects.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
@@ -3180,7 +3250,7 @@ export interface operations {
                             /** @constant */
                             role: "owner";
                         };
-                        capabilities: ("team:read" | "team:write" | "triggers:read" | "triggers:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write" | "apps:manage")[];
+                        capabilities: ("team:read" | "team:write" | "triggers:read" | "triggers:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write" | "vms:read" | "vms:edit" | "apps:manage")[];
                         /** Format: date-time */
                         expiresAt: string;
                     };
@@ -4531,7 +4601,7 @@ export interface operations {
                     "application/json": {
                         id: string;
                         name: string;
-                        scopes: ("team:read" | "team:write" | "triggers:read" | "triggers:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
+                        scopes: ("team:read" | "team:write" | "triggers:read" | "triggers:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write" | "vms:read" | "vms:edit")[];
                         created_at: string;
                         expires_at: string;
                         last_used_at?: string | null;
@@ -4560,7 +4630,7 @@ export interface operations {
             content: {
                 "application/json": {
                     name: string;
-                    scopes: ("team:read" | "team:write" | "triggers:read" | "triggers:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
+                    scopes: ("team:read" | "team:write" | "triggers:read" | "triggers:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write" | "vms:read" | "vms:edit")[];
                     expiryDays: 7 | 30 | 90;
                 };
             };
@@ -4575,7 +4645,7 @@ export interface operations {
                     "application/json": {
                         id: string;
                         name: string;
-                        scopes: ("team:read" | "team:write" | "triggers:read" | "triggers:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
+                        scopes: ("team:read" | "team:write" | "triggers:read" | "triggers:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write" | "vms:read" | "vms:edit")[];
                         created_at: string;
                         expires_at: string;
                         last_used_at?: string | null;
@@ -4639,7 +4709,7 @@ export interface operations {
                 "application/json": {
                     /** @description Complete owner-selected effective scope set for this connection. */
                     scopes?: string[];
-                    disabledScopes?: ("team:read" | "team:write" | "triggers:read" | "triggers:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write" | "proxy:use" | "apps:manage")[];
+                    disabledScopes?: ("team:read" | "team:write" | "triggers:read" | "triggers:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write" | "vms:read" | "vms:edit" | "proxy:use" | "apps:manage")[];
                     /** @description Integration ID to approved epoch-bound scope, or false to block. */
                     integrationOverrides?: {
                         [key: string]: string | false;
@@ -4666,6 +4736,162 @@ export interface operations {
             404: components["responses"]["Error404"];
             409: components["responses"]["Error409"];
             415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    get_api_v1_vms: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Active team VM grants */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        /** Format: uuid */
+                        providerId: string;
+                        /** @enum {string} */
+                        provider: "exe.dev" | "fly.io";
+                        vm: string;
+                        app: string | null;
+                        scopes: string[];
+                        presetId: string | null;
+                        presetName: string | null;
+                        revision: number;
+                        /** Format: date-time */
+                        createdAt: string;
+                        /** Format: date-time */
+                        updatedAt: string;
+                    }[];
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_vms_grants: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    target: {
+                        /** @constant */
+                        kind: "machine";
+                        /** Format: uuid */
+                        providerId: string;
+                        vm: string;
+                        app?: string;
+                        requestKey: string;
+                    } | {
+                        /** @constant */
+                        kind: "existing";
+                        /** Format: uuid */
+                        grantId: string;
+                        expectedRevision: number;
+                    };
+                    permissions: {
+                        /** Format: uuid */
+                        presetId: string;
+                    } | {
+                        scopes: string[];
+                    };
+                };
+            };
+        };
+        responses: {
+            /** @description VM grant and guest authentication metadata */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        /** Format: uuid */
+                        providerId: string;
+                        /** @enum {string} */
+                        provider: "exe.dev" | "fly.io";
+                        vm: string;
+                        app: string | null;
+                        scopes: string[];
+                        presetId: string | null;
+                        presetName: string | null;
+                        revision: number;
+                        /** Format: date-time */
+                        createdAt: string;
+                        /** Format: date-time */
+                        updatedAt: string;
+                        authentication: {
+                            audience: string;
+                            guestKeyPath: string;
+                        };
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    delete_api_v1_vms_grants_grantId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                grantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description VM grant revoked */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        /** @constant */
+                        revoked: true;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
             429: components["responses"]["Error429"];
             500: components["responses"]["Error500"];
             503: components["responses"]["Error503"];
@@ -6408,8 +6634,8 @@ export interface operations {
                         identity: {
                             /** Format: uuid */
                             id: string;
-                            /** @constant */
-                            kind: "oauth";
+                            /** @enum {string} */
+                            kind: "oauth" | "vm";
                         };
                         scopes: string[];
                         proxy: {

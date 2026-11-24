@@ -24,6 +24,8 @@ import { matchApiOperation } from "./api-contract";
 import { normalizeScopes } from "./access-tokens";
 import { eventDefinitionInput, eventDefinitionUpdate, eventOccurrenceQuery } from "./event-contracts";
 import { listenForEvents } from "./event-subscription";
+import { activeVmAuthorization } from "./vm-auth";
+import { vmGrantInput, vmGrantRef } from "./vm-grant-contracts";
 
 function errorResponse(error: unknown, origin?: string): Response {
   if (error instanceof SkillContentError) return Response.json({ error: { code: "invalid_skill_directory", message: error.message } }, {status:409});
@@ -91,6 +93,7 @@ export async function protectedApiFetch(request: Request, env: Env, auth: OAuthP
             const eventListener = subscriptions.length > 0 && subscriptions.every(uri => typeof uri === "string" && uri.startsWith("factorize://events/"));
             const requiredScope = "triggers:read";
             const credentialActive = async () => {
+              if (listenerAuth.authMethod === "vm") return (await activeVmAuthorization(env, listenerAuth))?.includes(requiredScope) ?? false;
               if (listenerAuth.oauthGrantId) {
                 const token = await env.OAUTH_PROVIDER?.unwrapToken<OAuthProps>(request.headers.get("Authorization")?.slice(7) ?? "");
                 if (token?.grantId !== listenerAuth.oauthGrantId || token.expiresAt <= Date.now()/1000) return false;
@@ -182,6 +185,9 @@ function createMcpServer(service: ApiService, subscriptions = true): McpServer {
     tool("cancel_api_operation","Cancel an HTTP operation. Upstream writes may already have taken effect.",operationRef,input=>service.cancelApiOperation(input));
     tool("query_api_response","Query a retained response without loading it into context. JSON supports bounded JMESPath fields/projections/filters, text uses line offsets, bytes uses byte offsets. Parsing is limited to 1 MiB; use byte ranges for larger bodies.",queryApiResponseInput,input=>service.queryApiResponse(input));
     tool("list_exe_connections", "List safe metadata for saved exe.dev connections. API tokens are never returned.", z.object({}), () => service.listExeConnections());
+    tool("list_vms", "List active Factorize permission grants for team VMs. Requires vms:read.", z.object({}), () => service.listVmGrants());
+    tool("grant_vm_permissions", "Grant or replace Factorize permissions for an existing VM. Use a preset or explicit scope list within your effective access. Requires vms:edit.", vmGrantInput, input => service.grantVmPermissions(input));
+    tool("revoke_vm_permissions", "Revoke a VM's Factorize permissions. The VM keeps running. Requires vms:edit.", vmGrantRef, (input: z.infer<typeof vmGrantRef>) => service.revokeVmPermissions(input.grantId));
     tool("list_apps", "List the team's registered server-side apps. Requires apps:manage.", z.object({}), () => service.listApps());
     tool("get_app", "Read a registered app's non-secret metadata.", z.object({appId:z.uuid()}), ({appId}: any) => service.getApp(appId));
     tool("create_app", "Register a server-side app. Create client secrets separately in the browser.", appRegistrationInput, input => service.createApp(input));

@@ -1663,6 +1663,8 @@ paths:
                             - integrations:write
                             - skills:read
                             - skills:write
+                            - vms:read
+                            - vms:edit
                             - apps:manage
                       expiresAt:
                         type: string
@@ -4095,6 +4097,8 @@ paths:
                           - integrations:write
                           - skills:read
                           - skills:write
+                          - vms:read
+                          - vms:edit
                     created_at:
                       type: string
                     expires_at:
@@ -4168,6 +4172,8 @@ paths:
                         - integrations:write
                         - skills:read
                         - skills:write
+                        - vms:read
+                        - vms:edit
                   created_at:
                     type: string
                   expires_at:
@@ -4244,6 +4250,8 @@ paths:
                       - integrations:write
                       - skills:read
                       - skills:write
+                      - vms:read
+                      - vms:edit
                 expiryDays:
                   anyOf:
                     - type: number
@@ -4368,7 +4376,7 @@ paths:
                   items:
                     type: string
                 disabledScopes:
-                  maxItems: 10
+                  maxItems: 12
                   type: array
                   items:
                     type: string
@@ -4381,6 +4389,8 @@ paths:
                       - integrations:write
                       - skills:read
                       - skills:write
+                      - vms:read
+                      - vms:edit
                       - proxy:use
                       - apps:manage
                 integrationOverrides:
@@ -4400,6 +4410,357 @@ paths:
                   minimum: 0
                   maximum: 9007199254740991
               additionalProperties: false
+  /api/v1/vms:
+    get:
+      summary: List VMs with active Factorize permission grants
+      responses:
+        "200":
+          description: Active team VM grants
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                      format: uuid
+                      pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                    providerId:
+                      type: string
+                      format: uuid
+                      pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                    provider:
+                      type: string
+                      enum:
+                        - exe.dev
+                        - fly.io
+                    vm:
+                      type: string
+                    app:
+                      type:
+                        - string
+                        - "null"
+                    scopes:
+                      type: array
+                      items:
+                        type: string
+                    presetId:
+                      anyOf:
+                        - type: string
+                          format: uuid
+                          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                        - type: "null"
+                    presetName:
+                      type:
+                        - string
+                        - "null"
+                    revision:
+                      type: integer
+                      exclusiveMinimum: 0
+                      maximum: 9007199254740991
+                    createdAt:
+                      type: string
+                      format: date-time
+                      pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z))$
+                    updatedAt:
+                      type: string
+                      format: date-time
+                      pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z))$
+                  required:
+                    - id
+                    - providerId
+                    - provider
+                    - vm
+                    - app
+                    - scopes
+                    - presetId
+                    - presetName
+                    - revision
+                    - createdAt
+                    - updatedAt
+                  additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the vms:read scope.
+
+        Accepts a scoped bearer token or interactive owner session.
+      operationId: get_api_v1_vms
+      tags:
+        - vms
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      x-required-scope: vms:read
+      x-owner-session-required: false
+  /api/v1/vms/grants:
+    post:
+      summary: Grant or replace Factorize permissions for an existing VM
+      description: |-
+        Supply a preset ID or an explicit scope list. Factorize saves the resolved scope snapshot and rejects the entire request if any scope exceeds the caller's effective access. Use one requestKey per initial enrollment and reuse it for a retry. Supply the current revision when editing an existing grant.
+
+        Requires the vms:edit scope.
+
+        Accepts a scoped bearer token or interactive owner session.
+      responses:
+        "200":
+          description: VM grant and guest authentication metadata
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                  providerId:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                  provider:
+                    type: string
+                    enum:
+                      - exe.dev
+                      - fly.io
+                  vm:
+                    type: string
+                  app:
+                    type:
+                      - string
+                      - "null"
+                  scopes:
+                    type: array
+                    items:
+                      type: string
+                  presetId:
+                    anyOf:
+                      - type: string
+                        format: uuid
+                        pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                      - type: "null"
+                  presetName:
+                    type:
+                      - string
+                      - "null"
+                  revision:
+                    type: integer
+                    exclusiveMinimum: 0
+                    maximum: 9007199254740991
+                  createdAt:
+                    type: string
+                    format: date-time
+                    pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z))$
+                  updatedAt:
+                    type: string
+                    format: date-time
+                    pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z))$
+                  authentication:
+                    type: object
+                    properties:
+                      audience:
+                        type: string
+                      guestKeyPath:
+                        type: string
+                    required:
+                      - audience
+                      - guestKeyPath
+                    additionalProperties: false
+                required:
+                  - id
+                  - providerId
+                  - provider
+                  - vm
+                  - app
+                  - scopes
+                  - presetId
+                  - presetName
+                  - revision
+                  - createdAt
+                  - updatedAt
+                  - authentication
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: post_api_v1_vms_grants
+      tags:
+        - vms
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      x-required-scope: vms:edit
+      x-owner-session-required: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                target:
+                  oneOf:
+                    - type: object
+                      properties:
+                        kind:
+                          type: string
+                          const: machine
+                        providerId:
+                          type: string
+                          format: uuid
+                          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                        vm:
+                          type: string
+                          pattern: ^[a-zA-Z0-9-]{1,64}$
+                        app:
+                          type: string
+                          pattern: ^[a-z0-9-]{1,64}$
+                        requestKey:
+                          type: string
+                          minLength: 1
+                          maxLength: 200
+                      required:
+                        - kind
+                        - providerId
+                        - vm
+                        - requestKey
+                      additionalProperties: false
+                    - type: object
+                      properties:
+                        kind:
+                          type: string
+                          const: existing
+                        grantId:
+                          type: string
+                          format: uuid
+                          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                        expectedRevision:
+                          type: integer
+                          exclusiveMinimum: 0
+                          maximum: 9007199254740991
+                      required:
+                        - kind
+                        - grantId
+                        - expectedRevision
+                      additionalProperties: false
+                permissions:
+                  anyOf:
+                    - type: object
+                      properties:
+                        presetId:
+                          type: string
+                          format: uuid
+                          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                      required:
+                        - presetId
+                      additionalProperties: false
+                    - type: object
+                      properties:
+                        scopes:
+                          maxItems: 100
+                          type: array
+                          items:
+                            type: string
+                            minLength: 1
+                            maxLength: 200
+                      required:
+                        - scopes
+                      additionalProperties: false
+              required:
+                - target
+                - permissions
+              additionalProperties: false
+  /api/v1/vms/grants/{grantId}:
+    delete:
+      summary: Revoke a VM's Factorize permission grant
+      description: |-
+        Factorize immediately denies access under this grant. The VM keeps running. Retrying the same revocation is safe.
+
+        Requires the vms:edit scope.
+
+        Accepts a scoped bearer token or interactive owner session.
+      responses:
+        "200":
+          description: VM grant revoked
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                  revoked:
+                    type: boolean
+                    const: true
+                required:
+                  - id
+                  - revoked
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: delete_api_v1_vms_grants_grantId
+      tags:
+        - vms
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      x-required-scope: vms:edit
+      x-owner-session-required: false
+      parameters:
+        - name: grantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
   /api/v1/permission-presets:
     get:
       summary: List team permission presets
@@ -7849,7 +8210,9 @@ paths:
                         pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
                       kind:
                         type: string
-                        const: oauth
+                        enum:
+                          - oauth
+                          - vm
                     required:
                       - id
                       - kind
@@ -8008,7 +8371,7 @@ paths:
     post:
       summary: Make an authorized credential-injected API request
       description: |-
-        OAuth requires proxy:use. An external VM sends its short-lived provider OIDC bearer token, X-Factorize-VM-Grant and X-Factorize-VM-Proof. Only server-selected origins are used. Integration-wide grants are bounded by upstream credential permissions. Missing requestable access returns HTTP 403 with WWW-Authenticate insufficient_scope, scope and resource_metadata. Upstream status is returned in the result, including non-2xx. Text is UTF-8; other bodies are base64. Responses above 32 KiB are retained for 30 minutes and read in chunks. Revocation prevents subsequent calls and reads, but cannot undo upstream side effects.
+        OAuth requires proxy:use. An enrolled VM sends its short-lived provider OIDC bearer token, X-Factorize-VM-Grant, and a fresh signed request proof in X-Factorize-VM-Proof. Only server-selected origins are used. Integration-wide grants are bounded by upstream credential permissions. Missing requestable access returns HTTP 403 with WWW-Authenticate insufficient_scope, scope and resource_metadata. Upstream status is returned in the result, including non-2xx. Text is UTF-8; other bodies are base64. Responses above 32 KiB are retained for 30 minutes and read in chunks. Revocation prevents subsequent calls and reads, but cannot undo upstream side effects.
 
         Accepts a scoped bearer token or interactive owner session.
       responses:
