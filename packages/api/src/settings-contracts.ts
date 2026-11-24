@@ -10,7 +10,7 @@ export const clientPermissionsInput = z.object({
   scopes: z.array(z.string()).max(100).optional().describe("Complete owner-selected effective scope set for this connection."),
   // Accept the previous restriction-only payload during client upgrades.
   disabledScopes: z.array(z.enum(AGENT_SCOPES)).max(AGENT_SCOPES.length).optional(),
-  integrationOverrides: z.record(z.uuid(), z.union([z.string(), z.literal(false)])).optional().describe("Integration ID to approved epoch-bound scope, or false to block."),
+  integrationOverrides: z.record(z.uuid(), z.union([z.string(), z.literal(false)])).optional().describe("Integration ID to approved epoch-bound scope, or false to block. Explicit approval is required to re-enable a blocked integration, including when scopes are supplied."),
   expectedRevision: z.number().int().nonnegative().optional(),
 }).strict().refine(value => value.scopes !== undefined || value.disabledScopes !== undefined || value.integrationOverrides !== undefined, "Supply a scope selection.");
 export const clientPermissionsUpdate = clientPermissionsInput;
