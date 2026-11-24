@@ -5000,6 +5000,8 @@ paths:
                       type: string
                     appName:
                       type: string
+                    ownerUsername:
+                      type: string
                     scopes:
                       type: array
                       items:

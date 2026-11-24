@@ -15,7 +15,7 @@ test("saving client permissions keeps a blocked integration unchecked until expl
     team: { id: "workspace", name: "Workspace", role: "owner" }, capabilities: [],
   } }));
   await page.route("**/api/v1/access/authorized-clients", route => route.fulfill({ json: [{
-    grantId: "fixture-grant", clientId: "fixture-client", clientName: "Fixture client",
+    grantId: "fixture-grant", clientId: "fixture-client", clientName: "Fixture client", ownerUsername: "owner-user",
     availableScopes: [...editedScopes, integrationScope], scopes, revision,
     scopeLabels: { [integrationScope]: "Linear integration access" },
     integrationOverrides: denied ? { [integrationId]: false } : {},
@@ -60,17 +60,17 @@ test("saving client permissions keeps a blocked integration unchecked until expl
 });
 
 
-test("renames a connection from the list and detail without changing the registered app or sibling connection", async ({ page, origin }) => {
-  const grant = { grantId: "primary", clientId: "same-app", clientName: "Registered app", appName: "Registered app",
+test("shows owner and dates in the Clients list and manages the connection on its detail page", async ({ page, origin }) => {
+  const grant = { grantId: "primary", clientId: "same-app", clientName: "Release assistant", appName: "Registered app", ownerUsername: "brendan",
     availableScopes: ["team:read"], scopes: ["team:read"], revision: 0, scopeLabels: {}, integrationOverrides: {},
-    authorizationDate: "2026-10-09T12:00:00Z", expiresAt: null, lastUsedAt: null };
+    authorizationDate: "2026-10-09T12:00:00Z", expiresAt: "2026-12-10T18:30:00Z", lastUsedAt: null };
   const writes = [];
   await page.route("**/api/v1/session", route => route.fulfill({ json: {
-    authenticated: true, user: { id: "owner", email: "owner@example.test" },
+    authenticated: true, user: { id: "owner", email: "different-name@example.test" },
     team: { id: "workspace", name: "Workspace", role: "owner" }, capabilities: [],
   } }));
   await page.route("**/api/v1/access/authorized-clients", route => route.fulfill({ json: [grant,
-    { ...grant, grantId: "sibling", clientName: "Other connection" }] }));
+    { ...grant, grantId: "sibling", clientName: "Other connection", expiresAt: null }] }));
   await page.route("**/api/v1/access/authorizations/primary/name", route => {
     expect(route.request().method()).toBe("PUT");
     const body = route.request().postDataJSON();
@@ -80,24 +80,40 @@ test("renames a connection from the list and detail without changing the registe
   });
 
   await page.goto(origin + "/clients");
-  const row = page.getByRole("row", { name: /Registered app/ }).filter({ has: page.getByRole("link", { name: "Registered app" }) });
-  await row.getByRole("button", { name: "Rename connection" }).click();
+  const main = page.getByRole("main");
+  const table = main.getByRole("table", { name: "MCP connections" });
+  await expect(table.getByRole("columnheader")).toHaveText(["Username", "Connection", "App", "Authorized", "Expires"]);
+  const row = table.getByRole("row").filter({ has: page.getByRole("link", { name: "Release assistant" }) });
+  await expect(row.getByRole("cell").first()).toHaveText("brendan");
+  await expect(row.getByRole("cell", { name: "Registered app" })).toBeVisible();
+  await expect(row.locator("time").first()).toHaveAttribute("datetime", grant.authorizationDate);
+  await expect(row.locator("time").last()).toHaveAttribute("datetime", grant.expiresAt);
+  await expect(table.getByRole("button")).toHaveCount(0);
+  await expect(table.getByRole("cell", { name: "No expiration" })).toBeVisible();
+
+  await row.getByRole("link", { name: "Release assistant" }).click();
+  await expect(page).toHaveURL(origin + "/clients/primary");
+  await expect(main.getByRole("heading", { level: 1, name: "Release assistant", exact: true })).toBeVisible();
+  await expect(main.getByRole("link", { name: "Clients", exact: true })).toHaveCount(0);
+  await expect(main.locator("dt")).toHaveText(["Username", "Client", "Authorized", "Expires"]);
+  await expect(main.locator("dd").nth(0)).toHaveText("brendan");
+  await expect(main.locator("dd").nth(1)).toHaveText("Registered app");
+  await expect(main.locator("dd").nth(2).locator("time")).toHaveAttribute("datetime", grant.authorizationDate);
+  await expect(main.locator("dd").nth(3).locator("time")).toHaveAttribute("datetime", grant.expiresAt);
+  await expect(main.getByRole("button", { name: "Edit permissions" })).toBeVisible();
+  await expect(main.getByRole("button", { name: "Revoke connection" })).toBeVisible();
+
+  await main.getByRole("button", { name: "Rename connection" }).click();
   const name = page.getByRole("textbox", { name: "Connection name" });
-  await expect(name).toHaveValue("Registered app");
+  await expect(name).toHaveValue("Release assistant");
   await name.fill(" ");
   await expect(page.getByRole("button", { name: "Save name" })).toBeDisabled();
-  await name.fill("  Release assistant  ");
+  await name.fill("  Updated assistant  ");
   await name.press("Enter");
-  await expect(page.getByRole("link", { name: "Release assistant" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Other connection" })).toBeVisible();
-  await expect(page.getByRole("cell", { name: "Registered app", exact: true })).toHaveCount(2);
-
-  await page.getByRole("link", { name: "Release assistant" }).click();
-  await expect(page.getByRole("heading", { name: "Release assistant", exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Rename connection" }).click();
-  await expect(name).toHaveValue("Release assistant");
-  await name.fill("Updated assistant");
-  await page.getByRole("button", { name: "Save name" }).click();
-  await expect(page.getByRole("heading", { name: "Updated assistant" })).toBeVisible();
-  expect(writes).toEqual([{ name: "Release assistant" }, { name: "Updated assistant" }]);
+  await expect(main.getByRole("heading", { level: 1, name: "Updated assistant" })).toBeVisible();
+  await page.getByRole("navigation", { name: "Dashboard navigation" }).getByRole("link", { name: "Clients" }).click();
+  await expect(table.getByRole("link", { name: "Updated assistant" })).toBeVisible();
+  await expect(table.getByRole("link", { name: "Other connection" })).toBeVisible();
+  await expect(table.getByRole("cell", { name: "Registered app", exact: true })).toHaveCount(2);
+  expect(writes).toEqual([{ name: "Updated assistant" }]);
 });

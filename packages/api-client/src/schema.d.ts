@@ -5269,6 +5269,7 @@ export interface operations {
                         clientId: string;
                         clientName: string;
                         appName?: string;
+                        ownerUsername?: string;
                         scopes: string[];
                         authorizationDate: string;
                         expiresAt: string | null;

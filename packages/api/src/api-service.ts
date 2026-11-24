@@ -677,9 +677,17 @@ export class ApiService {
     if (!this.env.OAUTH_PROVIDER) throw new ServiceError(503, "operation_failed", "OAuth management unavailable");
     const grants: any[] = []; let cursor: string | undefined;
     do { const page = await this.env.OAUTH_PROVIDER.listUserGrants(this.auth.userId, { limit: 100, cursor }); grants.push(...page.items.filter(grant => (grant.metadata as any)?.tenantId === this.auth.tenantId && (!grant.expiresAt || grant.expiresAt > Math.floor(Date.now() / 1000)))); cursor = page.cursor; } while (cursor);
-    const clients = await Promise.all([...new Set(grants.map(grant => grant.clientId))].map(async clientId => [clientId, await this.env.OAUTH_PROVIDER!.lookupClient(clientId)] as const));
+    if (!grants.length) return [];
+    // listUserGrants is scoped to the authenticated owner; do not read account
+    // information for another user or expose grants from another workspace.
+    const db = databaseFor(this.env);
+    const [clients, settings, owner] = await Promise.all([
+      Promise.all([...new Set(grants.map(grant => grant.clientId))].map(async clientId => [clientId, await this.env.OAUTH_PROVIDER!.lookupClient(clientId)] as const)),
+      db.pool.query("SELECT subject,display_name,disabled_scopes,scope_overrides,integration_overrides,permissions_revision FROM app.agent_identities WHERE tenant_id=$1 AND user_id=$2 AND kind='oauth' AND subject=ANY($3)", [this.auth.tenantId, this.auth.userId, grants.map(g => g.id)]),
+      db.pool.query<{ username: string }>("SELECT username FROM app.auth_users WHERE id=$1", [this.auth.userId]),
+    ]);
     const byId = new Map(clients);
-    const settings = await databaseFor(this.env).pool.query("SELECT subject,display_name,disabled_scopes,scope_overrides,integration_overrides,permissions_revision FROM app.agent_identities WHERE tenant_id=$1 AND user_id=$2 AND kind='oauth' AND subject=ANY($3)", [this.auth.tenantId, this.auth.userId, grants.map(g => g.id)]);
+    const ownerUsername = owner.rows[0]?.username;
     const byGrant = new Map(settings.rows.map(row => [row.subject, row]));
     const { integrations } = await listAgentPolicies(this.env, this.auth.tenantId);
     const globallyAvailable = [...AGENT_SCOPES, ...integrations.filter(row => row.available && row.policy !== "disabled").map(row => row.requiredScope)];
@@ -696,7 +704,7 @@ export class ApiService {
       const availableScopes = [...new Set([...globallyAvailable, ...scopes])];
       return { grantId: grant.id, clientId: grant.clientId, clientName: row?.display_name ?? byId.get(grant.clientId)?.clientName ?? grant.clientId, appName: byId.get(grant.clientId)?.clientName ?? grant.clientId,
         availableScopes, scopeLabels, scopes, revision: row?.permissions_revision ?? 0,
-        integrationOverrides, authorizationDate: new Date(grant.createdAt * 1000).toISOString(),
+        integrationOverrides, ownerUsername, authorizationDate: new Date(grant.createdAt * 1000).toISOString(),
         expiresAt: grant.expiresAt ? new Date(grant.expiresAt * 1000).toISOString() : null, lastUsedAt: null };
     }));
   }

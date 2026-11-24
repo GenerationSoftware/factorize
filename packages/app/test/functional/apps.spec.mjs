@@ -9,7 +9,7 @@ test("Connected apps use the dashboard tab and Registered apps live in Settings"
   await page.goto(origin + "/apps");
   const dashboard = page.getByRole("navigation", { name: "Dashboard navigation" });
   await expect(dashboard.getByRole("link", { name: "Apps", exact: true })).toHaveAttribute("aria-current", "page");
-  await expect(page.getByRole("heading", { name: "Connected apps" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Apps", level: 1 })).toBeVisible();
   await expect(page.getByText("No connected apps.")).toBeVisible();
   await expect(page.getByRole("link", { name: "Registered apps" })).toHaveCount(0);
 

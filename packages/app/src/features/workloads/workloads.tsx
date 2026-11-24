@@ -42,7 +42,7 @@ export function WorkloadsPage() {
   const state = useVmGrants();
   const rows = state.canRead ? state.grants.data : undefined;
   return <Page>
-    <PageHeader title="Workloads" description="Workloads with access to Factorize." />
+    <PageHeader title="Workloads" description="Virtual Machines, VPSs, and other workloads that have been granted permissions" />
     <GrantStatus {...state} />
     {rows?.length === 0 && <p>No workloads have Factorize permissions.</p>}
     {!!rows?.length && <Table aria-label="Workloads">

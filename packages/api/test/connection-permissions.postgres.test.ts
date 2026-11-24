@@ -72,13 +72,19 @@ it.skipIf(!url)("renames only the selected connection and preserves policy befor
   try {
     const integrationId = crypto.randomUUID(), scope = `integration:${integrationId}:1`;
     const grantId = "rename-fixture";
+    await f.db.pool.query("UPDATE app.auth_users SET username=$1 WHERE id=$2", ["actual-owner", f.userId]);
+    const now = Math.floor(Date.now() / 1000);
     const grants = [
-      { id: grantId, metadata: { tenantId: f.tenantId, initialIntegrationDenials: [integrationId] } },
+      { id: grantId, metadata: { tenantId: f.tenantId, initialIntegrationDenials: [integrationId] }, expiresAt: now + 86400 },
       { id: "sibling", metadata: { tenantId: f.tenantId } },
       { id: "other-team", metadata: { tenantId: f.otherTenant } },
-    ].map(grant => ({ ...grant, clientId: "same-app", scope: ["proxy:use", scope], createdAt: Math.floor(Date.now() / 1000) }));
+      { id: "expired-grant", metadata: { tenantId: f.tenantId }, expiresAt: now - 1 },
+    ].map(grant => ({ ...grant, clientId: "same-app", scope: ["proxy:use", scope], createdAt: now }));
     Object.assign(f.env, { OAUTH_PROVIDER: {
-      listUserGrants: async () => ({ items: grants }),
+      listUserGrants: async (userId: string) => {
+        expect(userId).toBe(f.userId);
+        return { items: grants };
+      },
       lookupClient: async () => ({ clientName: "Registered app" }),
     } });
     await f.db.pool.query(`INSERT INTO app.agent_integrations(tenant_id,id,kind,credential_id,name,available,policy)
@@ -96,10 +102,11 @@ it.skipIf(!url)("renames only the selected connection and preserves policy befor
     const response = await rename(grantId, "  Release assistant  ");
     expect(response.status, await response.clone().text()).toBe(200);
     expect(await response.json()).toEqual({ name: "Release assistant" });
-    expect(await clients()).toEqual(expect.arrayContaining([
-      expect.objectContaining({ grantId, clientName: "Release assistant", appName: "Registered app", scopes: ["proxy:use"], revision: 0, integrationOverrides: { [integrationId]: false } }),
-      expect.objectContaining({ grantId: "sibling", clientName: "Registered app" }),
-    ]));
+    expect(await clients()).toEqual([
+      expect.objectContaining({ grantId, clientName: "Release assistant", appName: "Registered app", ownerUsername: "actual-owner", scopes: ["proxy:use"], revision: 0, integrationOverrides: { [integrationId]: false }, authorizationDate: new Date(now * 1000).toISOString(), expiresAt: new Date((now + 86400) * 1000).toISOString() }),
+      expect.objectContaining({ grantId: "sibling", clientName: "Registered app", ownerUsername: "actual-owner", expiresAt: null }),
+    ]);
+    expect((await request("/api/v1/access/authorized-clients", undefined, { ...f.auth, authMethod: "oauth" })).status).toBe(403);
 
     const permissions = await request(`/api/v1/access/authorizations/${grantId}/permissions`, { scopes: ["team:read"], expectedRevision: 0 });
     expect(permissions.status, await permissions.text()).toBe(200);
