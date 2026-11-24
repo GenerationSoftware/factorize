@@ -150,6 +150,9 @@ export const mcpEventSubscriptions = app.table("mcp_event_subscriptions", {
   clientId: text("client_id").notNull(),
   definitionId: uuid("definition_id").notNull(),
   arguments: jsonb("arguments").$type<Record<string, unknown>>().notNull(),
+  ackEpoch: uuid("ack_epoch"),
+  ackTimeoutSeconds: integer("ack_timeout_seconds").notNull().default(300),
+  cooldownUntil: timestamp("cooldown_until", { withTimezone: true }),
   callbackUrl: text("callback_url").notNull(),
   encryptedSecret: text("encrypted_secret").notNull(),
   secretFingerprint: text("secret_fingerprint").notNull(),
@@ -163,6 +166,7 @@ export const mcpEventSubscriptions = app.table("mcp_event_subscriptions", {
   primaryKey({ columns: [t.tenantId, t.id] }),
   foreignKey({ columns: [t.tenantId, t.definitionId], foreignColumns: [eventDefinitions.tenantId, eventDefinitions.id] }).onDelete("cascade"),
   check("mcp_event_subscriptions_status_check", sql`${t.status} IN ('active','stopped')`),
+  check("mcp_event_subscriptions_ack_timeout_seconds_check", sql`${t.ackTimeoutSeconds} BETWEEN 30 AND 86400`),
   index("mcp_event_subscriptions_active").on(t.tenantId, t.definitionId, t.expiresAt).where(sql`${t.status}='active'`),
   index("mcp_event_subscriptions_verification").on(t.tenantId, t.userId, t.grantId, t.callbackUrl, t.secretFingerprint, t.verifiedAt.desc()),
 ]);
@@ -175,6 +179,12 @@ export const mcpEventDeliveries = app.table("mcp_event_deliveries", {
   status: text("status", { enum: ["pending", "sending", "accepted", "failed", "cancelled"] }).notNull().default("pending"),
   attempts: integer("attempts").notNull().default(0),
   nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+  ackEpoch: uuid("ack_epoch"),
+  ackState: text("ack_state", { enum: ["pending", "awaiting_ack", "processed", "waived", "exhausted", "cancelled"] }),
+  ackDueAt: timestamp("ack_due_at", { withTimezone: true }),
+  ackUpdatedAt: timestamp("ack_updated_at", { withTimezone: true }),
+  recoveryEventId: uuid("recovery_event_id"),
+  recoveryAttempts: integer("recovery_attempts").notNull().default(0),
   claimId: uuid("claim_id"),
   httpStatus: integer("http_status"),
   lastOutcome: text("last_outcome"),
@@ -188,6 +198,10 @@ export const mcpEventDeliveries = app.table("mcp_event_deliveries", {
   index("mcp_event_deliveries_due").on(t.nextAttemptAt, t.tenantId, t.subscriptionId, t.occurrenceId)
     .where(sql`${t.status} IN ('pending','sending')`),
   index("mcp_event_deliveries_occurrence").on(t.tenantId, t.occurrenceId),
+  check("mcp_event_deliveries_ack_state_check", sql`${t.ackState} IN ('pending','awaiting_ack','processed','waived','exhausted','cancelled')`),
+  check("mcp_event_deliveries_recovery_attempts_check", sql`${t.recoveryAttempts} >= 0`),
+  index("mcp_event_deliveries_ack_due").on(t.ackDueAt, t.tenantId, t.subscriptionId, t.occurrenceId)
+    .where(sql`${t.ackState}='awaiting_ack'`),
 ]);
 export const triggerMatches = app.table("trigger_matches", {
   tenantId: uuid("tenant_id").notNull(), id: uuid("id").notNull(), triggerId: uuid("trigger_id").notNull(), triggerRevision: integer("trigger_revision").notNull(), sourceIdentity: text("source_identity").notNull(), deduplicationKey: text("deduplication_key").notNull(), evidence: jsonb("evidence").notNull(), outcome: text("outcome").$type<"matched"|"pending"|"excluded"|"failed">().notNull(), pendingReason: text("pending_reason"), occurrenceId: uuid("occurrence_id"), createdAt: createdAt(), updatedAt: updatedAt(),

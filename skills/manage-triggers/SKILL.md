@@ -12,6 +12,28 @@ Use `list_events` and `get_event` to inspect Events and their payload schema rev
 
 MCP subscribers read `factorize://events/{eventId}/occurrences`. Subscribe through `subscriptions/listen`; on resource update, read the occurrence resource. Occurrences are durable, so reconnecting clients can read missed records. Use `list_event_occurrences` to page through stored occurrences.
 
+## Optional webhook processing acknowledgments
+
+Use the stable `factorize.occurrence` type with the exact Event UUID in
+`event_id`. HTTP 2xx is only callback acceptance. If the user opted in,
+read the exact subscription policy with `get_event_processing_acknowledgments`
+and change it with `set_event_processing_acknowledgments`. Standard
+subscriptions are off by default. This is separate from task run limits.
+
+After durable completion or handoff, promptly call `acknowledge_events` with
+your `subscription_id` and exact original `event_ids` from
+`data.occurrenceId`. Use the original ID to read and deduplicate; recovery
+may use a fresh webhook `eventId`. IDs do not encode ordering, and wakes can
+be partial or out of order. Never assume a batching window or rate cap.
+Pace work locally, persist unfinished work instead of dropping it, and do not
+acknowledge it until durable. Optional `cooldown_seconds` pauses future
+delivery on that subscription only, and duplicate ACKs do not extend it.
+
+Use `read_event_delivery_diagnostics` for HTTP versus processing status, and
+`replay_unacknowledged_events` for exact unresolved original IDs only. Turning
+off waives unresolved ACKs and clears cooldown; re-enabling applies forward.
+
+
 ## Triggers
 
 Each Trigger belongs to one Event; multiple Triggers may publish the same Event. Configure a Trigger with an existing `eventId`, or let the API create its initial Event. Trigger inputs can be manual, scheduled, or provider webhooks. Schedules use cron and an IANA timezone. Webhook inputs select a provider and provider-specific filters. Use `list_github_installations` and `list_cloudflare_tail_integrations` to discover saved provider setup.

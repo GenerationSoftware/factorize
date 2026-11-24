@@ -7,8 +7,9 @@ export async function lockEventOutbox(sql: DatabaseClient, tenantId: string, def
 }
 
 export async function enqueueMcpDeliveries(sql: DatabaseClient, tenantId: string, definitionId: string, occurrenceId: string) {
-  const result = await sql.query(`INSERT INTO app.mcp_event_deliveries(tenant_id,subscription_id,occurrence_id,generation)
-    SELECT tenant_id,id,$3,generation FROM app.mcp_event_subscriptions
+  const result = await sql.query(`INSERT INTO app.mcp_event_deliveries(tenant_id,subscription_id,occurrence_id,generation,ack_epoch,ack_state,ack_updated_at)
+    SELECT tenant_id,id,$3,generation,ack_epoch,CASE WHEN ack_epoch IS NOT NULL THEN 'pending' END,
+      CASE WHEN ack_epoch IS NOT NULL THEN clock_timestamp() END FROM app.mcp_event_subscriptions
     WHERE tenant_id=$1 AND definition_id=$2 AND status='active' AND expires_at>clock_timestamp()`,
   [tenantId, definitionId, occurrenceId]);
   return !!result.rowCount;

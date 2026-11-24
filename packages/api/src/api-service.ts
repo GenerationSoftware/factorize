@@ -1,7 +1,7 @@
 import { initialIntegrationOverrides, lockOAuthPolicy } from "./oauth-reconnect";
 import { lockMcpEventGrant } from "./postgres/mcp-event-outbox";
-import { eventPayloadSchema, occurrenceEventName, occurrenceInputSchema, type ReadEventOccurrencesInput, type subscribeEventInput, type unsubscribeEventInput } from "./mcp-event-contracts";
-import { subscribeMcpEvent, unsubscribeMcpEvent } from "./mcp-event-subscriptions";
+import { eventPayloadSchema, occurrenceEventName, occurrenceInputSchema, type ReadEventOccurrencesInput, type subscribeEventInput, type unsubscribeEventInput, type setProcessingAcknowledgmentsInput, type acknowledgeEventsInput } from "./mcp-event-contracts";
+import { subscribeMcpEvent, unsubscribeMcpEvent, getProcessingAcknowledgments, setProcessingAcknowledgments, acknowledgeEvents, replayUnacknowledgedEvents } from "./mcp-event-subscriptions";
 import { vmGrantInput, vmGrantList, vmGrantResult, vmRevokeResult } from "./vm-grant-contracts";
 import { VmGrantRepository, vmGrantActor, type VmGrant } from "./postgres/vm-grant-repository";
 import { provisionVmGrant } from "./vm-enrollment";
@@ -213,7 +213,7 @@ export class ApiService {
       events: [{
         name: occurrenceEventName,
         title: "Factorize occurrence",
-        description: "A new occurrence for the selected Factorize Event. Use its UUID as event_id.",
+        description: "A wake for the selected Factorize Event UUID. HTTP 2xx confirms callback acceptance, not processing. Optional subscription acknowledgments use exact original data.occurrenceId, never UUID ordering; recovery wakes may have a fresh eventId.",
         delivery: ["webhook"],
         inputSchema: occurrenceInputSchema,
         payloadSchema: eventPayloadSchema,
@@ -227,6 +227,22 @@ export class ApiService {
   async mcpUnsubscribeEvent(input: z.infer<typeof unsubscribeEventInput>) {
     await this.authorize("triggers:read");
     return unsubscribeMcpEvent(this.env, this.auth, input);
+  }
+  async getEventProcessing(subscriptionId: string) {
+    await this.authorize("triggers:read");
+    return getProcessingAcknowledgments(this.env, this.auth, subscriptionId);
+  }
+  async setEventProcessing(input: z.infer<typeof setProcessingAcknowledgmentsInput>) {
+    await this.authorize("triggers:read");
+    return setProcessingAcknowledgments(this.env, this.auth, input);
+  }
+  async acknowledgeEventProcessing(input: z.infer<typeof acknowledgeEventsInput>) {
+    await this.authorize("triggers:read");
+    return acknowledgeEvents(this.env, this.auth, input);
+  }
+  async replayEventProcessing(subscriptionId: string, ids: string[]) {
+    await this.authorize("triggers:read");
+    return replayUnacknowledgedEvents(this.env, this.auth, subscriptionId, ids);
   }
   async readEventOccurrences(input: ReadEventOccurrencesInput) {
     await this.authorize("triggers:read");

@@ -34,6 +34,10 @@ interface DeliveryDiagnosticRow {
   http_status: number | null;
   updated_at: Date;
   next_attempt_at: Date;
+  ack_state: string | null;
+  ack_due_at: Date | null;
+  ack_updated_at: Date | null;
+  recovery_attempts: number;
 }
 const deliveryOutcomeCodes = new Set([
   "accepted", "http_error", "connection_failed", "timeout", "forbidden_destination",
@@ -83,9 +87,9 @@ export class EventDefinitionRepository {
     // One tenant-scoped snapshot distinguishes a missing occurrence from an
     // existing one with no outbox rows without fetching payload or callback data.
     const { rows } = await this.database.pool.query<DeliveryDiagnosticRow>(
-      `SELECT o.id AS occurrence_id,d.subscription_id,d.status,d.attempts,d.last_outcome,d.http_status,d.updated_at,d.next_attempt_at
+      `SELECT o.id AS occurrence_id,d.subscription_id,d.status,d.attempts,d.last_outcome,d.http_status,d.updated_at,d.next_attempt_at,d.ack_state,d.ack_due_at,d.ack_updated_at,d.recovery_attempts
        FROM app.event_occurrences o LEFT JOIN LATERAL (
-         SELECT subscription_id,status,attempts,last_outcome,http_status,updated_at,next_attempt_at
+         SELECT subscription_id,status,attempts,last_outcome,http_status,updated_at,next_attempt_at,ack_state,ack_due_at,ack_updated_at,recovery_attempts
          FROM app.mcp_event_deliveries
          WHERE tenant_id=o.tenant_id AND occurrence_id=o.id
          ORDER BY updated_at DESC,subscription_id LIMIT $3
@@ -102,6 +106,11 @@ export class EventDefinitionRepository {
       httpStatus: row.http_status !== null && row.http_status >= 100 && row.http_status <= 599 ? row.http_status : null,
       updatedAt: row.updated_at.toISOString(),
       nextAttemptAt: row.status === "pending" ? row.next_attempt_at.toISOString() : null,
+      ...(row.ack_state === null ? {} : { processing: {
+        state: row.ack_state, recoveryAttempts: Math.min(row.recovery_attempts, 4),
+        updatedAt: row.ack_updated_at?.toISOString() ?? null,
+        nextRecoveryAt: row.ack_due_at?.toISOString() ?? null,
+      } }),
     }]);
     return {
       occurrenceId: rows[0].occurrence_id,
