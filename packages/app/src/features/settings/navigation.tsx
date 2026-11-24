@@ -37,6 +37,7 @@ export function AccountSettingsLayout({ title, children }: { title: string; chil
   return <SettingsFrame title={title} navigation={<SettingsSidebar label="Account settings">
     <Link className={linkClass} activeProps={activeLink} to="/settings/profile"><NavIcon name="users" />Profile</Link>
     <Link className={linkClass} activeProps={activeLink} to="/settings/api-keys"><NavIcon name="key" />API keys</Link>
+    <Link className={linkClass} activeProps={activeLink} to="/settings/two-factor"><NavIcon name="lock" />Two-factor authentication</Link>
     <Link className={linkClass} activeProps={activeLink} to="/settings/password"><NavIcon name="lock" />{passwordLabel}</Link>
   </SettingsSidebar>}>{children}</SettingsFrame>;
 }

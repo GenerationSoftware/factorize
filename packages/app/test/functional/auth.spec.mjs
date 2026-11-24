@@ -118,7 +118,7 @@ test("Account settings opens from the account menu and keeps account pages toget
   await page.getByRole("heading", { name: "Profile", exact: true }).waitFor();
 
   const settings = page.getByRole("navigation", { name: "Account settings", exact: true });
-  assert.deepEqual(await settings.getByRole("link").allTextContents(), ["Profile", "API keys", "Change password"]);
+  assert.deepEqual(await settings.getByRole("link").allTextContents(), ["Profile", "API keys", "Two-factor authentication", "Change password"]);
   const dashboard = page.getByRole("navigation", { name: "Dashboard navigation" });
   assert.equal(await dashboard.locator('[aria-current="page"]').count(), 0);
   assert.equal(await dashboard.locator(".border-factorize-500").count(), 0);

@@ -1,3 +1,4 @@
+import { totpAt } from "../src/totp";
 import { expect, it, vi } from "vitest";
 import { protectedApiFetch } from "../src/protected-api";
 import { googleSignInCallback } from "../src/auth-api";
@@ -225,6 +226,48 @@ it.skipIf(!url)("checks the start limit before allocating a Google sign-in attem
   }
 });
 
+it.skipIf(!url)("lets Google-only owners enroll with fresh linked Google proof and requires a second factor at Google sign-in", async () => {
+  const f = await loadingFixture(url!);
+  try {
+    const h = await harness(f);
+    f.env.TOTP_ENCRYPTION_KEY = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64");
+    const email = "google-totp@gmail.com", subject = "google-totp-subject";
+    const initial = await h.google(subject, email);
+    const created = await h.api("POST", "/auth/google/finish", { username: "google-totp" }, initial.browser);
+    const owner = h.sessionCookie(created);
+    const status = () => h.api("GET", "/auth/two-factor", undefined, owner).then(r => r.json());
+    expect(await status()).toMatchObject({ enabled: false, method: "google", googleVerified: false });
+    expect((await h.api("POST", "/auth/two-factor/enrollment", {}, owner)).status).toBe(401);
+    const fresh = await h.google(subject, email, owner, true);
+    expect(fresh.result.headers.get("Location")).toBe(f.env.APP_ORIGIN + "/settings/two-factor");
+    expect(fresh.result.headers.getSetCookie()).toEqual([]);
+    const prepared = await h.api("POST", "/auth/two-factor/enrollment", {}, owner + "; " + fresh.browser);
+    expect(prepared.status, await prepared.clone().text()).toBe(200);
+    const { secret } = await prepared.json() as { secret: string };
+    const pending = prepared.headers.get("Set-Cookie")!.split(";")[0];
+    const enabled = await h.api("POST", "/auth/two-factor/enable", { code: await totpAt(secret, Math.floor(Date.now() / 30_000)) }, owner + "; " + pending);
+    expect(enabled.status, await enabled.clone().text()).toBe(200);
+    const { recoveryCodes } = await enabled.json() as { recoveryCodes: string[] };
+    const login = await h.google(subject, email);
+    expect(login.result.headers.get("Location")).toBe(f.env.APP_ORIGIN + "/auth/two-factor");
+    expect(h.sessionCookie(login.result)).toBe("factorize_session=");
+    const challenge = login.result.headers.getSetCookie().find(row => row.startsWith("__Host-factorize_totp_login="))!.split(";")[0];
+    const completed = await h.api("POST", "/auth/two-factor/challenge", { code: recoveryCodes[0] }, challenge);
+    expect(completed.status, await completed.clone().text()).toBe(200);
+    const authenticated = h.sessionCookie(completed);
+    expect(await (await h.api("GET", "/session", undefined, authenticated)).json()).toMatchObject({ authenticated: true, user: { email } });
+
+    const removal = await h.google(subject, email, authenticated, true);
+    expect(removal.result.headers.get("Location")).toBe(f.env.APP_ORIGIN + "/settings/two-factor");
+    const disabled = await h.api("POST", "/auth/two-factor/disable", { code: recoveryCodes[1] }, authenticated + "; " + removal.browser);
+    expect(disabled.status, await disabled.clone().text()).toBe(200);
+    expect(await (await h.api("GET", "/auth/two-factor", undefined, h.sessionCookie(disabled))).json()).toMatchObject({ enabled: false });
+  } finally {
+    vi.unstubAllGlobals();
+    await f.cleanup();
+  }
+});
+
 async function harness(f: Awaited<ReturnType<typeof loadingFixture>>) {
   const env = Object.assign(f.env, {
     GOOGLE_SIGN_IN_CLIENT_ID: "google-fixture", GOOGLE_SIGN_IN_CLIENT_SECRET: "fixture-secret",
@@ -255,8 +298,8 @@ async function harness(f: Awaited<ReturnType<typeof loadingFixture>>) {
   const api = (method: string, path: string, body?: unknown, cookie = "") => protectedApiFetch(new Request(env.APP_ORIGIN + "/api/v1" + path, {
     method, headers: { Cookie: cookie, Origin: env.APP_ORIGIN, "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body),
   }), env, null, {} as ExecutionContext);
-  const google = async (subject: string, email: string, passwordSession?: string) => {
-    const start = passwordSession ? await api("POST", "/auth/password/set-request", undefined, passwordSession) : await api("POST", "/auth/google/start", { returnTo: "/clients" });
+  const google = async (subject: string, email: string, passwordSession?: string, totpSettings = false) => {
+    const start = passwordSession ? await api("POST", totpSettings ? "/auth/two-factor/google" : "/auth/password/set-request", undefined, passwordSession) : await api("POST", "/auth/google/start", { returnTo: "/clients" });
     expect(start.status, await start.clone().text()).toBe(200);
     const browser = start.headers.get("Set-Cookie")!.split(";")[0];
     const authorization = new URL((await start.json() as { authorizationUrl:string }).authorizationUrl);

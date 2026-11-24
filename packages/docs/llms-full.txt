@@ -548,6 +548,27 @@ Factorize account, password recovery pauses rather than transferring or combinin
 accounts. Sign-in with the linked Google account still works. Keep Postmark
 configured for address confirmation and password recovery.
 
+### Optional two-factor authentication
+
+Two-factor authentication is off by default and configured by each user in
+**Account settings → Two-factor authentication**. There is no team enforcement.
+Set `TOTP_ENCRYPTION_KEY` as an independent Worker secret before offering
+enrollment. Generate 32 cryptographically random bytes encoded as base64 (for
+example, using `openssl rand -base64 32`). Do not reuse the credential encryption
+key or store the value in the repository. Normal deployment applies migration
+0105. Keep the key securely backed up; changing it without re-encrypting
+existing TOTP secrets breaks authenticator verification for enrolled users.
+Users with a saved recovery code can still sign in.
+
+Enrollment requires confirmation of the current Factorize password, or fresh
+Google confirmation for Google-only users. The setup QR code is generated in
+the browser without sending the secret to a QR service. Users confirm a valid
+authenticator code to enable 2FA and should immediately save the ten recovery
+codes, which are shown once and work once each. Disabling requires primary
+confirmation plus an authenticator or recovery code. Password reset does not
+disable 2FA. Enable and disable invalidate older sessions and delegated grants
+using existing membership session versions.
+
 ### Existing account migration
 
 Apply `0008_native_accounts.sql` and `0009_remove_auth_usernames.sql` before deploying this code. They reject ambiguous legacy emails that differ only in case (reconcile those identities before retrying migration), preserve tenant IDs, memberships, triggers and encrypted Linear connections, and backfill explicit Linear organization-to-workspace mappings. Existing Linear-only users choose **Forgot password or previously signed in with Linear?**, receive a reset email at their existing address, and set a password. Email possession is required; signup cannot replace an existing account's credentials. Existing native users keep their passwords and may sign in by email; unverified accounts must verify first. A reset never promotes a member to owner. An account with multiple existing owner memberships currently opens the oldest workspace; no new workspace-switching UI is introduced.

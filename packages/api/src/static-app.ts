@@ -2,7 +2,7 @@ import type { Env } from "./types";
 
 export const STATIC_CSP = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'";
 // Browser auth screens share /auth with backend callbacks and form handlers.
-const authPages = new Set(["/auth/login", "/auth/google", "/auth/signup", "/auth/password-reset", "/auth/verify", "/auth/verify/request"]);
+const authPages = new Set(["/auth/login", "/auth/google", "/auth/two-factor", "/auth/signup", "/auth/password-reset", "/auth/verify", "/auth/verify/request"]);
 const backendNamespaces = ["/api", "/healthz", "/auth", "/oauth", "/webhooks", "/internal", "/mcp", "/.well-known"];
 function isBackendNamespace(path: string) {
   return backendNamespaces.some(namespace => path === namespace || path.startsWith(`${namespace}/`));

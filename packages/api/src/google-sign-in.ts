@@ -2,7 +2,7 @@ import { serialize } from "hono/utils/cookie";
 import { z } from "zod";
 import { hashPassword, normalizeEmail, tokenDigest, verifyPassword } from "./auth";
 import { sendAuthEmail } from "./auth-email";
-import { requestCookie } from "./session";
+import { requestCookie, type Session } from "./session";
 import { databaseFor, type DatabaseClient } from "./postgres/database";
 import { AuthRepository } from "./postgres/auth-repository";
 import { createJwksResolver } from "./vm-oidc";
@@ -27,7 +27,7 @@ const redirectUri = (env: Env) => new URL(googleCallbackPath, env.APP_ORIGIN).hr
 type Attempt = {
   id: string; browser_digest: string; verifier: string | null; nonce: string; return_to: string; connection_id: string | null;
   google_subject: string | null; email: string | null; existing_user_id: string | null; email_confirmed: boolean; password_attempts: number;
-  password_user_id: string | null; recovery_revision: number | null; provider_managed_email: boolean; provider_observed_at: number;
+  password_user_id: string | null; recovery_revision: number | null; provider_managed_email: boolean; provider_observed_at: number; totp_settings_version: number | null;
 };
 export type GoogleIdentity = { userId: string; tenantId: string; email: string; sessionVersion: number };
 const fail = (status: number, message: string) => ({ status, message } as const);
@@ -38,13 +38,13 @@ async function digestFor(request: Request, env: Env) {
   return browser && /^[A-Za-z0-9_-]{43}$/.test(browser) ? tokenDigest(browser, env.SESSION_SIGNING_SECRET) : null;
 }
 
-export async function startGoogleSignIn(env: Env, returnTo: string, connectionId?: string, passwordUserId?: string) {
+export async function startGoogleSignIn(env: Env, returnTo: string, connectionId?: string, passwordUserId?: string, totpSettingsVersion?: number) {
   const db = databaseFor(env);
   const id = crypto.randomUUID(), browser = random(), verifier = random(), nonce = random();
   await db.pool.query(`INSERT INTO app.google_sign_in_attempts
-    (id,browser_digest,verifier,nonce,return_to,connection_id,password_user_id,expires_at)
-    VALUES($1,$2,$3,$4,$5,$6,$7,now()+interval '10 minutes')`,
-    [id, await tokenDigest(browser, env.SESSION_SIGNING_SECRET), verifier, nonce, returnTo, connectionId ?? null, passwordUserId ?? null]);
+    (id,browser_digest,verifier,nonce,return_to,connection_id,password_user_id,totp_settings_version,expires_at)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,now()+interval '10 minutes')`,
+    [id, await tokenDigest(browser, env.SESSION_SIGNING_SECRET), verifier, nonce, returnTo, connectionId ?? null, passwordUserId ?? null, totpSettingsVersion ?? null]);
   const target = new URL(authorizationUrl);
   target.search = new URLSearchParams({
     client_id: env.GOOGLE_SIGN_IN_CLIENT_ID!, redirect_uri: redirectUri(env), response_type: "code", scope: "openid email",
@@ -52,6 +52,17 @@ export async function startGoogleSignIn(env: Env, returnTo: string, connectionId
     code_challenge_method: "S256", prompt: "select_account",
   }).toString();
   return { authorizationUrl: target.href, cookie: secureCookie(env, browser, maxAge) };
+}
+
+export async function googleTotpProof(sql: DatabaseClient, request: Request, env: Env, session: Session, consume = false) {
+  const digest = await digestFor(request, env);
+  if (!digest) return false;
+  const where = `WHERE browser_digest=$1 AND password_user_id=$2 AND totp_settings_version=$3
+    AND google_subject IS NOT NULL AND verifier IS NULL AND expires_at>clock_timestamp()`;
+  const result = await sql.query(consume
+    ? `DELETE FROM app.google_sign_in_attempts ${where} RETURNING id`
+    : `SELECT id FROM app.google_sign_in_attempts ${where}`, [digest, session.userId, session.sessionVersion]);
+  return !!result.rows.length;
 }
 
 export async function clearExpiredGoogleSignIns(sql: DatabaseClient) {
@@ -187,6 +198,18 @@ export async function redeemGoogleCallback(request: Request, env: Env) {
   const linked = (await db.pool.query<{ user_id: string }>(`SELECT user_id FROM app.auth_accounts
     WHERE provider='google' AND provider_account_id=$1`, [google.subject])).rows[0];
   if (attempt.password_user_id && linked?.user_id !== attempt.password_user_id) return fail(403, "Use the Google account linked to your Factorize account.");
+  if (linked && attempt.totp_settings_version !== null) {
+    return db.transaction(async sql => {
+      // Use the same user-before-proof lock order as security settings.
+      await sql.query("SELECT id FROM app.auth_users WHERE id=$1 FOR UPDATE", [linked.user_id]);
+      await syncGoogleRecovery(sql, linked.user_id, google);
+      const verified = await sql.query(`UPDATE app.google_sign_in_attempts SET google_subject=$2
+        WHERE id=$1 AND expires_at>clock_timestamp() AND EXISTS (SELECT 1 FROM app.members
+          WHERE user_id=$3 AND session_version=$4 AND role='owner') RETURNING id`,
+        [attempt.id, google.subject, linked.user_id, attempt.totp_settings_version]);
+      return verified.rowCount ? { totpSettings: true as const } : expired();
+    });
+  }
   if (linked) {
     return db.transaction(async sql => {
       // Lock attempt before user, consistent with both password setup and linking.
@@ -213,7 +236,7 @@ export async function redeemGoogleCallback(request: Request, env: Env) {
 
 async function pendingAttempt(db: DatabaseClient, digest: string, lock = false) {
   return (await db.query<Attempt>(`SELECT * FROM app.google_sign_in_attempts
-    WHERE browser_digest=$1 AND google_subject IS NOT NULL AND expires_at>clock_timestamp()
+    WHERE browser_digest=$1 AND totp_settings_version IS NULL AND google_subject IS NOT NULL AND expires_at>clock_timestamp()
       AND (password_user_id IS NULL OR EXISTS (SELECT 1 FROM app.auth_users WHERE id=password_user_id AND google_recovery_revision=recovery_revision))${lock ? " FOR UPDATE" : ""}`, [digest])).rows[0];
 }
 export async function googlePending(request: Request, env: Env) {
@@ -228,7 +251,7 @@ export async function requestGoogleEmail(request: Request, env: Env) {
   const token = random(), digest = await tokenDigest(token, env.SESSION_SIGNING_SECRET);
   const attempt = (await db.pool.query<{ email: string; password_user_id: string | null }>(`UPDATE app.google_sign_in_attempts
     SET email_token_digest=$2,email_sent_at=clock_timestamp()
-    WHERE browser_digest=$1 AND google_subject IS NOT NULL AND existing_user_id IS NULL AND NOT email_confirmed
+    WHERE browser_digest=$1 AND totp_settings_version IS NULL AND google_subject IS NOT NULL AND existing_user_id IS NULL AND NOT email_confirmed
       AND (password_user_id IS NULL OR EXISTS (SELECT 1 FROM app.auth_users WHERE id=password_user_id
       AND google_recovery_revision=recovery_revision))
       AND expires_at>clock_timestamp() AND (email_sent_at IS NULL OR email_sent_at<clock_timestamp()-interval '1 minute')

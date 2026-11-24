@@ -33,7 +33,7 @@ export const googleSignInAttempts = app.table("google_sign_in_attempts", {
   connectionId: uuid("connection_id").references(() => oauthConnections.id, { onDelete: "cascade" }),
   googleSubject: text("google_subject"), email: text("email"), existingUserId: uuid("existing_user_id").references(() => authUsers.id, { onDelete: "cascade" }),
   emailConfirmed: boolean("email_confirmed").notNull().default(false), emailTokenDigest: text("email_token_digest"), emailSentAt: timestamp("email_sent_at", { withTimezone: true }),
-  passwordUserId: uuid("password_user_id").references(() => authUsers.id, { onDelete: "cascade" }), recoveryRevision: integer("recovery_revision"), providerObservedAt: integer("provider_observed_at").notNull().default(0), providerManagedEmail: boolean("provider_managed_email").notNull().default(false),
+  passwordUserId: uuid("password_user_id").references(() => authUsers.id, { onDelete: "cascade" }), totpSettingsVersion: integer("totp_settings_version"), recoveryRevision: integer("recovery_revision"), providerObservedAt: integer("provider_observed_at").notNull().default(0), providerManagedEmail: boolean("provider_managed_email").notNull().default(false),
   passwordAttempts: integer("password_attempts").notNull().default(0), expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
 }, t => [index("google_sign_in_attempts_expiry").on(t.expiresAt)]);
 export const oauthConsentPreviews = app.table("oauth_consent_previews", { id: uuid("id").primaryKey(), expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(), usedAt: timestamp("used_at", { withTimezone: true }) }, t => [index("oauth_consent_previews_expires").on(t.expiresAt)]);
@@ -45,6 +45,30 @@ export const oauthDeviceAuthorizations = app.table("oauth_device_authorizations"
 export const members = app.table("members", {
   tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }), userId: uuid("user_id").notNull().references(() => authUsers.id, { onDelete: "cascade" }), email: text("email").notNull(), role: text("role").$type<"owner" | "member">().notNull(), sessionVersion: integer("session_version").notNull().default(1), createdAt: createdAt(),
 }, t => [primaryKey({ columns: [t.tenantId, t.userId] }), check("members_role_check", sql`${t.role} in ('owner','member')`), check("members_session_version_check", sql`${t.sessionVersion} > 0`)]);
+export const authTotp = app.table("auth_totp", {
+  userId: uuid("user_id").primaryKey().references(() => authUsers.id, { onDelete: "cascade" }), encryptedSecret: text("encrypted_secret").notNull(),
+  lastCounter: bigint("last_counter", { mode: "bigint" }).notNull(), enabledAt: timestamp("enabled_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export const authTotpRecoveryCodes = app.table("auth_totp_recovery_codes", {
+  userId: uuid("user_id").notNull().references(() => authTotp.userId, { onDelete: "cascade" }), digest: text("digest").notNull(),
+}, t => [primaryKey({ columns: [t.userId, t.digest] })]);
+export const authTotpEnrollments = app.table("auth_totp_enrollments", {
+  userId: uuid("user_id").primaryKey().references(() => authUsers.id, { onDelete: "cascade" }), browserDigest: text("browser_digest").notNull(),
+  sessionVersion: integer("session_version").notNull(), encryptedSecret: text("encrypted_secret").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+}, t => [index("auth_totp_enrollments_expiry").on(t.expiresAt)]);
+export const authTotpChallenges = app.table("auth_totp_challenges", {
+  digest: text("digest").primaryKey(), tenantId: uuid("tenant_id").notNull(), userId: uuid("user_id").notNull(),
+  sessionVersion: integer("session_version").notNull(), returnTo: text("return_to").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+}, t => [foreignKey({ columns: [t.tenantId, t.userId], foreignColumns: [members.tenantId, members.userId] }).onDelete("cascade"),
+  index("auth_totp_challenges_expiry").on(t.expiresAt)]);
+export const authTotpLimits = app.table("auth_totp_limits", {
+  userId: uuid("user_id").notNull().references(() => authUsers.id, { onDelete: "cascade" }),
+  kind: text("kind").$type<"code" | "settings" | "challenge">().notNull(), attempts: integer("attempts").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+}, t => [primaryKey({ columns: [t.userId, t.kind] }), check("auth_totp_limits_kind_check", sql`${t.kind} IN ('code','settings','challenge')`),
+  index("auth_totp_limits_expiry").on(t.expiresAt)]);
 export const accessTokens = app.table("access_tokens", {
   tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }), id: uuid("id").notNull(), name: text("name").notNull(), digest: text("digest").notNull().unique(), userId: uuid("user_id").notNull(), sessionVersion: integer("session_version").notNull(), scopes: jsonb("scopes").$type<string[]>().notNull().default([]), createdAt: createdAt(), expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(), lastUsedAt: timestamp("last_used_at", { withTimezone: true }), revokedAt: timestamp("revoked_at", { withTimezone: true }),
 }, t => [primaryKey({ columns: [t.tenantId, t.id] }), foreignKey({ columns: [t.tenantId, t.userId], foreignColumns: [members.tenantId, members.userId] }).onDelete("cascade"), index("access_tokens_expiration").on(t.expiresAt,t.tenantId,t.id)]);
@@ -192,7 +216,7 @@ export const triggerSourceRelations = relations(triggerSources, ({ one }) => ({
 }));
 
 export const databaseSchema = {
-  teamSettings, schemaMigrations, tenants, oauthConnections, googleSignInAttempts, oauthConsentPreviews, authUsers, authAccounts, authResetTokens, authSessions, oauthDeviceAuthorizations, members, accessTokens,
+  teamSettings, schemaMigrations, tenants, oauthConnections, googleSignInAttempts, oauthConsentPreviews, authUsers, authAccounts, authResetTokens, authSessions, oauthDeviceAuthorizations, members, authTotp, authTotpRecoveryCodes, authTotpEnrollments, authTotpChallenges, authTotpLimits, accessTokens,
   connections, agentIntegrations, agentIdentities, agentProxyResponses, integrationCollections, integrationRecords, integrationChanges, linearWorkspaces, githubInstallations, githubSetupStates, eventDefinitions, eventDefinitionRevisions, eventOccurrences, mcpEventSubscriptions, mcpEventDeliveries, triggerMatches, triggers, triggerSources, webhookConditionsCutover,
   scheduleState, triggerEditDeliveries, triggerEvents, webhookDeliveries, webhookDeliveryEvents, pendingVerifications, tailFingerprints, wakeHints,
   tenantRelations, triggerRelations, triggerSourceRelations,

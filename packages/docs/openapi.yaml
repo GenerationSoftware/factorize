@@ -2276,6 +2276,408 @@ paths:
         - cookieAuth: []
       x-browser-auth-operation: password-set-request
       x-owner-session-required: true
+  /api/v1/auth/two-factor:
+    get:
+      summary: Read your two-factor settings
+      description: Cookie-only browser operation. Mutations require an exact app Origin and reject cross-site requests. Authorization headers are rejected. Responses are never cached.
+      responses:
+        "200":
+          description: Success
+          headers:
+            X-Factorize-Webhook-Conditions:
+              description: Conditions-only webhook runtime deployment marker.
+              schema:
+                type: string
+                const: v1
+            X-Factorize-Contract:
+              description: Deployment compatibility marker for the complete GEN-2157 static-client API contract. Deploy this API stage before static frontend cutover.
+              schema:
+                type: string
+                const: gen-2157-static-v1
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled:
+                    type: boolean
+                  available:
+                    type: boolean
+                  method:
+                    type: string
+                    enum:
+                      - password
+                      - google
+                      - unavailable
+                  googleVerified:
+                    type: boolean
+                required:
+                  - enabled
+                  - available
+                  - method
+                  - googleVerified
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: get_api_v1_auth_two_factor
+      tags:
+        - auth
+      security:
+        - cookieAuth: []
+      x-browser-auth-operation: totp-status
+      x-owner-session-required: true
+  /api/v1/auth/two-factor/google:
+    post:
+      summary: Confirm a linked Google account for a two-factor settings change
+      description: Cookie-only browser operation. Mutations require an exact app Origin and reject cross-site requests. Authorization headers are rejected. Responses are never cached.
+      responses:
+        "200":
+          description: Success
+          headers:
+            X-Factorize-Webhook-Conditions:
+              description: Conditions-only webhook runtime deployment marker.
+              schema:
+                type: string
+                const: v1
+            X-Factorize-Contract:
+              description: Deployment compatibility marker for the complete GEN-2157 static-client API contract. Deploy this API stage before static frontend cutover.
+              schema:
+                type: string
+                const: gen-2157-static-v1
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  authorizationUrl:
+                    type: string
+                    format: uri
+                required:
+                  - authorizationUrl
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: post_api_v1_auth_two_factor_google
+      tags:
+        - auth
+      security:
+        - cookieAuth: []
+      x-browser-auth-operation: totp-google
+      x-owner-session-required: true
+  /api/v1/auth/two-factor/enrollment:
+    post:
+      summary: Create a short-lived authenticator setup secret
+      description: Cookie-only browser operation. Mutations require an exact app Origin and reject cross-site requests. Authorization headers are rejected. Responses are never cached.
+      responses:
+        "200":
+          description: Success
+          headers:
+            X-Factorize-Webhook-Conditions:
+              description: Conditions-only webhook runtime deployment marker.
+              schema:
+                type: string
+                const: v1
+            X-Factorize-Contract:
+              description: Deployment compatibility marker for the complete GEN-2157 static-client API contract. Deploy this API stage before static frontend cutover.
+              schema:
+                type: string
+                const: gen-2157-static-v1
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  secret:
+                    type: string
+                  uri:
+                    type: string
+                required:
+                  - secret
+                  - uri
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: post_api_v1_auth_two_factor_enrollment
+      tags:
+        - auth
+      security:
+        - cookieAuth: []
+      x-browser-auth-operation: totp-begin
+      x-owner-session-required: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                password:
+                  type: string
+                  minLength: 12
+                  maxLength: 200
+                  writeOnly: true
+              additionalProperties: false
+  /api/v1/auth/two-factor/enable:
+    post:
+      summary: Enable two-factor authentication and show recovery codes once
+      description: Cookie-only browser operation. Mutations require an exact app Origin and reject cross-site requests. Authorization headers are rejected. Responses are never cached.
+      responses:
+        "200":
+          description: Success
+          headers:
+            X-Factorize-Webhook-Conditions:
+              description: Conditions-only webhook runtime deployment marker.
+              schema:
+                type: string
+                const: v1
+            X-Factorize-Contract:
+              description: Deployment compatibility marker for the complete GEN-2157 static-client API contract. Deploy this API stage before static frontend cutover.
+              schema:
+                type: string
+                const: gen-2157-static-v1
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    const: true
+                  recoveryCodes:
+                    minItems: 10
+                    maxItems: 10
+                    type: array
+                    items:
+                      type: string
+                required:
+                  - ok
+                  - recoveryCodes
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: post_api_v1_auth_two_factor_enable
+      tags:
+        - auth
+      security:
+        - cookieAuth: []
+      x-browser-auth-operation: totp-enable
+      x-owner-session-required: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                code:
+                  type: string
+                  pattern: ^\d{6}$
+              required:
+                - code
+              additionalProperties: false
+  /api/v1/auth/two-factor/disable:
+    post:
+      summary: Disable two-factor authentication using primary and second factors
+      description: Cookie-only browser operation. Mutations require an exact app Origin and reject cross-site requests. Authorization headers are rejected. Responses are never cached.
+      responses:
+        "200":
+          description: Success
+          headers:
+            X-Factorize-Webhook-Conditions:
+              description: Conditions-only webhook runtime deployment marker.
+              schema:
+                type: string
+                const: v1
+            X-Factorize-Contract:
+              description: Deployment compatibility marker for the complete GEN-2157 static-client API contract. Deploy this API stage before static frontend cutover.
+              schema:
+                type: string
+                const: gen-2157-static-v1
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    const: true
+                required:
+                  - ok
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: post_api_v1_auth_two_factor_disable
+      tags:
+        - auth
+      security:
+        - cookieAuth: []
+      x-browser-auth-operation: totp-disable
+      x-owner-session-required: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                password:
+                  type: string
+                  minLength: 12
+                  maxLength: 200
+                  writeOnly: true
+                code:
+                  type: string
+                  minLength: 1
+                  maxLength: 64
+              required:
+                - code
+              additionalProperties: false
+  /api/v1/auth/two-factor/challenge:
+    post:
+      summary: Finish a browser sign-in using a fresh authenticator or recovery code
+      description: Cookie-only browser operation. Mutations require an exact app Origin and reject cross-site requests. Authorization headers are rejected. Responses are never cached.
+      responses:
+        "200":
+          description: Success
+          headers:
+            X-Factorize-Webhook-Conditions:
+              description: Conditions-only webhook runtime deployment marker.
+              schema:
+                type: string
+                const: v1
+            X-Factorize-Contract:
+              description: Deployment compatibility marker for the complete GEN-2157 static-client API contract. Deploy this API stage before static frontend cutover.
+              schema:
+                type: string
+                const: gen-2157-static-v1
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    const: true
+                  returnTo:
+                    type: string
+                required:
+                  - ok
+                  - returnTo
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: post_api_v1_auth_two_factor_challenge
+      tags:
+        - auth
+      security: []
+      x-browser-auth-operation: totp-challenge
+      x-owner-session-required: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                code:
+                  type: string
+                  minLength: 1
+                  maxLength: 64
+              required:
+                - code
+              additionalProperties: false
   /api/v1/auth/login:
     post:
       summary: Sign in
