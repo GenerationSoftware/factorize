@@ -2,61 +2,65 @@ import { SkillContent, type SkillContentRow } from "../skill-content";
 import type { Database, DatabaseClient } from "./database";
 import { readSkillDefinition } from "../skill-definition";
 import { decrypt } from "../crypto";
+
 export class SkillConflict extends Error {}
-export class SkillReferenced extends Error { constructor(public triggers: { id: string; name: string; slug: string; enabled: boolean }[]) { super("Skill is referenced by saved triggers."); } }
-type SkillRow = SkillContentRow & { id: string; key: string; revision: number; created_at: Date; updated_at: Date; trigger?:{id:string;enabled:boolean}|null; last_run_state?:string|null;definition?:any;has_triggers?:boolean };
+type SkillRow = SkillContentRow & { id: string; key: string; revision: number; created_at: Date; updated_at: Date };
+
+/** Skills are standalone instruction documents. */
 export class SkillRepository {
-  constructor(private db: Database, private tenantId: string, private encryptionKey: string, private client?: DatabaseClient, private content = new SkillContent(), private edits?: Map<string,string>) {}
+  constructor(private db: Database, private tenantId: string, private encryptionKey: string, private client?: DatabaseClient, private content = new SkillContent(), private edits?: Map<string, string>) {}
   private get sql() { return this.client ?? this.db.pool; }
-  private async map(row: SkillRow, usageCount = 0, body = false) { return { id: row.id, key: row.key, revision: row.revision, ...(body ? await this.readDefinition(row) : {body:undefined,version:undefined,definition:undefined,description:row.definition?.description??"",factorize:row.definition?.factorize??{concurrency:0,disabled:false},hasTriggers:row.has_triggers??false}), usageCount, ...(row.trigger!==undefined?{trigger:row.trigger,lastRunState:row.last_run_state??null}:{}), createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString() }; }
-  private async readDefinition(row: SkillRow) { const content = await this.content.read(row, value => decrypt(value, this.encryptionKey), this.edits?.get(row.id)); return { ...content, definition: readSkillDefinition(content.body, row.key) }; }
-  async list(q = "", limit = 30, cursor?: string) { const result = await this.sql.query<SkillRow & { usage_count: string }>(`SELECT s.id,s.key,s.revision,s.definition,s.created_at,s.updated_at, count(js.trigger_id)::text usage_count,
-      EXISTS(SELECT 1 FROM app.trigger_skills ts JOIN app.events e ON e.tenant_id=ts.tenant_id AND e.trigger_id=ts.trigger_id WHERE ts.tenant_id=s.tenant_id AND ts.skill_id=s.id AND e.kind<>'manual' AND e.removed_at IS NULL) has_triggers,
-      (SELECT jsonb_build_object('id',t.id,'enabled',t.enabled) FROM app.trigger_skills ts JOIN app.triggers t ON t.tenant_id=ts.tenant_id AND t.id=ts.trigger_id WHERE ts.tenant_id=s.tenant_id AND ts.skill_id=s.id LIMIT 1) trigger,
-      (SELECT r.state FROM app.runs r WHERE r.tenant_id=s.tenant_id AND (r.launch_skill_id=s.id OR r.trigger_id IN (SELECT trigger_id FROM app.trigger_skills WHERE tenant_id=s.tenant_id AND skill_id=s.id)) ORDER BY r.created_at DESC,r.id DESC LIMIT 1) last_run_state FROM app.skills s LEFT JOIN app.trigger_skills js ON js.tenant_id=s.tenant_id AND js.skill_id=s.id WHERE s.tenant_id=$1 AND ($2='' OR s.key ILIKE '%'||$2||'%') AND ($3::uuid IS NULL OR s.id < $3::uuid) GROUP BY s.tenant_id, s.id ORDER BY s.id DESC LIMIT $4`, [this.tenantId, q, cursor ?? null, limit + 1]); const page = result.rows.slice(0, limit); return { items: await Promise.all(page.map(row => this.map(row, Number(row.usage_count)))), nextCursor: result.rows.length > limit ? page.at(-1)!.id : null }; }
+  private async map(row: SkillRow, body = false) {
+    const content = body ? await this.readDefinition(row) : undefined;
+    return {
+      id: row.id, key: row.key, revision: row.revision,
+      ...(content ? content : { body: undefined, version: undefined, definition: undefined }),
+      createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString(),
+    };
+  }
+  private async readDefinition(row: SkillRow) {
+    const content = await this.content.read(row, value => decrypt(value, this.encryptionKey), this.edits?.get(row.id));
+    return { ...content, definition: readSkillDefinition(content.body, row.key) };
+  }
+  async list(q = "", limit = 30, cursor?: string) {
+    const result = await this.sql.query<SkillRow>(`SELECT s.id,s.key,s.revision,s.encrypted_body,s.encrypted_directory,s.artifact_version,s.created_at,s.updated_at
+      FROM app.skills s WHERE s.tenant_id=$1 AND ($2='' OR s.key ILIKE '%'||$2||'%') AND ($3::uuid IS NULL OR s.id < $3::uuid)
+      ORDER BY s.id DESC LIMIT $4`, [this.tenantId, q, cursor ?? null, limit + 1]);
+    const page = result.rows.slice(0, limit);
+    return { items: await Promise.all(page.map(row => this.map(row))), nextCursor: result.rows.length > limit ? page.at(-1)!.id : null };
+  }
   async get(idOrKey: string, includeBody = true) {
-    // A shared parameter for UUID and text comparisons is inferred as UUID by
-    // PostgreSQL. Keep the key parameter separate, and never cast keys to UUID.
     const id = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrKey) ? idOrKey : null;
-    const row = (await this.sql.query<SkillRow>(
-      "SELECT * FROM app.skills WHERE tenant_id=$1 AND (id=$2::uuid OR key=$3::text) LIMIT 1",
-      [this.tenantId, id, idOrKey],
-    )).rows[0];
-    return row ? this.map(row, 0, includeBody) : null;
+    const row = (await this.sql.query<SkillRow>("SELECT * FROM app.skills WHERE tenant_id=$1 AND (id=$2::uuid OR key=$3::text) LIMIT 1", [this.tenantId, id, idOrKey])).rows[0];
+    return row ? this.map(row, includeBody) : null;
   }
   async create(key: string, body: string) {
     if (!this.edits) throw new Error("Skill creation requires a repository edit");
-    const id = crypto.randomUUID();
-    this.edits.set(id, body);
+    const id = crypto.randomUUID(); this.edits.set(id, body);
     try {
-      const result = await this.sql.query<SkillRow>(
-        "INSERT INTO app.skills(tenant_id,id,key) VALUES($1,$2,$3) RETURNING *", [this.tenantId, id, key],
-      );
-      return this.map(result.rows[0], 0, true);
-    } catch (error: any) {
-      if (error.code === "23505") throw new SkillConflict("Skill key is already in use.");
-      throw error;
-    }
+      const result = await this.sql.query<SkillRow>("INSERT INTO app.skills(tenant_id,id,key) VALUES($1,$2,$3) RETURNING *", [this.tenantId, id, key]);
+      return this.map(result.rows[0], true);
+    } catch (error: any) { if (error.code === "23505") throw new SkillConflict("Skill key is already in use."); throw error; }
   }
   async update(id: string, input: { key?: string; body?: string; expectedRevision: number }) {
     if (!this.edits) throw new Error("Skill update requires a repository edit");
-    const { rows } = await this.sql.query<SkillRow>(
-      "SELECT revision FROM app.skills WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [this.tenantId, id],
-    );
+    const { rows } = await this.sql.query<SkillRow>("SELECT * FROM app.skills WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [this.tenantId, id]);
     if (!rows.length) return null;
     if (rows[0].revision !== input.expectedRevision) throw new SkillConflict("Skill changed since it was loaded.");
     if (input.body !== undefined) this.edits.set(id, input.body);
     try {
-      const result = await this.sql.query<SkillRow>(
-        "UPDATE app.skills SET key=COALESCE($3,key),revision=revision+1,updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING *",
-        [this.tenantId, id, input.key ?? null],
-      );
-      return this.map(result.rows[0], 0, true);
-    } catch (error: any) {
-      if (error.code === "23505") throw new SkillConflict("Skill key is already in use.");
-      throw error;
-    }
+      const result = await this.sql.query<SkillRow>("UPDATE app.skills SET key=COALESCE($3,key),revision=revision+1,updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING *", [this.tenantId, id, input.key ?? null]);
+      return this.map(result.rows[0], true);
+    } catch (error: any) { if (error.code === "23505") throw new SkillConflict("Skill key is already in use."); throw error; }
   }
-  async remove(id: string, expectedRevision: number) { const remove = async (client: DatabaseClient) => { const skill = (await client.query<SkillRow>("SELECT * FROM app.skills WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [this.tenantId, id])).rows[0]; if (!skill) return false; if (skill.revision !== expectedRevision) throw new SkillConflict("Skill changed since it was loaded."); const refs = (await client.query<any>("SELECT j.id,j.name,j.slug,j.enabled FROM app.triggers j JOIN app.trigger_skills js ON js.tenant_id=j.tenant_id AND js.trigger_id=j.id WHERE js.tenant_id=$1 AND js.skill_id=$2 ORDER BY j.name", [this.tenantId, id])).rows; if (refs.length) throw new SkillReferenced(refs); await client.query("DELETE FROM app.skills WHERE tenant_id=$1 AND id=$2", [this.tenantId, id]); return true; }; return this.client ? remove(this.client) : this.db.transaction(remove); }
-  async triggers(id: string) { return (await this.sql.query("SELECT j.id,j.name,j.slug,j.enabled FROM app.triggers j JOIN app.trigger_skills js ON js.tenant_id=j.tenant_id AND js.trigger_id=j.id WHERE js.tenant_id=$1 AND js.skill_id=$2 ORDER BY j.name", [this.tenantId, id])).rows; }
+  async remove(id: string, expectedRevision: number) {
+    const remove = async (client: DatabaseClient) => {
+      const skill = (await client.query<SkillRow>("SELECT * FROM app.skills WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [this.tenantId, id])).rows[0];
+      if (!skill) return false;
+      if (skill.revision !== expectedRevision) throw new SkillConflict("Skill changed since it was loaded.");
+      await client.query("DELETE FROM app.skills WHERE tenant_id=$1 AND id=$2", [this.tenantId, id]);
+      return true;
+    };
+    return this.client ? remove(this.client) : this.db.transaction(remove);
+  }
 }

@@ -11,8 +11,8 @@ vi.mock("@cloudflare/workers-oauth-provider",()=>({OAuthProvider:class{},Authori
 describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("temporary payloads and attachment contracts",()=>{
  let f:Awaited<ReturnType<typeof loadingFixture>>,payloads:ProxyPayloads,auth:any,integration:string;const objects=new Map<string,Uint8Array>();
  beforeAll(async()=>{
-  f=await loadingFixture(process.env.AUTH_TEST_DATABASE_URL!);auth={...f.auth,authMethod:"oauth",oauthGrantId:"payloads",oauthClientId:"fixture",oauthExpiresAt:Date.now()/1000+3600,scopes:["proxy:use","runs:read"]};payloads=new ProxyPayloads(f.env,auth);
-  f.env.RUN_ARTIFACTS={put:async(k:string,v:ArrayBuffer)=>objects.set(k,new Uint8Array(v).slice()),get:async(k:string,o:any)=>{let bytes=objects.get(k);if(!bytes)return null;bytes=o?.range?bytes.slice(o.range.offset,o.range.offset+o.range.length):bytes;return {arrayBuffer:async()=>bytes!.buffer,body:new ReadableStream({start(c){c.enqueue(bytes!);c.close();}})};}} as any;
+  f=await loadingFixture(process.env.AUTH_TEST_DATABASE_URL!);auth={...f.auth,authMethod:"oauth",oauthGrantId:"payloads",oauthClientId:"fixture",oauthExpiresAt:Date.now()/1000+3600,scopes:["proxy:use","triggers:read"]};payloads=new ProxyPayloads(f.env,auth);
+  f.env.PROXY_ARTIFACTS={put:async(k:string,v:ArrayBuffer)=>objects.set(k,new Uint8Array(v).slice()),get:async(k:string,o:any)=>{let bytes=objects.get(k);if(!bytes)return null;bytes=o?.range?bytes.slice(o.range.offset,o.range.offset+o.range.length):bytes;return {arrayBuffer:async()=>bytes!.buffer,body:new ReadableStream({start(c){c.enqueue(bytes!);c.close();}})};}} as any;
   const id=crypto.randomUUID();await new CredentialRepository(f.db,f.tenantId,f.env.CREDENTIAL_ENCRYPTION_KEY).write({id,kind:"bearer",name:"Fixture",origin:"https://fixture.example.com",description:null,expectedRevision:0,idempotencyKey:crypto.randomUUID(),operation:"upsert",managedSecret:"private-upstream"});integration=(await f.db.pool.query("UPDATE app.agent_integrations SET policy='baseline' WHERE tenant_id=$1 AND credential_id=$2 RETURNING id",[f.tenantId,id])).rows[0].id;
  });
  afterAll(async()=>{vi.unstubAllGlobals();await f?.cleanup();});
@@ -37,7 +37,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("temporary payloads and att
    expect(attachmentInput.safeParse({file:"chat_upload://image"}).success).toBe(false);
   }finally{vi.unstubAllGlobals();}
  });
- it("authorizes browser upload on behalf of a connection without a run and isolates foreign/expired/revoked handles",async()=>{
+ it("authorizes browser upload on behalf of a connection and isolates foreign/expired/revoked handles",async()=>{
   const row=await create({name:"browser.txt",byteSize:7});
   const put=new Request(row.uploadUrl,{method:"PUT",headers:{Origin:f.env.APP_ORIGIN,"Content-Type":"application/octet-stream"},body:"browser"});
   const response=await protectedApiFetch(put,f.env,f.auth,{} as any);expect(response.status,await response.clone().text()).toBe(200);expect(await response.json()).toMatchObject({handle:row.handle,state:"ready",size:7});
@@ -45,12 +45,10 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("temporary payloads and att
   await expect(new ProxyPayloads(f.env,{...auth,oauthGrantId:"foreign"}).get(row.handle)).rejects.toMatchObject({status:403});
   const expired=await create();await f.db.pool.query("UPDATE app.proxy_payloads SET expires_at=now()-interval '1 second' WHERE tenant_id=$1 AND id=$2",[f.tenantId,expired.handle]);await expect(payloads.get(expired.handle)).rejects.toMatchObject({status:404});
  });
- it("uses integration imports, retained responses and run artifacts as request sources",async()=>{
+ it("uses integration imports, retained responses and payloads as request sources",async()=>{
   vi.stubGlobal("fetch",async()=>new Response("source data"));
   try{const imported=await payloads.importIntegration({integration,path:"/file",mediaType:"text/plain"});expect(imported).toMatchObject({state:"ready",size:11});
    const api=new AgentApiService(f.env,auth);const response=await api.request(requestApiInput.parse({integration,method:"GET",path:"/file",maxResultBytes:2048}));
-   const artifact=crypto.randomUUID(),key="fixture-artifact";objects.set(key,new TextEncoder().encode("artifact"));await f.db.pool.query("INSERT INTO app.run_artifacts(tenant_id,run_id,id,kind,object_key,provider,format,byte_size,sha256,state) VALUES($1,$2,$3,'terminal_log',$4,'pi','text',8,$5,'stored')",[f.tenantId,f.runId,artifact,key,createHash("sha256").update("artifact").digest("hex")]);
-   const body=await proxyRequestBody(f.env,auth,{bodySource:{kind:"artifact",runId:f.runId,artifactId:artifact},headers:{},encoding:"utf8"});expect(await new Response(body.body).text()).toBe("artifact");
    let observed="";vi.stubGlobal("fetch",async(_url:any,init:any)=>{observed=await new Response(init.body).text();return Response.json({ok:true});});await api.request(requestApiInput.parse({integration,method:"POST",path:"/upload",bodySource:{kind:"payload",handle:imported.handle}}));expect(observed).toBe("source data");
    expect(response.body).toBe("source data");
    vi.stubGlobal("fetch",async()=>new Response("retained".repeat(1000)));const retained=await api.request(requestApiInput.parse({integration,method:"GET",path:"/large",maxResultBytes:2048}));expect(retained.handle).toBeDefined();const fromResponse=await proxyRequestBody(f.env,auth,{bodySource:{kind:"response",handle:retained.handle!},headers:{},encoding:"utf8"});expect(await new Response(fromResponse.body).text()).toBe("retained".repeat(1000));

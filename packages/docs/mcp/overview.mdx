@@ -1,89 +1,33 @@
 ---
 title: Connect your agent
-description: Authorize Codex or Claude Code for hosted Factorize.
+description: Authorize an MCP client to discover Events and subscribe to occurrences.
 ---
 
-Use the remote **Streamable HTTP** endpoint:
+Use Factorize's remote Streamable HTTP endpoint:
 
 ```text
 https://app.factorize.sh/mcp
 ```
 
-Complete [browser account and execution setup](/quickstart) first. Factorize requires OAuth authorization, owner membership and tenant-bound scopes. A JSON configuration from one client is not a universal MCP configuration.
+Configure the endpoint in your MCP client and complete its OAuth flow. Authorize
+`triggers:read` to discover Events and read occurrences. Authorize
+`triggers:write` to create Events and Triggers, configure sources, and fire a
+manual Trigger. Other scopes apply only to their corresponding integrations,
+Skills, or application operations.
 
-## Codex
+Ask your client to call `list_events` and `list_triggers`. An empty list is a
+successful connection to a workspace without configured Events or Triggers.
 
-Current Codex supports Streamable HTTP and OAuth. Add this client-specific TOML to `~/.codex/config.toml`:
+## Event subscriptions
 
-```toml
-[mcp_servers.factorize]
-url = "https://app.factorize.sh/mcp"
-```
-
-Run `codex mcp login factorize`, then use `/mcp` in Codex to verify the connection. See the [official Codex MCP documentation](https://developers.openai.com/codex/mcp) for configuration and OAuth support.
-
-## Claude Code
-
-Add the remote server:
-
-```bash
-claude mcp add --transport http factorize https://app.factorize.sh/mcp
-```
-
-Start Claude Code, enter `/mcp`, choose Factorize and authenticate when prompted. See the [official Claude Code MCP documentation](https://code.claude.com/docs/en/mcp) for HTTP transport, OAuth and configuration scope.
-
-## Authorize in the browser
-
-The client opens Factorize authorization in your browser. Sign in with your verified Factorize email/password and approve the requested scopes. Select `triggers:read` for discovery, `triggers:write` for edits, `runs:read` for inspection, `runs:invoke` for Trigger invocation, `runs:start` for direct runs, and `runs:cancel` for cancellation. Integration and skill operations use their respective scopes. Read-only access cannot create or invoke triggers. Return to your client after consent.
-
-Consent lists 12 permissions, including `runs:write` for renaming runs. Run write grants also retain invocation and cancellation access for compatibility. Write does not imply read. If you need to create an account or verify your email, finish those steps and restart client authorization; do not assume the signup screen will automatically resume the original request. No Linear or execution token belongs in the MCP client.
-
-Ask **“List my Factorize triggers.”** The agent should call `list_triggers({})`. An empty `items` list is a successful connection to a workspace with no triggers. Next ask it to list execution integrations and follow the [first-trigger walkthrough](/quickstart).
-
-Other clients must support remote Streamable HTTP and Factorize's OAuth discovery/PKCE flow. Their UI and plan availability vary; consult their own documentation rather than pasting either configuration above.
-
-## Connection problems
-
-For rejected consent, expired authorization, missing targets, scope errors and reconnection steps, see [connection troubleshooting](/troubleshooting/connection). Protocol implementers should use [authentication](/api/authentication) and [discovery](/api/discovery).
+MCP clients can subscribe to an Event occurrence resource. When a Trigger
+publishes a validated occurrence, the server sends a resource-updated
+notification. Read the resource to obtain the durable occurrence data. A client
+that reconnects can use `list_event_occurrences` or the corresponding REST
+endpoint to recover stored occurrences.
 
 ## Built-in workflow skills
 
-Factorize publishes five build-shipped workflows through the [MCP Skills extension](https://skills.extensions.modelcontextprotocol.io/specification/beta/skills), `io.modelcontextprotocol/skills`, on protocol revision 2026-07-28 or later:
-
-- **manage-presets:** VM, permission and model presets and team defaults.
-- **manage-skills:** live team-skill discovery, authoring, safe editing and dependencies.
-- **run-and-supervise:** dispatch, completion subscriptions, results and intervention.
-- **manage-triggers:** schedules, webhooks, lifecycle automation and delivery diagnostics.
-- **manage-environments:** reflection, integrations, exe.dev/Fly.io VMs and renewable proxy grants.
-
-A compatible client discovers the extension in `server/discover`, calls `skills/list`, inspects `skills/get`, and reads Markdown through `resources/read`. The complete catalog contains five entries with no further pages. Every operation requires an active authenticated identity; built-in instructions do not require `skills:read` or grant application/integration permissions.
-
-Canonical `skills/WORKFLOW/SKILL.md` files in the repository are embedded into the build, with no runtime database or filesystem lookup. The same standard Markdown can later be packaged into a ChatGPT or Claude plugin; plugin packaging is not included here. `npm run generate:skills` regenerates the embedded catalog and `npm run check:skills` detects drift. Both Worker deployment scripts regenerate it before bundling. URIs have the form `skill://factorize/CONTENT_VERSION/WORKFLOW/SKILL.md`; content versions are derived from the complete catalog. Manifests contain exact SHA-256 digests and UTF-8 byte lengths. Content and URIs are identical across teams, scopes and runs, change only with a new build, and carry a one-hour private cache hint. After an upgrade, rediscover the catalog if an old version URI is rejected.
-
-## Live team skills and pinned run inputs
-
-Editable team skills are application data. Discover and read them with `list_skills` and `get_skill`, requiring `skills:read`; author them with the skill mutation tools and their write scopes. Team edits, renames and deletions never change the built-in catalog. Existing authorized `skill://teams/TEAM_ID/SKILL_NAME/...` resource reads remain supported for compatibility, but team packages are not returned by `skills/list` or `skills/get`.
-
-Selected run skills are pinned inputs under `skill://runs/TEAM_ID/RUN_ID/SKILL_NAME/SKILL.md`, including supporting files. An active owning run may read supplied pinned resource URIs even without `skills:read`. Those inputs do not appear in extension discovery or `skills/get`. Unrelated edits, renames and deletes do not replace the run's accepted package. Broader team-library discovery still requires `skills:read`.
-
-Factorize-managed Pi uses this same MCP boundary. Its short-lived identity is bound to the active run and current execution lease. Application scopes and selected integrations come from the accepted run snapshot. Cancellation, lease replacement, owner revocation and integration disconnection are checked on subsequent requests. Provider credentials never enter model context.
-
-Completion notifications require a client/host adapter that supports `subscriptions/listen`, reconnects and reads the returned outcome URI. Without that support, use `get_run` while active or explicitly check the run later; installing a workflow skill does not add background notification delivery to a client.
-
-## Proxy tool discovery
-
-Integration APIs are available through `request_api`, without a VM, shell, or raw
-OAuth credential. Call `get_api_reflection` first and pass an integration's
-`requestExample` to `request_api`. Use `read_api_response` for retained handles.
-The proxy tools remain discoverable when `proxy:use` has not been granted; calls
-then fail with `insufficient_scope` and require renewed consent. `forbidden`
-indicates integration policy; `credential_unavailable` asks the owner to repair
-upstream credentials.
-
-If reflection is available but proxy tools are missing, compare authenticated
-server `tools/list` with the connector's catalog. From a repository checkout,
-pipe the captured JSON into `node scripts/diagnose-mcp-proxy.mjs`. This diagnostic
-makes no network calls. If server discovery includes the missing tools, refresh
-or reconnect the client connector; otherwise check the deployed server version.
-A saved connector catalog can differ from the current repository. Local fixture
-acceptance verifies the protocol contract, not a particular mobile app release.
+Factorize also publishes build-shipped MCP Skills that explain how to manage
+team Skills and Triggers. These are static workflow instructions; they are
+separate from Event definitions and do not grant permissions.

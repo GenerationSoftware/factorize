@@ -29,18 +29,5 @@ describe.skipIf(!url)("managed credential persistence", {timeout:60_000}, () => 
       expect(await repo.managedCredential(input.id,"bearer")).toBeNull();
     } finally {await f.cleanup();}
   });
-  it("refuses legacy user ciphertext and serializes model refresh without exposing caches", async () => {
-    const f=await loadingFixture(url!);
-    try {
-      const repo=new CredentialRepository(f.db,f.tenantId,f.env.CREDENTIAL_ENCRYPTION_KEY), id=crypto.randomUUID();
-      await repo.write({id,idempotencyKey:crypto.randomUUID(),expectedRevision:0,operation:"upsert",kind:"model",name:"Model",origin:null,description:null,managedModelPayload:'{"OPENAI_API_KEY":"old"}'});
-      await Promise.all([repo.refreshManagedModel(id, async p=>JSON.stringify({...JSON.parse(p),refreshes:(JSON.parse(p).refreshes??0)+1})),repo.refreshManagedModel(id,async p=>JSON.stringify({...JSON.parse(p),refreshes:(JSON.parse(p).refreshes??0)+1}))]);
-      expect(JSON.parse((await repo.managedCredential(id,"model"))!.payload).refreshes).toBe(2);
-      expect(JSON.stringify(await repo.metadata())).not.toContain("OPENAI_API_KEY");
-      await f.db.pool.query("UPDATE app.integration_records SET encrypted_payload=$3 WHERE tenant_id=$1 AND id=$2",[f.tenantId,id,await encrypt("old-user-encrypted-payload",f.env.CREDENTIAL_ENCRYPTION_KEY)]);
-      expect(await repo.managedCredential(id,"model")).toBeNull();
-      const refresh=()=>{throw new Error("must not read old ciphertext");};
-      expect(await repo.refreshManagedModel(id,refresh)).toBeNull();
-    } finally {await f.cleanup();}
-  });
+
 });

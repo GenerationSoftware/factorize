@@ -1,13 +1,22 @@
 ---
-title: Triggers not firing
-description: Verify automation from provider event to accepted run.
+title: Event and Trigger troubleshooting
+description: Diagnose rejected inputs, missing occurrences, and subscription updates.
 ---
 
-1. Fetch `get_trigger`; confirm the trigger and intended event are enabled. Check schedule timezone/cron, selected provider resources, and all matching rules.
-2. Make one controlled matching provider event. Ask for `list_webhook_deliveries` filtered by `provider` and `triggerId`; if nothing is found, search by provider alone since unmatched deliveries may not link the trigger.
-3. Use the returned delivery's identifier with `get_webhook_delivery` to inspect its safe timeline. Use `list_trigger_webhook_activity` for matching, rejected, duplicate and accepted activity. No raw payloads or secrets are returned.
-4. If no delivery appears, reconnect the provider in Integrations, check resource access/app installation and provider delivery status. Ask the hosted operator to investigate transport/subscription failures; hosted users do not configure Factorize's webhook signing secrets.
-5. If delivery appears but no run does, check event/action selection, match rules and conditions. `test_trigger_webhook_conditions` previews prepared example context only; it does not authenticate or deliver an event.
-6. Check `list_runs`: automatic occurrences coalesce while a run is queued. An accepted run may be waiting for an active slot. Query the provider itself for authoritative work.
+## No occurrence was created
 
-For schedules, verify the next occurrence in the browser editor, timezone and enabled state, then inspect runs after that time. For lifecycle events, verify source IDs/state selection and same-tenant source triggers. A destination cannot subscribe to its own edits. See [event configuration](/integrations/events).
+1. Confirm that the Trigger is enabled and belongs to the intended Event.
+2. Inspect its source configuration and integration connection in the browser.
+3. For a webhook, inspect `list_trigger_webhook_activity` and
+   `list_webhook_deliveries` for signature, condition, routing, or duplicate
+   outcomes. These records omit secrets and raw payloads.
+4. Check that the Event's current payload schema accepts the resulting JSON.
+5. For manual firing, confirm the Trigger kind and reuse the original
+   idempotency key when retrying an uncertain request.
+
+## A subscriber missed a notification
+
+Notifications tell the client that an Event resource changed; they are not the
+stored payload. Read the Event resource or call `list_event_occurrences` to
+recover durable occurrences after reconnecting. Confirm the client has
+`triggers:read` and supports MCP resource subscriptions.

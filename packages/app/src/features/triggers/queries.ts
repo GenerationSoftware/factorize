@@ -1,0 +1,7 @@
+import { queryOptions } from "@tanstack/react-query";
+import { api } from "factorize-api-client";
+const message = (error: any) => error?.error?.message ?? "Request failed";
+export const triggersQuery = () => queryOptions({ queryKey: ["triggers"], queryFn: async ({ signal }) => { const result = await api.GET("/api/v1/triggers", { signal }); if (!result.data || result.error) throw new Error(message(result.error)); return result.data; } });
+export const triggerQuery = (triggerId: string) => queryOptions({ queryKey: ["triggers", "detail", triggerId], queryFn: async ({ signal }) => { const result = await api.GET("/api/v1/triggers/{triggerId}", { params: { path: { triggerId } }, signal }); if (!result.data || result.error) throw new Error(message(result.error)); return result.data; } });
+export const recentTriggersQuery = queryOptions({ queryKey: ["triggers", "recent"], queryFn: async ({ signal }) => { const result = await api.GET("/api/v1/triggers", { signal }); if (!result.data || result.error) throw new Error(message(result.error)); return { items: result.data.slice(0, 8).map(item => ({ ...item, updatedAt: item.updatedAt })) }; } });
+export const eventsQuery = () => queryOptions({ queryKey: ["events"], queryFn: async ({ signal }) => { const result = await api.GET("/api/v1/events", { signal }); if (!result.data || result.error) throw new Error(message(result.error)); return result.data; } });

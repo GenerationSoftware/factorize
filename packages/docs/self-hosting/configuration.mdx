@@ -66,25 +66,3 @@ Create a ClickUp OAuth application with the callback URL `https://your-domain.ex
 | `OAUTH_KV` | KV binding containing OAuth clients, grants, refresh tokens, and revocation state |
 
 Never commit `.dev.vars` or production secret values. The included `.dev.vars.example` is a safe template.
-
-## Hosted Pi and optional workspace cutover
-
-Apply migrations 0067–0079 before the coordinated API/static-client release.
-Personal Teams are created automatically; projects and personal default APIs
-are retired. Existing resource IDs, credentials, runs and trace data remain.
-Review app.configuration_diagnostics for normalized names, conflicting skill
-contexts and retired model/harness configuration. Configure an OpenAI-compatible
-model integration with provider URL and optional key, and choose the model in
-Team settings. Pi is bundled in Factorize and persists sessions in PostgreSQL;
-no guest Pi or agent CLI is required. Optional exe.dev/Fly workspace provisioning
-waits for readiness. RUN_ARTIFACTS stores unchanged input/scratch/result media,
-with PostgreSQL receipts and retryable cleanup. No production deployment or
-external model/VM account is required for the local validation suite.
-
-Migration 0079 blocks unstarted legacy guest-agent admissions with
-managed_agent_cutover_required. It preserves their encrypted inputs, credentials
-references, names and history. Review those diagnostics, configure hosted Pi,
-then explicitly cancel/resubmit the affected work. Blocked runs retain their
-capacity until canceled. Drain already running guest agents before a production
-cutover; their retained traces remain readable. No legacy harness is launched
-for new managed runs, and no provider credential is silently substituted.

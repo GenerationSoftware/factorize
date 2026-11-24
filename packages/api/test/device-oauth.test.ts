@@ -27,8 +27,8 @@ describe("OAuth device authorization", () => {
   it("issues RFC 8628 device and user codes", async () => {
     const kv = new MemoryKv(), env = environment(kv);
     const response = await deviceAuthorization(new Request("https://factorize.test/oauth/device_authorization", {
-      method: "POST", body: new URLSearchParams({ client_id: "client-1", scope: "runs:read", resource: "https://factorize.test/mcp" }),
-    }), env, { lookupClient: vi.fn().mockResolvedValue(publicClient), completeAuthorization: vi.fn() }, ["team:read", "triggers:read", "integrations:read", "runs:read"]);
+      method: "POST", body: new URLSearchParams({ client_id: "client-1", scope: "triggers:read", resource: "https://factorize.test/mcp" }),
+    }), env, { lookupClient: vi.fn().mockResolvedValue(publicClient), completeAuthorization: vi.fn() }, ["team:read", "triggers:read", "integrations:read", "triggers:read"]);
     expect(response.status).toBe(200);
     const body = await response.json() as any;
     expect(body.device_code).toBeTruthy();
@@ -42,15 +42,15 @@ describe("OAuth device authorization", () => {
   it("rejects unsupported scopes and resources", async () => {
     const env = environment(new MemoryKv());
     const oauth = { lookupClient: vi.fn().mockResolvedValue(publicClient), completeAuthorization: vi.fn() };
-    const badScope = await deviceAuthorization(new Request("https://factorize.test/oauth/device_authorization", { method: "POST", body: new URLSearchParams({ client_id: "client-1", scope: "runs:write" }) }), env, oauth, ["team:read", "triggers:read", "integrations:read", "runs:read"]);
+    const badScope = await deviceAuthorization(new Request("https://factorize.test/oauth/device_authorization", { method: "POST", body: new URLSearchParams({ client_id: "client-1", scope: "triggers:write" }) }), env, oauth, ["team:read", "triggers:read", "integrations:read", "triggers:read"]);
     await expect(badScope.json()).resolves.toMatchObject({ error: "invalid_scope" });
-    const badResource = await deviceAuthorization(new Request("https://factorize.test/oauth/device_authorization", { method: "POST", body: new URLSearchParams({ client_id: "client-1", resource: "https://other.test/mcp" }) }), env, oauth, ["team:read", "triggers:read", "integrations:read", "runs:read"]);
+    const badResource = await deviceAuthorization(new Request("https://factorize.test/oauth/device_authorization", { method: "POST", body: new URLSearchParams({ client_id: "client-1", resource: "https://other.test/mcp" }) }), env, oauth, ["team:read", "triggers:read", "integrations:read", "triggers:read"]);
     await expect(badResource.json()).resolves.toMatchObject({ error: "invalid_target" });
   });
 
   it("increases the polling interval after every early poll", async () => {
     const kv = new MemoryKv(), env = environment(kv);
-    const issue = await deviceAuthorization(new Request("https://factorize.test/oauth/device_authorization", { method: "POST", body: new URLSearchParams({ client_id: "client-1", scope: "runs:read" }) }), env, { lookupClient: vi.fn().mockResolvedValue(publicClient), completeAuthorization: vi.fn() }, ["team:read", "triggers:read", "integrations:read", "runs:read"]);
+    const issue = await deviceAuthorization(new Request("https://factorize.test/oauth/device_authorization", { method: "POST", body: new URLSearchParams({ client_id: "client-1", scope: "triggers:read" }) }), env, { lookupClient: vi.fn().mockResolvedValue(publicClient), completeAuthorization: vi.fn() }, ["team:read", "triggers:read", "integrations:read", "triggers:read"]);
     const { device_code } = await issue.json() as any;
     const poll = () => deviceToken(new Request("https://factorize.test/oauth/token", { method: "POST", body: new URLSearchParams({ grant_type: DEVICE_GRANT, client_id: "client-1", device_code }) }), env, { fetch: vi.fn() }, {} as ExecutionContext);
     await expect((await poll()).json()).resolves.toMatchObject({ error: "authorization_pending" });
@@ -65,12 +65,12 @@ describe("OAuth device authorization", () => {
     const kv = new MemoryKv(), env = environment(kv);
     const completeAuthorization = vi.fn(async ({ request }: any) => ({ redirectTo: `${request.redirectUri}?code=authorization-code` }));
     const oauth = { lookupClient: vi.fn().mockResolvedValue(publicClient), completeAuthorization };
-    const issue = await deviceAuthorization(new Request("https://factorize.test/oauth/device_authorization", { method: "POST", body: new URLSearchParams({ client_id: "client-1", scope: "runs:read" }) }), env, oauth, ["team:read", "triggers:read", "integrations:read", "runs:read"]);
+    const issue = await deviceAuthorization(new Request("https://factorize.test/oauth/device_authorization", { method: "POST", body: new URLSearchParams({ client_id: "client-1", scope: "triggers:read" }) }), env, oauth, ["team:read", "triggers:read", "integrations:read", "triggers:read"]);
     const issued = await issue.json() as any;
     const signature = await deviceConsentSignature(env, { tenantId: "tenant-1", userId: "owner-1", sessionVersion: 3 }, (await inspectDevice(env, issued.user_code))!);
     const approved = await deviceVerification(new Request("https://factorize.test/device", { method: "POST", headers: { Origin: env.APP_ORIGIN }, body: new URLSearchParams({ user_code: issued.user_code, signature, decision: "allow" }) }), env, oauth, { tenantId: "tenant-1", userId: "owner-1", email: "owner@example.com", sessionVersion: 3 });
     expect(approved.status).toBe(200);
-    expect(completeAuthorization).toHaveBeenCalledWith(expect.objectContaining({ scope: ["runs:read"], revokeExistingGrants: false }));
+    expect(completeAuthorization).toHaveBeenCalledWith(expect.objectContaining({ scope: ["triggers:read"], revokeExistingGrants: false }));
     const providerFetch = vi.fn(async (request: Request) => {
       const body = await request.formData();
       expect(body.get("grant_type")).toBe("authorization_code");

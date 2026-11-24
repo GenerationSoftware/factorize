@@ -26,31 +26,23 @@
         "group": "Work with your agent",
         "pages": [
           "work/skills",
-          "work/triggers",
-          "work/prompts",
-          "work/results",
-          "work/stop-retry"
+          "work/triggers"
         ]
       },
       {
         "group": "Automate triggers",
         "pages": [
-          "recipes/scheduled-review",
-          "recipes/linear-trigger",
+          "integrations/events",
           "integrations/github",
           "integrations/clickup",
-          "recipes/chaining",
-          "work/manual-invocation-permissions",
-          "integrations/oauth",
-          "integrations/events"
+          "integrations/oauth"
         ]
       },
       {
         "group": "Troubleshooting",
         "pages": [
           "troubleshooting/connection",
-          "troubleshooting/events",
-          "troubleshooting/runs"
+          "troubleshooting/events"
         ]
       },
       {
@@ -73,9 +65,7 @@
         "pages": [
           "self-hosting/deployment",
           "self-hosting/configuration",
-          "self-hosting/operations",
-          "self-hosting/credential-cutover",
-          "self-hosting/credential-proxy-security"
+          "self-hosting/operations"
         ]
       }
     ]

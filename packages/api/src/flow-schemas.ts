@@ -1,31 +1,10 @@
-import { presetSlug } from "./skill-definition";
-import {mediaRef} from "./media-contracts";
 import Mustache from "mustache";
 import { z } from "zod";
 import { resourceName } from "./resource-names";
 import { conditionsSchema, preparedWebhookSchema } from "./webhook-conditions";
 
-export const scopeSchema = z.enum(["team:read", "team:write", "triggers:read", "triggers:write", "runs:read", "runs:invoke", "runs:start", "runs:cancel", "runs:write", "integrations:read", "integrations:write", "skills:read", "skills:write"]);
-export const runStateSchema = z.enum(["queued", "reserved", "starting", "running", "done", "blocked", "failed", "ignored", "succeeded", "stopping", "stopped"]);
-export const matchRuleSchema = z.object({
-  type: z.enum(["owner", "creator", "status", "label", "assignee"]),
-  targetId: z.string().min(1),
-});
-export const listRunsSchema = z.object({
-  triggerId: z.union([z.guid(), z.array(z.guid()).min(1).max(100)]).optional(), state: z.union([runStateSchema, z.array(runStateSchema).min(1).max(10)]).optional(),
-  skillId: z.union([z.guid(), z.literal("none")]).optional(),
-  contextQuery: z.string().min(1).max(50_000).optional(),
-  sort: z.enum(["source", "run", "status", "created", "agent"]).optional(),
-  direction: z.enum(["asc", "desc"]).optional(),
-  limit: z.coerce.number().int().min(1).max(100).default(50), cursor: z.string().min(1).optional(),
-}).refine(value => !value.direction || value.sort, { message: "direction requires sort" });
-export const runIdSchema = z.object({ runId: z.string().min(1) });
-export const invocationPermissionsInput = z.object({ destinationTriggerIds: z.array(z.guid()).max(1000) }).strict();
-export const invocationPermissionsResponse = z.object({ sourceTriggerId: z.guid(), destinationTriggerIds: z.array(z.guid()) });
-export const renameRunSchema = z.object({ name: z.string().trim().min(1).max(120), expectedName: z.string().max(120).optional() }).strict();
-export const reportRunErrorSchema = z.object({ reason: z.string().trim().min(1).max(2000) }).strict();
-export const reportRunErrorResponse = z.object({ reported: z.literal(true), reason: z.string(), retry: z.boolean() });
-
+export const scopeSchema = z.enum(["team:read", "team:write", "triggers:read", "triggers:write", "integrations:read", "integrations:write", "skills:read", "skills:write"]);
+export const matchRuleSchema = z.object({ type: z.enum(["owner", "creator", "status", "label", "assignee"]), targetId: z.string().min(1) });
 const webhookCommonSchema = z.object({ conditions: conditionsSchema.optional() });
 export const webhookEventConfigSchema = z.discriminatedUnion("provider", [
   webhookCommonSchema.extend({ provider: z.literal("linear"), projectId: z.string().min(1), matchRules: z.array(matchRuleSchema).min(1) }).strict(),
@@ -33,123 +12,16 @@ export const webhookEventConfigSchema = z.discriminatedUnion("provider", [
   webhookCommonSchema.extend({ provider: z.literal("github"), installationId: z.number().int().positive(), repositoryId: z.number().int().positive(), event: z.string().min(1).optional(), action: z.string().min(1).optional(), matchRules: z.array(matchRuleSchema).min(1).optional() }).strict().refine(value => Boolean(value.matchRules?.length || (value.event && value.action)), { message: "GitHub events require issue matching rules or an event and action" }),
   webhookCommonSchema.extend({ provider: z.literal("cloudflareTail"), integrationId: z.string().min(1) }).strict(),
 ]);
-const eventTemplate = z.string().max(50_000).refine(value => { try { Mustache.parse(value); return true; } catch { return false; } },"Enter a valid Mustache template.").optional();
+const eventTemplate = z.string().max(50_000).refine(value => { try { Mustache.parse(value); return true; } catch { return false; } }, "Enter a valid Mustache template.").optional();
 export const eventSchema = z.discriminatedUnion("kind", [
   z.object({ id: z.string().min(1).optional(), slug: z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/).optional(), kind: z.literal("manual"), template: eventTemplate, enabled: z.boolean().default(true), config: z.object({}).strict().default({}) }).strict(),
-  z.object({ id: z.string().min(1).optional(), slug: z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/).optional(), kind: z.literal("schedule"), template: eventTemplate, enabled: z.boolean().default(true), config: z.object({
-    cron: z.string().trim().min(1), timezone: z.string().trim().min(1),
-  }).strict() }).strict(),
+  z.object({ id: z.string().min(1).optional(), slug: z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/).optional(), kind: z.literal("schedule"), template: eventTemplate, enabled: z.boolean().default(true), config: z.object({ cron: z.string().trim().min(1), timezone: z.string().trim().min(1) }).strict() }).strict(),
   z.object({ id: z.string().min(1).optional(), slug: z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/).optional(), kind: z.literal("webhook"), template: eventTemplate, enabled: z.boolean().default(true), config: webhookEventConfigSchema }).strict(),
-  z.object({ id: z.string().min(1).optional(), slug: z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/).optional(), kind: z.literal("triggerLifecycle"), template: eventTemplate, enabled: z.boolean().default(true), config: z.object({
-    sourceTriggerIds: z.array(z.string().min(1)).min(1), states: z.array(z.enum(["succeeded", "failed", "stopped", "edited"])).min(1),
-  }).strict() }).strict(),
-  z.object({ id: z.string().min(1).optional(), slug: z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/).optional(), kind: z.literal("triggerIdle"), template: eventTemplate, enabled: z.boolean().default(true), config: z.object({ sourceTriggerIds: z.array(z.string().min(1)).min(1) }).strict() }).strict(),
 ]);
-
-/** Lower registry and repository names while keeping the case-sensitive tag. */
-export function canonicalizeVmImage(value: string): string {
-  const trimmed = value.trim();
-  const digestAt = trimmed.indexOf("@");
-  const reference = digestAt < 0 ? trimmed : trimmed.slice(0, digestAt);
-  const digest = digestAt < 0 ? "" : trimmed.slice(digestAt);
-  const slash = reference.lastIndexOf("/");
-  const colon = reference.lastIndexOf(":");
-  const tag = colon > slash ? reference.slice(colon) : "";
-  const name = tag ? reference.slice(0, -tag.length) : reference;
-  return `${name.toLowerCase()}${tag}${digest}`;
-}
-
-const imageReferencePattern = String.raw`(?:(?:[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*\/)?[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*(?:\/[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*)*(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?(?:@sha256:[a-f0-9]{64})?)`;
-const publicVmImage = (allowBlank: boolean) => (allowBlank ? z.string().trim().max(512) : z.string().trim().min(1).max(512))
-  .regex(new RegExp(allowBlank ? `^(?:${imageReferencePattern})?$` : `^${imageReferencePattern}$`),
-    "Enter a public Docker/OCI image reference without a URL scheme (for example, ghcr.io/owner/image:tag).")
-  .transform(canonicalizeVmImage);
-export const triggerInputSchema = z.object({
-  name: resourceName,
-  executionType: z.enum(["agent", "code"]).optional(),
-  requiresVm:z.boolean().optional(),
-  prompt: z.string().max(50_000).default(""),
-  script: z.string().max(50_000).optional().describe("Retired: new script runs are rejected. Historical reads remain supported.").meta({deprecated:true}),
-  runNameTemplate: z.string().max(500).optional(),
-  concurrencyLimit: z.number().int().nonnegative().max(50).optional(),
-  runScopes: z.array(scopeSchema).max(scopeSchema.options.length).refine(scopes => new Set(scopes).size === scopes.length, "Run scopes must be unique").optional().describe("Factorize API scopes for new trigger runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. triggers:write permits configuring triggers and their future run scopes."),
-  executionConfigId: z.string().min(1).optional(),
-  tags: z.array(z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/)).max(20).optional(),
-  vmImage: publicVmImage(true).optional(),
-  model: z.string().trim().max(120).optional(),
-  effort: z.enum(["","minimal","low","medium","high","xhigh"]).optional(),
-  events: z.array(eventSchema).max(50).default([]),
-  skillId: z.guid().nullable().optional(),
-  portableIntegrationIds: z.array(z.guid()).max(100).refine(ids => new Set(ids).size === ids.length, "Portable integrations must be unique").optional(),
-  modelAccountId: z.guid().optional(),
-  githubInstallationIds: z.array(z.number().int().positive()).max(100).refine(ids => new Set(ids).size === ids.length, "GitHub installations must be unique").optional(),
-  linearConnectionId: z.literal("linear").nullable().optional(),
-  xConnectionIds: z.array(z.guid()).max(100).refine(ids => new Set(ids).size === ids.length, "X connections must be unique").optional(),
-}).strict().superRefine((value, context) => {
-  if(value.executionType==="code" && value.requiresVm===false)context.addIssue({code:"custom",path:["requiresVm"],message:"Scripts require a VM."});
-  if (value.executionType === "code" && !value.script?.trim()) context.addIssue({ code: "custom", path: ["script"], message: "Code triggers require a script." });
-  if (value.executionType === "code" && value.modelAccountId) context.addIssue({ code: "custom", path: ["modelAccountId"], message: "Code triggers cannot select a model account." });
-
-});
-export const vmImageVerificationInput = z.object({
-  connectionId: z.string().min(1).max(200),
-  image: publicVmImage(false),
-  tags: z.array(z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/)).max(20),
-}).strict();
-export const vmImageVerificationResponse = z.object({ id: z.guid(), status: z.enum(["queued", "creating", "checking_ssh", "checking_agent", "cleaning_up", "succeeded", "failed", "cleanup_failed"]), phase: z.string(), errorKind: z.string().nullable(), error: z.string().nullable(), createdAt: z.string(), updatedAt: z.string() });
+export const triggerInputSchema = z.object({ name: resourceName, eventId: z.guid(), events: z.array(eventSchema).min(1).max(50).default([{ kind: "manual", slug: "event-1", enabled: true, config: {} }]) }).strict();
 export const triggerIdSchema = z.object({ triggerId: z.string().min(1) });
-export const manualInvocationSchema = z.object({
-  prompt: z.string().max(50_000).default(""),
-  data: z.record(z.string(), z.unknown()).optional(),
-  name: z.string().trim().min(1).max(120).optional(),
-  idempotencyKey: z.string().trim().min(1).max(200).regex(/^(?!manual:)/, {
-    message: "idempotencyKey must not include the reserved manual: claim-key prefix",
-  }).optional(),
-}).strict();
-export const triggerConditionsTestSchema = z.object({
-  conditions: conditionsSchema.optional(), webhook: preparedWebhookSchema,
-}).strict();
-
+export const fireTriggerInputSchema = z.object({ data: z.record(z.string(), z.unknown()).default({}), idempotencyKey: z.string().trim().min(1).max(200).optional() }).strict();
+export const triggerConditionsTestSchema = z.object({ conditions: conditionsSchema.optional(), webhook: preparedWebhookSchema }).strict();
 export type TriggerInput = z.infer<typeof triggerInputSchema>;
-export type ManualInvocationInput = z.infer<typeof manualInvocationSchema>;
-
-export const startRunInput = z.object({
-  vmPreset:presetSlug.optional(),permissionPreset:presetSlug.optional(),modelPreset:presetSlug.optional(),
-  attachments:z.array(mediaRef).max(16).optional(),
-  requiresVm:z.boolean().optional(),
-  prompt: z.string().min(1).max(50_000).refine(value => !!value.trim()).optional(),
-  script: z.string().min(1).max(200_000).refine(value => !!value.trim()).optional().describe("Retired: returns scripts_retired. Use an agent skill to execute code.").meta({deprecated:true}),
-  skill: z.string().min(1).max(64).optional(),
-  name: z.string().trim().min(1).max(120).optional(),
-  executionConfigId: z.string().min(1).optional(),
-  modelAccountId:triggerInputSchema.shape.modelAccountId,
-  vmImage: triggerInputSchema.shape.vmImage,
-  model: triggerInputSchema.shape.model,
-  runScopes: triggerInputSchema.shape.runScopes.describe("Factorize application permissions to grant. Omission inherits effective client permissions and an empty list grants none."),
-  integrationIds: z.array(z.uuid()).max(100).refine(ids => new Set(ids).size === ids.length, "Integration IDs must be unique").optional(),
-  inputs: z.record(z.string(), z.unknown()).refine(value => new TextEncoder().encode(JSON.stringify(value)).length <= 200_000, "Inputs exceed 200,000 bytes").optional(),
-  idempotencyKey: z.string().trim().min(1).max(200).optional(),
-}).strict().refine(value=>!(value.script&&value.requiresVm===false),{message:"Scripts require a VM.",path:["requiresVm"]}).refine(value => value.script ? !value.prompt && !value.skill && !value.attachments?.length : Boolean(value.prompt || value.skill || value.attachments?.length), {
-  message: "Supply a skill, a prompt, or a script. Scripts cannot include an agent skill or prompt.",
-  path: ["prompt"],
-});
-export const startRunReceipt = z.object({runId:z.guid(), url:z.url(), outcomeUri:z.string(), duplicate:z.boolean()});
-export const projectRunDefaults = z.object({
-  executionConfigId: z.string().min(1).optional(),
-  requiresVm:z.boolean().optional(),
-  model: triggerInputSchema.shape.model, effort: triggerInputSchema.shape.effort, vmImage: triggerInputSchema.shape.vmImage,
-  tags: triggerInputSchema.shape.tags, modelAccountId: triggerInputSchema.shape.modelAccountId,
-  portableIntegrationIds: triggerInputSchema.shape.portableIntegrationIds, githubInstallationIds: triggerInputSchema.shape.githubInstallationIds,
-  linearConnectionId: triggerInputSchema.shape.linearConnectionId, xConnectionIds: triggerInputSchema.shape.xConnectionIds,
-  runScopes: triggerInputSchema.shape.runScopes, capacity: z.number().int().min(1).max(50).default(4),
-  concurrencyLimit: z.number().int().nonnegative().optional(),
-}).strict();
-
-export const storedRunDefaults = projectRunDefaults.extend({vmImage:z.string().optional()});
-
-// Team settings can be saved before a VM integration is connected.
-export const teamRunDefaults = projectRunDefaults.partial().extend({
-  capacity: z.number().int().min(1).max(50).optional(),
-  allowedTriggerIds: z.array(z.guid()).max(100).refine(ids => new Set(ids).size === ids.length, "Destination triggers must be unique").optional(),
-}).strict();
-export const teamResponse = z.object({ id: z.guid(), name: z.string().nullable(), presetDefaults:z.object({vm:z.string().nullable(),permission:z.string().nullable(),model:z.string().nullable()}).optional(), runDefaults: teamRunDefaults.extend({ vmImage: z.string().optional() }) });
+export type FireTriggerInput = z.infer<typeof fireTriggerInputSchema>;
+export const teamResponse = z.object({ id: z.guid(), name: z.string().nullable() });

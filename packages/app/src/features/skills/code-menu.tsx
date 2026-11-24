@@ -32,7 +32,6 @@ export function SkillsCodeMenu() {
         </> : info.data && <p className="text-sm">Configure a skills repository to enable cloning.</p>}
         {copied && <p role="status" className="text-xs">{copied} copied.</p>}{copyError && <p role="alert">{copyError}</p>}
       </div>
-      <div className="border-t border-stone-200 px-4 py-3 dark:border-slate-700"><Link to="/settings/skills" className="text-xs text-slate-600 underline underline-offset-2 hover:text-factorize-700 dark:text-slate-400 dark:hover:text-factorize-500" onClick={close}>Skill settings</Link></div>
     </div>}
   </>;
 }

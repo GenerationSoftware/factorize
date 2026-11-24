@@ -1,37 +1,19 @@
 # Factorize
 
-[![CI](https://github.com/GenerationSoftware/factorize/actions/workflows/ci.yml/badge.svg)](https://github.com/GenerationSoftware/factorize/actions/workflows/ci.yml)
+Factorize stores durable Events, input Triggers, and standalone Skills. Connect an MCP client, define an Event, attach one or more Triggers, and subscribe to its occurrence resource.
 
-Factorize hosts triggers for your coding agents. **Connect your agent → create a trigger → run it → inspect the result → automate it.**
+Start at [app.factorize.sh](https://app.factorize.sh). Connect an MCP client to `https://app.factorize.sh/mcp`, approve `triggers:read` to discover Events and read occurrences, and approve `triggers:write` to manage Events and Triggers.
 
-Start at [app.factorize.sh](https://app.factorize.sh). Sign up with email and password, verify email, and configure an OpenAI-compatible model integration in **Settings → Integrations**. Your personal team owns skills, runs, Triggers, integrations and defaults. Pi runs in Factorize with PostgreSQL persistence. Enable an optional exe.dev or Fly workspace for agent tasks that need a VM; scripts always require one.
+Ask your agent:
 
-Connect a supported remote MCP client to:
+> Create an Event named `orders.created`, attach a manual Trigger, and publish a sample order. Subscribe to the Event and read the durable occurrence.
 
-```text
-https://app.factorize.sh/mcp
-```
+The client uses the documented Event and Trigger API, then reads the stored occurrence after an MCP resource update notification. Retrying a manual fire with the same idempotency key does not create a duplicate.
 
-Follow [Connect your agent](https://docs.factorize.sh/mcp/overview) for Codex/Claude Code configuration and browser consent. Then ask:
+Read the [first Event guide](https://docs.factorize.sh/quickstart), [Trigger guide](https://docs.factorize.sh/work/triggers), and [MCP tool reference](https://docs.factorize.sh/mcp/tools). Skills remain standalone instruction documents.
 
-> Inspect my team defaults. Create a manual Trigger named review-recent-changes with a required workspace. Have it clone REPOSITORY_URL, review the latest commit and summarize any problems. Run it once and report the result.
+## Development and validation
 
-The conversational agent calls `get_team` and reflection, checks existing Triggers, creates a Trigger, invokes it with a stable idempotency key, and reads `get_run` until completion. Skills and hosted Pi use the same MCP environment. Put the repository URL in the prompt; a VM configuration does not bind a repository. Browser-only signup, integration credentials, resource selection and consent are separate from MCP trigger management.
+Use Node 24.12.0 and npm 11.19.0 from `.node-version` and `package.json`. Run `npm ci`, then `npm run dev`. The complete required local suite is `npm run test:local` on the documented Factorize validation runner image; it resets only an isolated local database and runs `npm test`. Never point validation at production or a shared database. See [the validation runner guide](docs/factorize-validation-runner.md).
 
-Read [Your first trigger](https://docs.factorize.sh/quickstart), [safe editing and configuration replacement](https://docs.factorize.sh/work/triggers), and [stop/retry behavior](https://docs.factorize.sh/work/stop-retry). Add [schedules](https://docs.factorize.sh/recipes/scheduled-review), [Linear](https://docs.factorize.sh/recipes/linear-trigger), [GitHub](https://docs.factorize.sh/integrations/github), [ClickUp](https://docs.factorize.sh/integrations/clickup), or [trigger chaining](https://docs.factorize.sh/recipes/chaining) after a successful manual run.
-
-MCP provides selected scoped operations, not every REST capability. REST contracts remain available in [OpenAPI](packages/docs/openapi.yaml) and [authentication reference](https://docs.factorize.sh/api/authentication). Credential management and trace replay require an interactive owner session. Agents can use the generated [llms.txt](packages/docs/llms.txt) and [llms-full.txt](packages/docs/llms-full.txt).
-
-## Development and documentation
-
-Use Node 24.12.0 and npm 11.19.0 (`.node-version` and `package.json`), then run `npm ci`, `npm run dev`, and `npm test`. The root test is the complete required validation used by CI; `npm run check` is an alias, and `npm run test:backend` / `npm run test:browser` are the focused shared lanes. The Worker lives in `packages/api`, React frontend in `packages/app`, and generated public contract in `packages/api-client`. Frontend calls documented `/api/v1` routes. Keep local secrets in ignored `packages/api/.dev.vars`.
-
-On exe.dev, use the [Factorize validation runner image](docs/factorize-validation-runner.md), then run `npm ci` and `npm run test:local` after checkout. The image supplies the pinned Node, npm, PostgreSQL authentication, Playwright Chromium, and browser OS dependencies; `test:local` resets only the local validation database, applies migrations, and runs the complete root suite. The bootstrap refuses remote database URLs. To prepare the database without running tests, use `npm run bootstrap:test` and export its three printed variables before `npm test`. Missing prerequisites must be fixed in the image and published as a new digest; do not repair a fresh VM by hand or mark work done after only `git diff --check`.
-
-Run `npm run generate --workspace=factorize-docs` after guide edits and `npm run validate --workspace=factorize-docs` before publishing. See [docs publishing](docs/mintlify.md) and [package migration](docs/package-migration.md) for development and release gates.
-
-## Optional self-hosting
-
-Hosted users do not deploy Factorize. To operate your own instance, follow [deployment](https://docs.factorize.sh/self-hosting/deployment), [configuration](https://docs.factorize.sh/self-hosting/configuration), and [operations](https://docs.factorize.sh/self-hosting/operations). These contain Cloudflare/Worker, Postmark, provider OAuth registration, webhook infrastructure and secret setup.
-
-[Apache License 2.0](LICENSE)
+The Worker is in `packages/api`, the static frontend in `packages/app`, and the generated public API contract in `packages/api-client`. Frontend code uses the same documented `/api/v1` routes as external clients. Run `npm run check:boundaries` to verify package imports.

@@ -12,7 +12,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("durable HTTP operation fix
  beforeAll(async()=>{
   f=await loadingFixture(process.env.AUTH_TEST_DATABASE_URL!);const id=crypto.randomUUID();
   await new CredentialRepository(f.db,f.tenantId,f.env.CREDENTIAL_ENCRYPTION_KEY).write({id,kind:"bearer",name:"Fixture",origin:"https://fixture.example.com",description:null,expectedRevision:0,idempotencyKey:crypto.randomUUID(),operation:"upsert",managedSecret:"secret"});integration=(await f.db.pool.query("UPDATE app.agent_integrations SET policy='baseline' WHERE tenant_id=$1 AND credential_id=$2 RETURNING id",[f.tenantId,id])).rows[0].id;
-  f.env.RUN_ARTIFACTS={put:async(k:string,v:ArrayBuffer)=>objects.set(k,new Uint8Array(v).slice()),get:async(k:string,o:any)=>{const v=objects.get(k);if(!v)return null;const bytes=v.slice(o.range.offset,o.range.offset+o.range.length);return {arrayBuffer:async()=>bytes.buffer};}} as any;
+  f.env.PROXY_ARTIFACTS={put:async(k:string,v:ArrayBuffer)=>objects.set(k,new Uint8Array(v).slice()),get:async(k:string,o:any)=>{const v=objects.get(k);if(!v)return null;const bytes=v.slice(o.range.offset,o.range.offset+o.range.length);return {arrayBuffer:async()=>bytes.buffer};}} as any;
   f.env.SCHEDULER={idFromName:(v:string)=>v,get:()=>({fetch:async(_url:string,init:any)=>{if(init.body)wakes.push(JSON.parse(init.body));return Response.json({scheduled:true});}})} as any;
   auth={...f.auth,authMethod:"oauth",oauthGrantId:"operations",oauthClientId:"fixture",oauthExpiresAt:Date.now()/1000+3600,scopes:["proxy:use"]};operations=new ProxyOperations(f.env,auth);
  });

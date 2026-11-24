@@ -1,19 +1,19 @@
 ---
 title: Factorize with your agent
-description: Connect your agent, create a trigger, run it, inspect the result, and automate it.
+description: Connect your agent, define Events, and publish durable occurrences through Triggers.
 ---
 
-Factorize hosts your trigger configuration, event routing, queue, run history, and MCP endpoint. Your external agent and hosted Pi use the same MCP tools and team skills. Pi runs inside Factorize with PostgreSQL persistence and an optional remote workspace.
+Factorize stores versioned Event definitions, input Triggers, and durable Event
+occurrences. MCP subscribers receive notifications when an occurrence is
+available and can read it later. Skills remain standalone instruction documents.
 
-Start at [app.factorize.sh](https://app.factorize.sh). Connect your agent to `https://app.factorize.sh/mcp`, create a manual trigger, inspect its result, then add a schedule or provider event.
+Start at [app.factorize.sh](https://app.factorize.sh), connect an MCP client to
+`https://app.factorize.sh/mcp`, create an Event and attach one or more Triggers.
 
 <CardGroup cols={2}>
   <Card title="Connect your agent" icon="plug" href="/mcp/overview">Authorize a remote MCP client</Card>
-  <Card title="First trigger" icon="rocket" href="/quickstart">Review a repository and inspect the result</Card>
+  <Card title="First Event" icon="bolt" href="/quickstart">Create an Event, fire a Trigger, and read the occurrence</Card>
 </CardGroup>
 
-Configure an OpenAI-compatible provider URL and optional key in Integrations,
-then choose a model and permissions in Team settings. Add an exe.dev or Fly
-workspace only when a task requires a VM. Each user receives a personal team;
-skills, Triggers, runs and integrations live directly in that team.
-[Self-hosting](/self-hosting/deployment) is optional.
+See [concepts](/concepts) for the Event model and [self-hosting](/self-hosting/deployment)
+for deployment information.

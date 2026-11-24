@@ -1,9 +1,8 @@
 import type { Env } from "./types";
 import { databaseFor } from "./postgres/database";
 import { CredentialRepository } from "./postgres/credential-repository";
-import { resolveRunProviderCredentials } from "./provider-credentials";
-import type { OutboundCredential } from "./run-outbound-forwarder";
-import {configuredPiProvider} from "./pi-provider";
+import { resolveProviderCredentials } from "./provider-credentials";
+import type { OutboundCredential } from "./outbound-forwarder";
 import { CLICKUP_API_BASE } from "./clickup";
 import { ConnectionRepository } from "./postgres/connection-repository";
 import { FlyConnectionRepository } from "./postgres/fly-connection-repository";
@@ -37,16 +36,14 @@ export async function resolveAgentCredential(env: Env, tenantId: string, kind: s
     if (!target.pathname.startsWith(`${prefix}/`)) return null;
     return {origin: base.origin, path: `${target.pathname}${target.search}`, credential};
   }
-  if (!["bearer", "github", "linear", "model"].includes(kind)) return null;
-  const modelAccountId = credentialId;
-  const prefix = kind === "bearer" ? `/integrations/${credentialId}` : kind === "github" ? `/providers/github/${credentialId}` : kind === "linear" ? "/providers/linear" : "/providers/model/v1";
+  if (!["bearer", "github", "linear"].includes(kind)) return null;
+  const prefix = kind === "bearer" ? `/integrations/${credentialId}` : kind === "github" ? `/providers/github/${credentialId}` : "/providers/linear";
   const separator = relativePath.indexOf("?");
   const path = prefix + (separator < 0 ? relativePath : relativePath.slice(0, separator));
   const url = {search: separator < 0 ? "" : relativePath.slice(separator)};
   const bearer = /^\/integrations\/([0-9a-f-]{36})(\/.*)?$/.exec(path);
   const github = /^\/providers\/github\/([1-9][0-9]*)(\/.*)?$/.exec(path);
   const linear = /^\/providers\/linear(\/.*)?$/.exec(path);
-  const model = /^\/providers\/model\/v1(\/.*)?$/.exec(path);
   let selected: OutboundCredential | null = null;
     if (bearer) {
       const credential = await new CredentialRepository(database, tenantId, env.CREDENTIAL_ENCRYPTION_KEY).managedCredential(bearer[1]!, "bearer");
@@ -55,7 +52,7 @@ export async function resolveAgentCredential(env: Env, tenantId: string, kind: s
     } else if (github) {
       const installationId = Number(github[1]);
       if (!Number.isSafeInteger(installationId)) return null;
-      const resolved = await resolveRunProviderCredentials({database, env, tenantId: tenantId, githubInstallationIds: [installationId], linearSelected: false});
+      const resolved = await resolveProviderCredentials({database, env, tenantId: tenantId, githubInstallationIds: [installationId], linearSelected: false});
       const credential = resolved.githubInstallations[0];
       if (!credential?.available || !credential.accessToken) return null;
       let suffix = github[2] ?? "/", origin = "https://api.github.com";
@@ -65,15 +62,10 @@ export async function resolveAgentCredential(env: Env, tenantId: string, kind: s
       else if (suffix.startsWith("/archive/")) { origin = "https://codeload.github.com"; suffix = suffix.slice(8); }
       selected = {origin, path: `${suffix}${url.search}`, credential: credential.accessToken, authorization: smart ? "github-git-basic" : "bearer"};
     } else if (linear) {
-      const resolved = await resolveRunProviderCredentials({database, env, tenantId: tenantId, githubInstallationIds: [], linearSelected: true});
+      const resolved = await resolveProviderCredentials({database, env, tenantId: tenantId, githubInstallationIds: [], linearSelected: true});
       if (!resolved.linearConnection?.available || !resolved.linearConnection.accessToken) return null;
       selected = {origin: "https://api.linear.app", path: `${linear[1] ?? "/graphql"}${url.search}`, credential: resolved.linearConnection.accessToken};
-    } else if (model) {
-      const configured=await new CredentialRepository(database,tenantId,env.CREDENTIAL_ENCRYPTION_KEY).managedCredential(modelAccountId,"model");
-      const credential=configured && configuredPiProvider(configured.payload);if(!credential)return null;
-      const base=new URL(credential.providerUrl),prefix=base.pathname.replace(/\/$/,""),suffix=model[1] ?? "/";
-      const target=new URL(`${base.origin}${prefix}${suffix}`);if(!target.pathname.startsWith(`${prefix}/`))return null;
-      selected={origin:base.origin,path:`${target.pathname}${url.search}`,credential:credential.apiKey ?? "",...(credential.apiKey?{}:{authorization:"none" as const}),...(base.protocol==="http:"?{allowInsecureHttp:true}:{})};
     }
+
   return selected;
 }

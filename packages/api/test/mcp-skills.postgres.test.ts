@@ -5,12 +5,13 @@ import {encrypt} from "../src/crypto";
 import {skillUri,SKILLS_EXTENSION} from "../src/mcp-skills";
 import {builtinSkillDocuments,builtinSkillUri} from "../src/builtin-skills";
 import {IdentityRepository} from "../src/postgres/identity-repository";
+import {EventMatchRepository} from "../src/postgres/event-match-repository";
 import type {OAuthProps} from "../src/types";
 vi.mock("cloudflare:workers",()=>({WorkerEntrypoint:class{},WorkflowEntrypoint:class{},DurableObject:class{}}));
 vi.mock("@cloudflare/workers-oauth-provider",()=>({OAuthProvider:class{},AuthorizationError:class extends Error{},getOAuthApi:vi.fn()}));
 const meta={"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{name:"local-skill-client",version:"1"},"io.modelcontextprotocol/clientCapabilities":{}};
 
-describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("static authorized MCP Skills extension",()=>{
+describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("MCP Skills and Event resources",()=>{
  let f:Awaited<ReturnType<typeof loadingFixture>>,auth:OAuthProps,id:string;
  const body="---\nname: guide\ndescription: A team guide\nmetadata:\n  author: local\n---\nReflect, then read references/example.txt.";
  beforeAll(async()=>{
@@ -22,9 +23,9 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("static authorized MCP Skil
   const response=await protectedApiFetch(new Request(f.env.APP_ORIGIN+"/mcp",{method:"POST",headers:{"Mcp-Method":method,...(method==="resources/read"?{"Mcp-Name":String(params.uri)}:method==="tools/call"?{"Mcp-Name":String(params.name)}:{}),Host:"factorize.test","Content-Type":"application/json",Accept:"application/json, text/event-stream"},body:JSON.stringify({jsonrpc:"2.0",id:1,method,params:{_meta:meta,...params}})}),f.env,identity,{} as any);
   const text=await response.text();expect(response.status,text).toBe(200);return JSON.parse(text.startsWith("{")?text:text.split("\n").find(line=>line.startsWith("data: "))!.slice(6));
  }
- it("advertises exactly five build-owned workflows even without skills:read",async()=>{
+ it("advertises standalone built-in Skills even without skills:read",async()=>{
   const discovery=await rpc("server/discover");expect(discovery.result.capabilities.extensions[SKILLS_EXTENSION]).toEqual({});
-  const first=(await rpc("skills/list")).result;expect(first.skills).toHaveLength(5);expect(first.nextCursor).toBeUndefined();expect(first.ttlMs).toBeGreaterThan(0);
+  const first=(await rpc("skills/list")).result;expect(first.skills).toHaveLength(2);expect(first.nextCursor).toBeUndefined();expect(first.ttlMs).toBeGreaterThan(0);
   expect(first.skills.map((skill:any)=>skill.frontmatter.name)).toEqual(builtinSkillDocuments.map(skill=>skill.name));
   expect((await rpc("skills/list",{}, {...auth,scopes:[]})).result).toEqual(first);
   await new IdentityRepository(f.db,f.otherTenant).upsertOwner(f.userId,"owner@example.test");
@@ -42,6 +43,10 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("static authorized MCP Skil
   const skill=await rpc("tools/call",{name:"get_skill",arguments:{skillId:id}});expect(skill.result.structuredContent.body).toContain("author: local");
   expect((await rpc("resources/read",{uri:skillUri(f.tenantId,"guide")})).result.contents[0].text).toContain("author: local");
   expect((await rpc("skills/get",{uri:skillUri(f.tenantId,"guide")})).error).toBeDefined();
+  const triggerId=f.triggerIds[0],eventId=(await f.db.pool.query("SELECT event_definition_id FROM app.triggers WHERE tenant_id=$1 AND id=$2",[f.tenantId,triggerId])).rows[0].event_definition_id as string;
+  const occurrence=await new EventMatchRepository(f.db).match({tenantId:f.tenantId,triggerId,triggerRevision:1,sourceIdentity:"mcp-test",deduplicationKey:"occurrence-1",evidence:{value:"durable"},decision:"matched"});
+  const eventResource=await rpc("resources/read",{uri:`factorize://events/${eventId}/occurrences`});
+  expect(eventResource.result.contents[0].text).toContain(occurrence.occurrence!.id);
   expect((await rpc("resources/read",{uri:skillUri(f.tenantId,"guide")},{...auth,scopes:[]})).error.message).toContain("insufficient_scope");
   expect((await rpc("tools/call",{name:"get_skill",arguments:{skillId:id}},{...auth,scopes:[]})).result.isError).toBe(true);
  });

@@ -23,14 +23,10 @@ export class OperationsRepository {
       SELECT 'skill' kind,s.id::text id,s.key title,'' subtitle,'/skills/'||s.id url,s.id::text source_id,s.key source_label,s.key match_text,
         GREATEST(word_similarity($2,s.key),similarity($2,s.key)) score,CASE WHEN lower(s.key)=$2 THEN 0 WHEN starts_with(lower(s.key),$2) THEN 1 ELSE 2 END category,s.id::text stable_key
       FROM app.skills s WHERE s.tenant_id=$1 AND (strpos(lower(s.key),$2)>0 OR $2 <% s.key OR similarity($2,s.key)>0.3 OR strpos(regexp_replace(lower(s.key),'[^[:alnum:]]','','g'),regexp_replace($2,'[^[:alnum:]]','','g'))>0)
-      UNION ALL
-      SELECT 'run',r.id::text,r.run_name,r.state,'/runs/'||r.id,r.id::text,r.run_name,r.run_name,
-        GREATEST(word_similarity($2,r.run_name),similarity($2,r.run_name)),CASE WHEN lower(r.run_name)=$2 THEN 0 WHEN starts_with(lower(r.run_name),$2) THEN 1 ELSE 2 END,r.id::text
-      FROM app.runs r WHERE r.tenant_id=$1 AND (strpos(lower(r.run_name),$2)>0 OR $2 <% r.run_name OR similarity($2,r.run_name)>0.3 OR strpos(regexp_replace(lower(r.run_name),'[^[:alnum:]]','','g'),regexp_replace($2,'[^[:alnum:]]','','g'))>0)
     ) found ORDER BY category,score DESC,kind,stable_key LIMIT 100`, [this.tenantId, needle.toLowerCase()]);
     return { items: rows.rows.map(row => {
-      const ranked=rankField(row.match_text,needle,row.kind);
-      return {kind:row.kind,id:row.id,title:row.title,subtitle:row.subtitle,url:row.url,source:{kind:row.kind,label:row.source_label,id:row.source_id},match:{text:row.match_text,ranges:ranked?.range?[ranked.range]:searchMatches(row.match_text,needle)}};
+      const ranked=rankField(row.match_text,needle,"skill");
+      return {kind:"skill",id:row.id,title:row.title,subtitle:row.subtitle,url:row.url,source:{kind:"skill",label:row.source_label,id:row.source_id},match:{text:row.match_text,ranges:ranked?.range?[ranked.range]:searchMatches(row.match_text,needle)}};
     }) };
   }
 }

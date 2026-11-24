@@ -12,10 +12,6 @@ export const flyConnectionQuery = { queryKey: ["settings", "fly"], queryFn: asyn
   const { data, error } = await api.GET("/api/v1/fly/connection", { signal });
   if (!data || error) throw new Error(messageOf(error)); return data.connection;
 } };
-export const flyConfigurationsQuery = { queryKey: ["editor", "fly-configurations"], queryFn: async ({ signal }: { signal: AbortSignal }) => {
-  const { data, error } = await api.GET("/api/v1/fly/execution-configurations", { signal });
-  if (!data || error) throw new Error(messageOf(error)); return data.configurations;
-} };
 export function useFlyIntegration() {
   const cache = useQueryClient(), connection = useQuery(flyConnectionQuery);
   const [open, setOpen] = useState(false);
@@ -31,9 +27,9 @@ export function useFlyIntegration() {
     count: connection.data ? 1 : 0, pending: connection.isPending,
     rows: connection.data ? [<IntegrationRow key="fly" kind="fly" credentialId="fly" name="Fly.io" detail={`${connection.data.organizationName} (${connection.data.organizationSlug})`} actions={[
       {label: "Edit / verify connection", onClick: () => {action.reset(); setOpen(true);}},
-      {label: "Disconnect", destructive: true, disabled: action.isPending, onClick: () => {if (window.confirm("Disconnect Fly.io? Triggers using this connection will no longer run.")) action.mutate("disconnect");}},
+      {label: "Disconnect", destructive: true, disabled: action.isPending, onClick: () => {if (window.confirm("Disconnect Fly.io? MCP clients using this connection will lose Fly.io API access.")) action.mutate("disconnect");}},
     ]} />] : [],
-    tile: <ProviderTile kind="fly" name="Fly.io" description="Run triggers on Fly Machines in your organization." count={connection.data ? 1 : 0} onAdd={() => {action.reset(); setOpen(true);}} />,
+    tile: <ProviderTile kind="fly" name="Fly.io" description="Connect the Fly Machines API for MCP clients." count={connection.data ? 1 : 0} onAdd={() => {action.reset(); setOpen(true);}} />,
     feedback: <>{connection.error && <p role="alert">{connection.error.message}</p>}{!open && action.error && <p role="alert">{action.error.message}</p>}{!open && action.isSuccess && <p role="status">{action.data === "save" ? "Fly.io integration saved." : "Fly.io disconnected."}</p>}</>,
     dialog: open && <Dialog title={connection.data ? "Edit Fly.io integration" : "Add Fly.io integration"} close={close}>
       <form autoComplete="off" method="post" className="mt-4 grid gap-3" onSubmit={event => {event.preventDefault(); action.mutate("save");}}>
@@ -45,28 +41,4 @@ export function useFlyIntegration() {
       {action.isSuccess && action.data === "verify" && <p role="status">Fly.io connection verified.</p>}{action.error && <p role="alert">{action.error.message}</p>}
     </Dialog>,
   };
-}
-
-export const flyRegions = ["iad", "ord", "sjc", "lax", "ams", "fra", "lhr", "nrt", "sin"];
-
-export const flySizes = ["shared-cpu-1x", "shared-cpu-2x", "shared-cpu-4x", "performance-1x", "performance-2x", "performance-4x"];
-
-type Configuration = { name: string; image: string; region: string; size: string };
-export function FlyExecutionFields({ initial, onDirty, onSaved }: { initial?: Configuration; onDirty: () => void; onSaved: (id: string) => void }) {
-  const cache = useQueryClient();
-  const [value, setValue] = useState<Configuration>(initial ?? { name: "", image: "", region: "iad", size: "shared-cpu-1x" });
-  const save = useMutation({ retry: false, mutationFn: async () => {
-    const { data, error } = await api.POST("/api/v1/fly/execution-configurations", { body: value });
-    if (!data || error) throw new Error(messageOf(error)); return data.configuration;
-  }, onSuccess: async configuration => { await cache.invalidateQueries({ queryKey: flyConfigurationsQuery.queryKey }); onSaved(configuration.id); } });
-  const change = (next: Configuration) => { onDirty(); setValue(next); save.reset(); };
-  return <div className="grid gap-3 sm:col-span-2 sm:grid-cols-2" role="group" aria-label="Fly.io VM configuration">
-    <Label>Execution configuration name <Input disabled={save.isPending} value={value.name} maxLength={120} onChange={e => change({ ...value, name: e.target.value })} /></Label>
-    <Label>Fly VM image <Input disabled={save.isPending} value={value.image} maxLength={512} placeholder="ghcr.io/your-org/runner:tag" onChange={e => change({ ...value, image: e.target.value })} /></Label>
-    <Label>Fly region <Select disabled={save.isPending} value={value.region} onChange={e => change({ ...value, region: e.target.value })}>{flyRegions.map(region => <option key={region}>{region}</option>)}</Select></Label>
-    <Label>Fly VM size <Select disabled={save.isPending} value={value.size} onChange={e => change({ ...value, size: e.target.value })}>{flySizes.map(size => <option key={size}>{size}</option>)}</Select></Label>
-    <p className="text-sm sm:col-span-2">Save these settings as an execution configuration, then create or save the trigger. Changes create a new configuration so other triggers keep their settings. Use a public image with the tools needed by your workspace or script.</p>
-    <Button type="button" disabled={save.isPending || !value.name.trim() || !value.image.trim()} onClick={() => save.mutate()}>Save Fly VM settings</Button>
-    {save.error && <p role="alert">{save.error.message}</p>}
-  </div>;
 }

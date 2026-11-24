@@ -1,6 +1,4 @@
-import { AmpBackend, type AmpConnection } from "../amp-backend";
-import { ExeIntegrationError, ExeVmBackend } from "../exe-vm-backend";
-import { selectableExeTags, type ExeConnection } from "../exe";
+import type { ExeConnection } from "../exe";
 import type { AmpConnectionInput, ExeConnectionInput, TailIntegrationInput } from "../types";
 import { signTailDelivery, verifyTailDelivery } from "../cloudflare-tail";
 import type { Database } from "./database";
@@ -9,6 +7,7 @@ import { ConnectionRepository } from "./connection-repository";
 const timestamp = () => new Date().toISOString();
 const tailSecret = () => `fztail_${Array.from(crypto.getRandomValues(new Uint8Array(24)), byte => byte.toString(16).padStart(2, "0")).join("")}`;
 const text = (value: unknown) => typeof value === "string" ? value : undefined;
+type AmpConnection = { accessToken: string; project: string; apiBaseUrl?: string };
 
 export class IntegrationService {
   readonly connections: ConnectionRepository;
@@ -17,39 +16,17 @@ export class IntegrationService {
   async saveExe(value: ExeConnectionInput) {
     const existing = value.connectionId ? await this.connections.get<ExeConnection>(`exe:${value.connectionId}`) : null;
     const apiToken = value.apiToken || existing?.apiToken;
-    if (!apiToken) throw new ExeIntegrationError("An exe.dev HTTPS token is required");
-    const tags = Array.isArray(value.tags) ? value.tags.map(String).map(tag => tag.trim()).filter(Boolean) : [];
-    if (tags.length > 20 || tags.some(tag => !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(tag))) throw new ExeIntegrationError("VM tags are invalid");
-    const candidate: ExeConnection = {...existing,apiToken,tags};
-    const backend = new ExeVmBackend(candidate), permissions = await backend.testPermissions();
-    if (!permissions.ok) {
-      if (permissions.checks.some(check => check.status === 401)) throw new ExeIntegrationError("exe.dev rejected the account token. Check that it is valid and has not expired.");
-      if (permissions.missingPermissions.length) throw new ExeIntegrationError(`exe.dev token is missing required permissions: ${permissions.missingPermissions.map(command => command === "integrations" ? "integrations list" : command).join(", ")}`);
-      const failed = permissions.checks.find(check => !check.ok);
-      throw new ExeIntegrationError(`exe.dev credential verification failed${failed ? ` for ${failed.requestBody} (HTTP ${failed.status})` : ""}. Try again shortly.`);
-    }
+    if (!apiToken) throw new Error("An exe.dev HTTPS token is required");
+    const candidate: ExeConnection = {...existing,apiToken};
     const connectionId=value.connectionId || crypto.randomUUID();
-    await this.connections.put(`exe:${connectionId}`,{...candidate,availableTags:permissions.tags});
+    await this.connections.put(`exe:${connectionId}`,candidate);
     return {ok:true,connectionId};
   }
-
-  async testExe(input: Partial<ExeConnectionInput>) {
-    const saved = input.connectionId ? await this.connections.get<ExeConnection>(`exe:${input.connectionId}`) : null;
-    const connection = input.apiToken ? input as ExeConnection : saved; if (!connection?.apiToken) throw new Error("Account-level exe.dev HTTPS token is required");
-    const result = await new ExeVmBackend(connection).testPermissions();
-    return { ok: result.ok, missingPermissions: result.missingPermissions, tags: result.tags, checks: result.checks.map(check => ({ command: check.requestBody, ok: check.ok, httpStatus: check.status, exitCode: check.exitCode, output: check.body })) };
-  }
-  async diagnoseExe(connectionId: string) {
-    const connection = await this.connections.get<ExeConnection>(`exe:${connectionId}`); if (!connection) return null;
-    const backend = new ExeVmBackend(connection), permissions = await backend.testPermissions();
-    return {ok:permissions.ok,connectionId,permissions:{ok:permissions.ok,missing:permissions.missingPermissions,tags:permissions.tags}};
-  }
-  async saveAmp(value: AmpConnectionInput) { const existing = value.connectionId ? await this.connections.get<AmpConnection>(`amp:${value.connectionId}`) : null, accessToken = value.accessToken || existing?.accessToken, project = value.project || existing?.project; if (!accessToken || !project) throw new Error("Amp access token and project are required"); const connection = { ...existing, ...value, accessToken, project }; if (!await new AmpBackend(connection).test()) throw new Error("Amp connection verification failed"); const connectionId = value.connectionId || crypto.randomUUID(); await this.connections.put(`amp:${connectionId}`, connection); return { ok: true, connectionId }; }
-  async testAmp(input: Partial<AmpConnectionInput>) { const saved = input.connectionId ? await this.connections.get<AmpConnection>(`amp:${input.connectionId}`) : null, connection = input.accessToken ? input as AmpConnection : saved; if (!connection?.accessToken || !connection.project) throw new Error("Amp connection is required"); return { ok: await new AmpBackend(connection).test() }; }
+  async saveAmp(value: AmpConnectionInput) { const existing = value.connectionId ? await this.connections.get<AmpConnection>(`amp:${value.connectionId}`) : null, accessToken = value.accessToken || existing?.accessToken, project = value.project || existing?.project; if (!accessToken || !project) throw new Error("Amp access token and project are required"); const connectionId = value.connectionId || crypto.randomUUID(); await this.connections.put(`amp:${connectionId}`, { ...existing, ...value, accessToken, project }); return { ok: true, connectionId }; }
 
   async remove(kind: "exe" | "amp", id: string) {
-    const targetKind = kind === "exe" ? "exe-vm" : "Amp";
-    const used = await this.database.pool.query("SELECT 1 FROM app.triggers WHERE tenant_id=$1 AND execution_config->>'connectionId'=$2 AND execution_config->>'agentKind' " + (kind === "exe" ? "<> 'Amp'" : "= 'Amp'") + " LIMIT 1", [this.tenantId, id]);
+    const targetKind = kind === "exe" ? "exe" : "Amp";
+    const used = await this.database.pool.query("SELECT 1 FROM app.agent_integrations WHERE tenant_id=$1 AND kind=$2 AND credential_id=$3 LIMIT 1", [this.tenantId, kind, id]);
     if (used.rowCount) return { conflict: true, deleted: false };
     return { conflict: false, deleted: await this.connections.delete(`${kind}:${id}`), targetKind };
   }
@@ -79,7 +56,7 @@ export class IntegrationService {
     const connectionsPromise = this.connections.all(["linear", "clickup", "exe:", "amp:", "cloudflare-tail:"]);
     const [connections, tails] = await Promise.all([connectionsPromise, this.tails(connectionsPromise)]);
     const linear = connections.get("linear"), clickup = connections.get("clickup");
-    const exeConnections=[...connections].filter(([kind])=>kind.startsWith("exe:")).map(([kind,value])=>({connectionId:kind.slice(4),credentialStatus:"connected" as const,accountTags:selectableExeTags(value??{}),tags:selectableExeTags({tags:value?.tags})}));
+    const exeConnections=[...connections].filter(([kind])=>kind.startsWith("exe:")).map(([kind])=>({connectionId:kind.slice(4),credentialStatus:"connected" as const}));
     const ampConnections = [...connections].filter(([kind]) => kind.startsWith("amp:")).map(([kind, value]) => ({ connectionId: kind.slice(4), project: text(value?.project) ?? "Unnamed Amp project", ...(text(value?.apiBaseUrl) ? { apiBaseUrl: text(value.apiBaseUrl) } : {}) }));
     return { linear: linear ? { organizationName: text(linear.organizationName) ?? null, viewerEmail: text(linear.viewerEmail) ?? null } : null, clickup: clickup ? { teamName: text(clickup.teamName) ?? null } : null, exe: exeConnections[0] ?? null, exeConnections, ampConnections, cloudflareTail: { count: tails.length, installations: tails } };
   }

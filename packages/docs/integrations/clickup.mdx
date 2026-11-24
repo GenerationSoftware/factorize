@@ -1,16 +1,13 @@
 ---
-title: Automate from ClickUp
-description: Connect a workspace and select matching tasks.
+title: ClickUp Triggers
+description: Configure ClickUp webhook inputs that publish Event occurrences.
 ---
 
-[Connect ClickUp](/integrations/oauth) in Integrations and approve access to the intended team/list. Factorize registers the task webhook on connection. Use the browser trigger editor to select a list and rule target IDs; MCP does not discover ClickUp lists/statuses.
+Connect ClickUp and attach a ClickUp source Trigger to an Event. Select the
+workspace resources and match rules in the browser editor. Matching signed
+webhook deliveries produce validated durable occurrences; duplicate delivery
+IDs are ignored.
 
-Add this event to the complete trigger configuration:
-
-```json
-{"kind":"webhook","config":{"provider":"clickup","listId":"LIST_ID","matchRules":[{"type":"status","targetId":"STATUS_ID"}]}}
-```
-
-Replace IDs with browser-selected values. All configured rules must match. Read the returned stable slug/reflection before using `{{event-2.task}}` in the prompt. Ensure the execution agent separately has any ClickUp access required to work on the task.
-
-Change one test task to the selected status. Verify delivery with `list_webhook_deliveries({"provider":"clickup"})`, inspect its timeline, trigger activity and resulting run. Reconnect in Integrations if provider authorization expires; use [event troubleshooting](/troubleshooting/events) for rejected or absent deliveries.
+Inspect safe delivery outcomes with `list_trigger_webhook_activity` and
+`list_webhook_deliveries`. See [Event payloads and conditions](/integrations/events)
+and [troubleshooting](/troubleshooting/events).

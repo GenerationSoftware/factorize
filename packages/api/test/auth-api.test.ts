@@ -21,7 +21,7 @@ const env = { APP_ORIGIN: "https://app.test", SESSION_SIGNING_SECRET: "test-only
 const ctx = {} as ExecutionContext;
 const identity = { tenantId: "tenant-a", userId: "user-a", email: "owner@test.com", sessionVersion: 4 };
 const member = { ...identity, role: "owner" as const };
-const auth: OAuthProps = { ...identity, scopes: ["team:read", "triggers:read", "integrations:read", "team:write", "triggers:write", "integrations:write", "runs:read", "runs:invoke", "runs:cancel", "runs:write"], authMethod: "session" };
+const auth: OAuthProps = { ...identity, scopes: ["team:read", "triggers:read", "integrations:read", "team:write", "triggers:write", "integrations:write", "triggers:read", "triggers:write", "triggers:write", "triggers:write"], authMethod: "session" };
 const openapi = parse(readFileSync(new URL("../../docs/openapi.yaml", import.meta.url), "utf8"));
 afterEach(() => vi.restoreAllMocks());
 
@@ -132,7 +132,7 @@ describe("public auth API and cookie security", () => {
     const cookie = await signSession({ ...identity, exp: Math.floor(Date.now() / 1000) + 100 }, env.SESSION_SIGNING_SECRET);
     const headers = { Cookie: "factorize_session=" + cookie, Origin: env.APP_ORIGIN };
     const list = vi.spyOn(ApiService.prototype, "listSkills").mockResolvedValue({ items: [], nextCursor: null });
-    const skill = { id: "00000000-0000-4000-8000-000000000001", key: "review", body: "Review carefully", revision: 1, usageCount: 0, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    const skill = { id: "00000000-0000-4000-8000-000000000001", key: "review", body: "Review carefully", revision: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
     const create = vi.spyOn(ApiService.prototype, "createSkill").mockResolvedValue(skill);
     expect(await contract(await call("/api/v1/skills", undefined, headers), "/api/v1/skills", "GET")).toEqual({ items: [], nextCursor: null });
     expect(list).toHaveBeenCalledOnce();
@@ -207,7 +207,7 @@ describe("public auth API and cookie security", () => {
 
   it("enforces origin for cookie application mutations while preserving bearer clients", async () => {
     const create = vi.spyOn(ApiService.prototype, "createTrigger").mockResolvedValue({ id: "trigger" } as never);
-    const request = () => new Request(env.APP_ORIGIN + "/api/v1/triggers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "trigger",  prompt: "Do work", executionConfigId: "exe-1" }) });
+    const request = () => new Request(env.APP_ORIGIN + "/api/v1/triggers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "trigger", eventId: "20000000-0000-4000-8000-000000000001" }) });
     expect((await protectedApiFetch(request(), env, auth, ctx)).status).toBe(403);
     expect(create).not.toHaveBeenCalled();
     expect((await protectedApiFetch(request(), env, { ...auth, authMethod: "access_token" }, ctx)).status).toBe(201);
@@ -216,7 +216,7 @@ describe("public auth API and cookie security", () => {
 
 describe("safe interrupted-flow navigation", () => {
   it.each(["//evil.test", "https://evil.test", "/\\evil.test", "/device-evil", "/triggers/trigger-a/settings/extra", "/auth/logout", "/triggers\nLocation:evil", "/%2f%2fevil.test"])("rejects %s", value => expect(safeReturnTo(value)).toBe("/integrations"));
-  it.each(["/authorize?client_id=a&state=b", "/device?user_code=ABCD-EFGH", "/triggers/trigger-a/edit", "/triggers/trigger-a/settings?tab=prompt", "/runs", "/runs/run-a", "/runs/run-a/trace", "/skills", "/skills/review", "/skills/review/runs", "/skills/review/settings/trigger", "/settings/profile", "/settings/skills"])("preserves %s", value => expect(safeReturnTo(value)).toBe(value));
+  it.each(["/authorize?client_id=a&state=b", "/device?user_code=ABCD-EFGH", "/triggers/trigger-a/edit", "/triggers/trigger-a/settings?tab=prompt", "/skills", "/skills/review", "/settings/profile"])("preserves %s", value => expect(safeReturnTo(value)).toBe(value));
 });
 
 describe("cookie-only consent and device API boundaries", () => {

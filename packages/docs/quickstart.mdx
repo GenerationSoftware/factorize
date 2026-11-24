@@ -1,77 +1,44 @@
 ---
-title: Your first skill
-description: Configure a personal team and run hosted Pi through MCP.
+title: Your first Event
+description: Create an Event, attach a Trigger, and read its durable occurrence.
 ---
 
-## Set up in the browser
+## Connect an MCP client
 
-1. Sign up at [app.factorize.sh/auth/signup](https://app.factorize.sh/auth/signup),
-   choose a unique username, verify your email and sign in. Your personal team uses your username. You can sign in with your username or email, plus your password.
-2. In **Integrations**, add a model integration with an
-   OpenAI-compatible provider URL and optional access key. In **Team settings**,
-   open **VM** and choose that integration and a provider model ID. Configure run permissions under **Permissions**.
-3. For repository or shell work, connect an exe.dev or Fly account and enable
-   **Requires VM** in the Team defaults. exe.dev tokens need ls, new, ssh and rm.
-   The guest needs a workspace shell; it does not need Pi, Codex, Claude or model
-   credentials. Pi runs in Factorize and uses MCP to reach that workspace.
-4. [Connect your MCP client](/mcp/overview), approve the workflow scopes and ask
-   it to call get_team and get_api_reflection. Integration grants are separate
-   from application scopes. Select provider credentials in Permissions.
+Connect to `https://app.factorize.sh/mcp` using the [MCP setup guide](/mcp/overview).
+Authorize `triggers:read` to discover Events and occurrences, and `triggers:write`
+to create or change Events and Triggers.
 
-A VM preset copies workspace settings into a Trigger's **VM** section or Team
-run defaults. Editing the preset does not change accepted runs or existing
-saved configurations.
+## Create and publish an Event
 
-## Create and run a skill
+An Event defines the payload shape. A Trigger belongs to one Event and watches
+an input source. Multiple Triggers may publish to the same Event.
 
-Open **Skills**, choose **New skill**, and save its name and instructions. Overview includes instructions, a read-only directory browser, and **Start run**. The skill's **Runs** tab includes manual and event-triggered runs.
-
-Under **Settings**, use **General** for execution mode and prompt, **VM** for workspace/model/concurrency defaults, **Permissions** for access, and **Trigger** for event sources and enable/disable controls. A trigger is optional and can include multiple event sources. Manage the library's Git repository under **Team Settings → Skills**.
-
-**Account settings → Profile** changes your unique username and personal team name together.
-
-## Existing MCP trigger clients
-
-Existing REST/MCP trigger tools remain compatible. For example:
-
-
-Ask your agent:
-
-> Inspect my team defaults and permissions. Create a manual Trigger named
-> review-recent-changes. Have it reflect on the environment, clone
-> https://github.com/YOUR_ORG/YOUR_REPO.git in its required workspace, review the
-> latest commit, run relevant checks and summarize the results. Invoke it once
-> with a stable idempotency key and report the observed result.
-
-Expected tools:
-
-1. get_team: inspect the saved defaults. Do not invent integration IDs.
-2. list_triggers: check for an existing Trigger before creating one.
-3. create_trigger: supply the definition below and save its returned id.
-4. invoke_trigger: use that ID and a stable idempotencyKey; save runId.
-5. get_run: poll for state, failure diagnostics and trigger_result. Open its
-   browser trace when more execution output is needed.
+Use the `create_event` MCP tool or the browser to create an Event named `review.requested`
+with a JSON object payload schema. Then call `create_trigger` to add an enabled Trigger attached to it.
+For a simple local check, create a manual Trigger and fire it with a stable
+idempotency key and a JSON payload accepted by the Event schema.
 
 ```json
 {
-  "name": "review-recent-changes",
-  "requiresVm": true,
-  "prompt": "Reflect on the environment. Clone https://github.com/YOUR_ORG/YOUR_REPO.git into the workspace. Review the latest commit, run relevant checks, and summarize problems.",
-  "concurrencyLimit": 1,
-  "events": [{"kind": "manual", "config": {}}]
+  "eventId": "EVENT_ID",
+  "name": "manual-review",
+  "kind": "manual",
+  "config": {}
 }
 ```
 
-```json
-{"triggerId":"TRIGGER_ID","prompt":"Review now","idempotencyKey":"review-recent-changes-first-run"}
-```
+Fire the Trigger with `fire_trigger`, supplying `idempotencyKey` and `payload`.
+The response includes the durable occurrence ID. Reusing the same key is safe
+and reports a duplicate rather than creating a second occurrence.
 
-The Trigger must return an id and manual Event with a stable generated slug.
-Invocation returns runId promptly. Submission alone is not completion: inspect
-get_run until terminal and assess the actual result. A selected unavailable VM
-or model integration is an error; Factorize does not silently switch providers.
+## Subscribe and read
 
-After a timeout, repeat the invocation with the same key to recover its original
-receipt. A failed run still owns that key. Inspect external effects before
-starting a new run. After a successful manual review, add a
-[schedule](/recipes/scheduled-review) or [provider Event](/integrations/events).
+Call `list_events` and `get_event` to discover the Event and its resource URI.
+Subscribe through MCP resource subscription support. When a Trigger publishes an
+occurrence, the server sends a resource update notification; read the resource
+to get the stored occurrence. After reconnecting, use `list_event_occurrences`
+to recover occurrences that arrived while disconnected.
+
+The same data is available from `GET /api/v1/events/{eventId}/occurrences`.
+Skills remain standalone instruction documents and can be managed separately.

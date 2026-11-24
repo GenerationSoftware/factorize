@@ -3,7 +3,6 @@ import { Link, useParams } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "factorize-api-client";
 import { Button, Page } from "../../shared/ui";
-import { VmAttachments } from "../vms/attachments";
 import { messageOf } from "../auth/session";
 import { ClientPermissions, type AuthorizedClient } from "./client-permissions";
 import { clientsQuery } from "./queries";
@@ -18,7 +17,6 @@ function RevokeConnection({ client }: { client: AuthorizedClient }) {
     },
     onSuccess: () => Promise.all([
       cache.invalidateQueries({ queryKey: clientsQuery.queryKey }),
-      cache.invalidateQueries({ queryKey: ["vm-attachments"] }),
     ]),
   });
   return <>
@@ -69,8 +67,6 @@ export function ClientPage() {
     {client && <div className="mb-4 flex flex-wrap gap-2">
       <Button onClick={() => setEditing(true)}>Edit permissions</Button><RevokeConnection client={client} />
     </div>}
-    <h2 className="mb-2 text-lg font-semibold">VMs</h2>
-    <VmAttachments source={{ kind: "client", id: grantId }} />
     {editing && client && <ClientPermissions client={client} close={() => setEditing(false)} />}
   </Page>;
 }

@@ -40,7 +40,7 @@ export function validateXOAuthScopes(input: readonly string[]): XOAuthScope[] {
   if (!Array.isArray(input) || input.length === 0 || input.length > SCOPE_ORDER.length) throw new Error("Select at least one X permission.");
   if (input.some(scope => !Object.hasOwn(X_OAUTH_SCOPES, scope))) throw new Error("One or more selected X permissions are not supported.");
   const scopes = [...new Set(input)] as XOAuthScope[];
-  if (!scopes.includes("offline.access")) throw new Error("Include offline.access so Factorize can refresh the connection while triggers run unattended.");
+  if (!scopes.includes("offline.access")) throw new Error("Include offline.access so Factorize can refresh the connection while triggers process Events.");
   // X's v2 authentication mapping requires these scopes for posts and user
   // lookup; all suggested and additional v1 permissions include that baseline.
   if (!scopes.includes("tweet.read") || !scopes.includes("users.read")) throw new Error("Include tweet.read and users.read for X API v2 user access.");

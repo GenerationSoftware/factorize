@@ -3,7 +3,7 @@ import { consentPreview, consentDecision } from "../src/consent-api";
 import { decideDevice, deviceAuthorization, inspectDevice } from "../src/device-oauth";
 import type { Env } from "../src/types";
 const session = { tenantId: "tenant", userId: "owner", email: "owner@example.test", sessionVersion: 2, exp: Math.floor(Date.now() / 1000) + 3600 };
-const parsed = { responseType: "code", clientId: "client", redirectUri: "https://client.test/callback", scope: ["team:read", "triggers:read", "integrations:read", "runs:read", "runs:invoke", "runs:cancel", "runs:write"], state: "state", codeChallenge: "challenge", codeChallengeMethod: "S256", resource: "https://factorize.test/mcp", issuer: "https://factorize.test" };
+const parsed = { responseType: "code", clientId: "client", redirectUri: "https://client.test/callback", scope: ["team:read", "triggers:read", "integrations:read", "triggers:read", "triggers:write", "triggers:write", "triggers:write"], state: "state", codeChallenge: "challenge", codeChallengeMethod: "S256", resource: "https://factorize.test/mcp", issuer: "https://factorize.test" };
 function fixture() {
   const values = new Map<string, string>();
   const used = new Set<string>();

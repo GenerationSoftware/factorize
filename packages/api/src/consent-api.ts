@@ -39,7 +39,7 @@ export async function consentPreview(env: Env, session: Session, input: z.infer<
   if (parsed.scope.some(scope => !supported.includes(scope) && !isIntegrationScope(scope))) return null;
   const requestedScopes = parsed.scope;
   const integrationLabels = await integrationConsentLabels(env, session.tenantId, requestedScopes);
-  return { integrationLabels, clientName: client.clientName ?? "this client", scopes: requestedScopes.some(scope => scope.startsWith("flows:") || scope === "runs:write") ? requestedScopes : normalizeScopes(requestedScopes), request, signature: await hmac(binding(request, session), env.SESSION_SIGNING_SECRET), expiresAt: new Date(expiresAt * 1000).toISOString() };
+  return { integrationLabels, clientName: client.clientName ?? "this client", scopes: normalizeScopes(requestedScopes), request, signature: await hmac(binding(request, session), env.SESSION_SIGNING_SECRET), expiresAt: new Date(expiresAt * 1000).toISOString() };
 }
 export async function consentDecision(env: Env, session: Session, input: z.infer<typeof consentDecisionInput>) {
   if (!env.OAUTH_PROVIDER || !equal(input.signature, await hmac(binding(input.request, session), env.SESSION_SIGNING_SECRET))) return null;

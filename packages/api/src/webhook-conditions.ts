@@ -60,7 +60,7 @@ function engineConditions(node: WebhookConditions): TopLevelCondition {
   const converted = convert(node);
   return "fact" in node ? { all: [converted] } : converted;
 }
-/** A fresh engine with one supplied fact. No callbacks, network facts, or invocation. */
+/** A fresh engine with one supplied fact. No callbacks or network facts. */
 export async function evaluateWebhookConditions(conditions: unknown, webhook: Record<string, unknown>): Promise<ConditionDecision> {
   try {
     if (conditions === undefined) return { decision: "match", details: [] };

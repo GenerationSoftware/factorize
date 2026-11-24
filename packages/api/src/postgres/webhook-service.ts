@@ -1,26 +1,22 @@
-import { PostgresSkillContentCache } from "./skill-content-cache";
-import { SkillContent } from "../skill-content";
 import { clickUpJson, matchingClickUpTask } from "../clickup";
 import { verifyTailDelivery, sanitizeTailEvent, suppressTailEvent } from "../cloudflare-tail";
-import { decrypt, equalHmac, encrypt } from "../crypto";
-import { InvocationError, InvocationService, type Trigger } from "../job-domain";
+import { equalHmac } from "../crypto";
+import type { Trigger } from "../trigger-domain";
 import { evaluateWebhookConditions } from "../webhook-conditions";
 import type { Env } from "../types";
 import { adaptWebhook, type WebhookProvider, type WebhookEventConfig } from "../webhook-trigger";
 import { ConnectionRepository } from "./connection-repository";
 import type { Database } from "./database";
-import { PostgresTriggerRepository } from "./job-repository";
+import { EventMatchRepository } from "./event-match-repository";
 
 export class WebhookService {
   private connections: ConnectionRepository;
-  private triggers: PostgresTriggerRepository;
   constructor(private database: Database, private env: Env, private tenantId: string) {
     this.connections = new ConnectionRepository(database, tenantId, env.CREDENTIAL_ENCRYPTION_KEY);
-    this.triggers = new PostgresTriggerRepository(database, tenantId, value => encrypt(value, env.CREDENTIAL_ENCRYPTION_KEY), value => decrypt(value, env.CREDENTIAL_ENCRYPTION_KEY), new SkillContent(env.SKILL_ARTIFACTS,new PostgresSkillContentCache(database,tenantId,env.CREDENTIAL_ENCRYPTION_KEY)),env);
   }
-  private async candidates(provider: WebhookProvider): Promise<Array<{ trigger: Trigger; eventId: string; eventSlug: string; config: WebhookEventConfig }>> {
-    const rows = await this.database.pool.query<any>(`SELECT j.*,t.id event_id,t.slug event_slug,t.config event_config FROM app.triggers j JOIN app.events t ON t.tenant_id=j.tenant_id AND t.trigger_id=j.id WHERE j.tenant_id=$1 AND j.enabled AND t.enabled AND t.removed_at IS NULL AND t.kind='webhook' AND t.config->>'provider'=$2`, [this.tenantId, provider]);
-    return rows.rows.map(row => ({ trigger: { id: row.id, name: row.name, slug: row.slug, prompt: "", runNameTemplate: "", model: row.model, effort: row.effort, executionConfig: row.execution_config, concurrencyLimit: row.concurrency_limit, enabled: row.enabled, events: [], createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString() }, eventId: row.event_id, eventSlug: row.event_slug, config: row.event_config }));
+  private async candidates(provider: WebhookProvider): Promise<Array<{ trigger: Trigger; triggerRevision: number; eventId: string; eventSlug: string; config: WebhookEventConfig }>> {
+    const rows = await this.database.pool.query<any>(`SELECT j.id,j.event_definition_id,j.name,j.description,j.slug,j.revision,j.enabled,j.created_at,j.updated_at,t.id event_id,t.slug event_slug,t.config event_config FROM app.triggers j JOIN app.events t ON t.tenant_id=j.tenant_id AND t.trigger_id=j.id WHERE j.tenant_id=$1 AND j.enabled AND t.enabled AND t.removed_at IS NULL AND t.kind='webhook' AND t.config->>'provider'=$2`, [this.tenantId, provider]);
+    return rows.rows.map(row => ({ trigger: { id: row.id, eventId:row.event_definition_id, name: row.name, description:row.description, slug: row.slug, revision:row.revision, enabled: row.enabled, events: [], createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString() }, triggerRevision: row.revision ?? 1, eventId: row.event_id, eventSlug: row.event_slug, config: row.event_config }));
   }
   private async ensure(provider: string, deliveryId: string, type: unknown, action: unknown) {
     const id = crypto.randomUUID();
@@ -39,23 +35,24 @@ export class WebhookService {
     const deliveryPk = await this.ensure(provider, deliveryId, eventName ?? base.type, base.action);
     for (const candidate of await this.candidates(provider)) {
       const payload = typeof source === "function" ? source(candidate.config) : source;
-      const invocation = adaptWebhook(candidate.config, provider, deliveryId, payload, eventName);
-      if (!invocation) { await this.event(deliveryPk, candidate.trigger.id, provider, deliveryId, "ignored", "Webhook did not match this trigger event."); continue; }
-      let context: Record<string, unknown> = invocation.payload;
+      const match = adaptWebhook(candidate.config, provider, deliveryId, payload, eventName);
+      if (!match) { await this.event(deliveryPk, candidate.trigger.id, provider, deliveryId, "ignored", "Webhook did not match this Trigger."); continue; }
+      let context: Record<string, unknown> = match.payload;
       const decision = await evaluateWebhookConditions(candidate.config.conditions, context);
       if (decision.decision !== "match") {
-        await this.event(deliveryPk, candidate.trigger.id, provider, deliveryId, decision.decision === "error" ? "conditions_error" : "excluded", decision.decision === "error" ? "Webhook conditions failed; no run was created." : "Webhook conditions did not match; no run was created.");
+        await this.event(deliveryPk, candidate.trigger.id, provider, deliveryId, decision.decision === "error" ? "conditions_error" : "excluded", decision.decision === "error" ? "Webhook conditions failed; no occurrence was recorded." : "Webhook conditions did not match; no occurrence was recorded.");
         continue;
       }
-      const service = new InvocationService(this.triggers, value => encrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY));
-      try {
-        const result = await service.invoke(candidate.trigger.id, { source: "webhook", eventId: candidate.eventId, claimKey: `webhook:${candidate.eventId}:${invocation.claimKey}`, context: { [candidate.eventSlug]: context }, occurrence: { ...invocation.occurrence, metadata: { ...invocation.occurrence?.metadata, eventId: candidate.eventId } } });
-        await this.event(deliveryPk, candidate.trigger.id, provider, deliveryId, result.duplicate ? "duplicate" : "accepted", result.duplicate ? "Webhook occurrence was already claimed." : "Webhook occurrence queued through canonical trigger invocation.");
-      } catch (error) {
-        if(error instanceof InvocationError && error.code==="trigger_disabled"){await this.event(deliveryPk,candidate.trigger.id,provider,deliveryId,"ignored","Skill is disabled; occurrence skipped.");continue;}
-        if (!(error instanceof InvocationError) || error.code !== "queue_full") throw error;
-        await this.event(deliveryPk, candidate.trigger.id, provider, deliveryId, "queue_full", "Trigger has no free execution slot and already has a waiting run; occurrence skipped.");
-      }
+      const result = await new EventMatchRepository(this.database).match({
+        tenantId: this.tenantId,
+        triggerId: candidate.trigger.id,
+        triggerRevision: candidate.triggerRevision,
+        sourceIdentity: `${provider}:${candidate.eventId}`,
+        deduplicationKey: match.deduplicationKey,
+        evidence: context,
+        decision: "matched",
+      });
+      await this.event(deliveryPk, candidate.trigger.id, provider, deliveryId, result.duplicate ? "duplicate" : "accepted", result.duplicate ? "Webhook occurrence was already recorded." : "Event occurrence recorded.");
     }
     await this.database.pool.query("UPDATE app.webhook_deliveries SET outcome='ignored',detail='Delivery was received but did not match an enabled event.' WHERE tenant_id=$1 AND id=$2 AND outcome='received'", [this.tenantId, deliveryPk]);
     await this.wake();

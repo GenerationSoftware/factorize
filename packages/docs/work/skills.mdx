@@ -1,70 +1,13 @@
 ---
-title: Skills and presets
-description: Define skills in SKILL.md and reuse team VM, permission and model presets.
+title: Skills
+description: Manage reusable team instruction documents independently from Events and Triggers.
 ---
 
-The team navigation contains **Skills**, **Runs**, **Integrations**, and **Settings**. Skills appear in a table with name, description and a **Run** action. Run launches that skill directly and opens its run. Preset choices and trigger settings remain on the skill detail page. Global search matches only skill names and run names.
+Skills are standalone Markdown instruction documents with standard `SKILL.md`
+frontmatter. They are managed through the browser or `list_skills`, `get_skill`,
+`create_skill`, `update_skill`, and `delete_skill` MCP tools. Updates support
+revision checks so concurrent edits do not silently overwrite one another.
 
-## Skill definition
-
-`SKILL.md` is the source of truth. The editor provides frontmatter controls and plain text editing of the Markdown body. Unrelated frontmatter is preserved. Overview renders the body as Markdown and retains the directory browser.
-
-```yaml
----
-name: review-pr
-description: Review a pull request
-metadata:
-  factorize:
-    vm-preset: development
-    permission-preset: repository-write
-    model-preset: careful
-    concurrency: 0
-    disabled: false
----
-Review the pull request and report findings.
-```
-
-Preset references are human-readable slugs, unique within preset type and team. Omit a preset key to inherit that type's team default. Overview selectors update and commit these same fields immediately. Inside the editor, all controls and the body save together in one conditional revision. A stale save fails without overwriting another edit; reload before reapplying it.
-
-`concurrency` is a nonnegative integer and defaults to **0**, meaning unlimited simultaneous runs of that skill. Team capacity still bounds total running work. `disabled` defaults to false. Disabled skills cannot start new manual or automated runs; existing accepted runs continue. Script-based run creation is retired. A skill can use its agent tools to execute code.
-
-## Team presets
-
-**Team Settings → VM**, **Permissions**, and **Models** each contain a preset list. Add and Edit open dedicated pages. The action menu also selects a team default or deletes a preset after confirmation. Each type has one team default. Default presets cannot be deleted; select another default first. Skills referencing a preset block deletion until those references are changed. Display names can change; slugs stay fixed.
-
-VM presets select a provider, connection, image, and provider-specific size/region or tags, or explicitly select no VM. Permission presets select application scopes, integration access and permitted invocation destinations. Model presets select a model account/provider, model and effort. Team capacity remains editable under VM.
-
-Presets are references. Every edit creates an immutable preset revision. When a run is created, before queueing, Factorize freezes the resolved configuration, each preset's ID/slug/revision, whether it was inherited, and the skill commit. Editing a preset or switching team defaults affects future runs. Accepted runs retain their original configuration and skill files.
-
-## Automation and files
-
-Each skill has **Overview**, **Runs**, and **Triggers** tabs. Triggers configures only automatic event sources. Manual events are hidden legacy details; manual runs remain available from Runs and API/MCP. Old skill Settings links redirect to Overview or Triggers.
-
-The directory browser displays nested text files and identifies binary files. Supporting files remain intact when instructions are edited. Published content is cached by tenant, repository and immutable commit. Manage repository selection and sync under **Team Settings → Skills**.
-
-## Clone and edit with Git
-
-Open **Skills → Code → HTTPS** to copy the authoritative repository URL. The **Skill settings** link opens repository selection and sync settings.
-
-For Factorize-managed skills, the URL is `https://git.factorize.sh/<team-name>/skills.git`. Repository names stay stable when a team is renamed; teams with the same name receive a numeric suffix. Select **Get Git token**, then use username `git` and the token as your Git password. Tokens last one hour and are limited to that repository and your current team membership. Password changes or membership revocation invalidate existing tokens. Keep tokens in your Git credential manager, outside the clone URL.
-
-```bash
-git clone https://git.factorize.sh/my-team/skills.git
-cd skills
-# Edit skills/<skill-name>/SKILL.md and supporting files.
-git add .
-git commit -m "Update skill instructions"
-git push origin main
-```
-
-Pushes to `main` publish through the same validation and synchronization used by Factorize's Git push workflow. Skill files and preset references must be valid before they appear in the library. A rejected synchronization retains the previously published library and reports the repository error in Skill settings.
-
-For GitHub-sourced skills, the menu shows `https://github.com/<owner>/<repository>.git` and the tracked branch and folder. Authenticate directly to GitHub using your own GitHub CLI, credential manager, or personal access token. Factorize never exposes its GitHub App token. Push changes to GitHub; Factorize's internal mirror is read-only and syncs from the configured GitHub source.
-
-## Migration and API clients
-
-Existing distinct configurations become presets, with equivalent configurations reused. Existing extra saved prompts are preserved in the Markdown body. Legacy script automation is disabled; historical runs remain readable. Migration can resume after a failed file publication without duplicating presets or instructions.
-
-REST clients use `/api/v1/presets` for listing/creation, `/api/v1/presets/{id}` for updates/deletion, and `/api/v1/presets/{id}/default` to select defaults. Preset updates accept `expectedRevision`; omitting it preserves last-writer-wins compatibility. Skill writes accept a complete `body` or structured `definition`, with `expectedRevision` on updates. Changing a skill’s execution metadata also requires `triggers:write`. Legacy team run-default writes update the corresponding default preset revisions; capacity-only writes leave presets unchanged. The former skill execution-settings write returns `settings_retired`; update frontmatter or presets instead.
-
-MCP exposes `list_presets`, `create_preset`, `update_preset`, `set_default_preset`, `delete_preset`, `get_skill`, `create_skill`, `update_skill`, `get_skill_trigger` and `save_skill_trigger`. Direct `start_run` may select `vmPreset`, `permissionPreset` and `modelPreset` slugs for that run. Direct-run permissions remain bounded by the caller's effective access.
+Creating, editing, or deleting a Skill does not create or modify an Event or
+Trigger. Skills do not configure execution settings and are not required to
+publish an Event occurrence.

@@ -1,58 +1,60 @@
-# Factorize Clients, VMs, and Apps
+# Events and Triggers; remove Jobs, Runs, Pi, and harness
 
-Implement the items below in order, from top to bottom. Work on one item until all its acceptance criteria are met and checked, then move to the next item. Check a box only after verifying it with the available VM shell, repository tests, browser tests, or GitHub tools. Record the verification command and result alongside each completed section. Fix recoverable failures and rerun the relevant checks. Do not stop until every criterion is complete. If access or infrastructure genuinely blocks progress, record the exact failed operation and leave the affected boxes open.
+Implement the sections in order. Check a criterion only after verifying it in this checkout and the isolated local validation environment. Record the command and result. Preserve unrelated existing work. Follow `AGENTS.md`; never run validation against production or a shared database.
 
-Work in the exe.dev checkout on `codex/clients-vms-apps`. Follow `AGENTS.md` and the current contracts in this checkout. Use fixtures and the isolated local validation database. Do not run tests against production.
+## Design
 
-## 0. Verify the development environment
+- An **Event** is a named, durable, subscribable object with a payload schema and occurrences.
+- A **Trigger** belongs to one Event and watches an input source such as a schedule, webhook, or provider event. Multiple Triggers may belong to one Event.
+- A matching Trigger emits a validated durable occurrence of its Event. It does not create an invocation, Job, Run, or agent execution.
+- Duplicate deliveries from sibling Triggers produce one occurrence per Event; the same source delivery can publish a different Event independently.
+- **Skills** remain standalone instruction documents, independent from Events and Triggers.
+- MCP subscribers subscribe to an Event occurrence resource, receive a resource update notification, and read the durable occurrence. Reconnects can recover occurrences from stored state.
+- Prefer removing obsolete execution paths and tests over adapting them. Keep only the smallest Event/Trigger and subscription implementation that meets these behaviors.
 
-- [x] Boot the VM from the pinned Factorize validation runner image.
-- [x] Clone `GenerationSoftware/factorize` and verify write access from the guest by pushing the feature branch and reading its ref back from GitHub.
-- [x] Verify Node 24.12.0 and npm 11.19.0. Run the image smoke check for PostgreSQL and Chromium and run `npm ci`.
+## 1. Refactor the core model and input pipeline
 
-Verified on `factorize-clients-vms-apps`. The image smoke script passed with the image-provided `/etc/environment` loaded for the non-login guest process. PostgreSQL authenticated on loopback, Chromium launched as `exedev`, and `npm ci` succeeded.
+- [x] Make Events first-class parents of Triggers; support multiple Triggers per Event.
+- [x] Preserve required schedule, webhook, and provider input handling and deduplication.
+- [x] A matching Trigger creates a durable Event occurrence whose payload is validated by the Event schema.
+- [x] Remove the old per-Trigger output-definition model and any invocation/queue dependency from event matching.
+- [x] Skills remain independently manageable and are not required by Events or Triggers.
 
-## 1. Display existing VM attachments
+## 2. Expose Events, Triggers, and MCP subscriptions
 
-- [x] Add a **VMs** dashboard navigation entry. Show VMs with active Factorize proxy access, with machine name or ID, provider, access status, and links to the authorizing run or client connection.
-- [x] Add **VMs** beside **Trace** and **Info** on run details. Show current and historical run VM access from retained binding records, including terminated runs where a record exists.
-- [x] Make the same tenant-scoped read model support current and historical client VM grants for the Clients screen in item 2. Record attachment source, expiry and revocation where available. Use persisted access eligibility without polling provider power state or changing how VMs are granted or provisioned.
-- [x] Verify with application tests that active and historical records appear in the appropriate views, unrelated machines are excluded, and another tenant cannot read them. Verify navigation and links in Chromium, including the empty state.
+- [x] Provide authorized, validated `/api/v1` operations to manage Events and their Triggers and inspect occurrences.
+- [x] Document every JSON operation in `packages/docs/openapi.yaml` and regenerate `factorize-api-client`.
+- [x] MCP clients can discover an Event, subscribe to its occurrence resource, receive an update after a Trigger fires, and read the occurrence.
+- [x] A reconnecting subscriber can read stored occurrences; tenant authorization prevents cross-tenant access.
+- [x] Frontend flows use the same documented `/api/v1` contract as external clients.
 
-Verified with `vitest run test/vm-attachments.postgres.test.ts` (2 passed), `npm run build:app`, the focused Chromium inventory test (1 passed), and `git diff --check`.
+## 3. Remove Jobs, Runs, Pi, and harness
 
-## 2. Move Authorized Clients to Clients
+- [x] Remove Job and Run routes, MCP tools/resources, UI screens and links, run-scoped agent access, and execution code.
+- [x] Remove Pi and harness runtime, scheduling, cleanup, run-only scopes, dependencies, scripts, deployment configuration, and documentation.
+- [x] No Event or Trigger path creates an invocation, Job, Run, or agent execution.
+- [x] A forward migration deletes existing Job/Run history, artifacts, Pi sessions, and other run-only records and drops storage no longer used by Events, Triggers, or Skills.
+- [x] Old Run and Job operations are absent and unsupported after the change.
 
-- [x] Add **Clients** to the dashboard navigation and redirect the old Authorized Clients settings URL. Show one row per MCP connection and put the OAuth app name in its own column. Keep API tokens and registered sign-in app connections outside this list.
-- [x] A connection detail shows its active and historical VM grants, including access state. Verify two connections with the same OAuth client ID keep separate VM histories and can be revoked independently.
-- [x] **Edit permissions** offers the team default via a preset selector. Reuse the repository's team permission default where available and the existing consent and scope definitions. Applying the default cannot grant additional scopes without consent. Keep grants as-is until an edit. Where no applicable default exists, show its unavailable state and preserve the grant.
-- [x] Verify that narrowing permissions takes effect for outstanding requests and any dependent VM access that requires removed permissions. Verify the existing per-connection and compatibility client-wide revoke operations still work.
+## 4. Prune obsolete tests and documentation
 
-Verified with the PostgreSQL attachment and client tests (3 passed), `npm run build:app`, the focused Chromium client permissions test (1 passed), and `git diff --check`.
+- [x] Delete tests exclusively covering removed Job/Run lifecycle, agent execution, Pi, harness, run media/traces, cleanup, and run-scoped authorization. Do not refactor those tests into Event tests.
+- [x] Keep applicable Skills and Trigger-input tests.
+- [x] Add only focused tests for Event payload validation, multiple Triggers targeting one Event, duplicate delivery handling, authorization, and MCP notification/read behavior.
+- [x] Remove run-oriented MCP guidance and examples; document Event and Trigger subscription workflows.
 
-## 3. Register and manage apps
+## 5. Final verification
 
-- [x] Add **Apps** to the dashboard navigation with **Connected apps** and **Registered apps** views. Use **Registered apps** for team-owned registrations. The connected view consumes sign-in grants from item 4, with empty-state and fixture coverage in this item.
-- [x] Team owners can register, list, inspect, edit, and disable confidential server-side apps and configure exact redirect URLs. Apps are team-only by default and support an opt-in **Available to everyone** setting.
-- [x] Add dedicated app-management authorization for MCP. Verify a scoped MCP caller can manage non-secret fields for its team and an unscoped or cross-team caller is rejected.
-- [x] Verify client secret creation and rotation are available only to an authorized browser session. Return newly issued secrets once, store a verifier, and never expose secret material in MCP, registration reads, logs, or test output.
+- [x] `npm run check:boundaries` passes. Verified: 11 boundary tests passed; frontend, generated client and API package import boundaries verified.
+- [x] Search confirms no obsolete Job/Run/Pi/harness product paths or dependencies remain.
+- [x] With the documented validation runner and isolated local database, `npm ci` and `npm run test:local` pass. This includes the complete root `npm test` suite. No external service account, deployment, or production data is needed.
+- [x] `git diff --check` passes and every criterion above has a recorded verification result.
 
-Verified with the PostgreSQL app registration test, the backend TypeScript check, the production frontend build, and the focused Chromium Apps test.
+## Verification record
 
-## 4. Implement Sign in with Factorize
+- `npm ci` completed successfully in the documented pinned validation-runner image (Node 24.12.0/npm 11.19.0).
+- `npm run test:local` passed on a fresh isolated PostgreSQL database. This ran the complete root suite: 46 API test files / 198 tests, browser build and functional/unit checks, and proxy checks; all lanes passed.
+- `npm run check:boundaries` passed (11 tests and import scan); `npm run generate` and `npm run validate --workspace=factorize-docs` passed.
+- Product-path search found no removed Run/Job/Pi/harness routes, tools, schemas, or dependencies in current API, app, generated OpenAPI, product docs, Skills, scripts, or package manifests. `git diff --check` passed.
 
-- [x] Implement OpenID Connect for confidential server-side applications with code flow, PKCE S256, registered redirect URLs, client authentication, discovery, JWKS, and signed ID tokens. Verify a sample server app can perform sign-in and validate its ID token.
-- [x] The built-in default is minimal identity with a stable subject. An app can explicitly ask for the current Factorize API scopes and receives only scopes expressly authorized by the user. Verify identity-only tokens cannot exercise Factorize application permissions and an approved scope can access its API operation.
-- [x] Verify private apps reject other teams, public apps can accept other teams, and granted API access applies to the authorizing user's team. Cover invalid redirect, client secret, PKCE, and code reuse, and handling of scope and token audience.
-- [x] **Connected apps** displays authorized sign-in app connections and supports revoking each connection. Verify revocation, app disabling, and secret rotation enforce their respective token and authentication effects. Verify existing MCP OAuth and device-code flows still work.
-
-Verified with the PostgreSQL server-app and token tests (3 passed), the Chromium sign-in consent test, and the existing OAuth and device-code runtime test.
-
-## 5. Finish validation and open the PR
-
-- [x] New JSON application operations use the shared documented `/api/v1` contract. Register routes in `protected-api.ts`, update OpenAPI, regenerate the API client, and verify authorization, validation and contract tests. Keep OAuth and OIDC wire-protocol routes in their protocol namespaces.
-- [x] Document server app sign-in setup, team and public visibility, scopes, client secret rotation, and revocation. Preserve REST and MCP full/detail/trace responses and conditional-write omission compatibility.
-- [x] Run `npm run check:boundaries`, `git diff --check`, and `npm run test:local` on the final code. The last command runs the complete root `npm test` suite with the isolated database. Record results and check every criterion supported by verification.
-- [x] Commit and push the completed branch from the VM. Open a pull request against `main`, verify its URL and head, and include validation results. Update the final checklist state on the branch.
-
-Verified on the exe.dev validation runner. `npm run check:boundaries`, `git diff --check`, and `npm run test:local` passed. The full suite passed generated contract checks, backend checks, compiled app/API/PostgreSQL integration, Chromium checks, proxy checks, and Docker compatibility. Opened [PR #421](https://github.com/GenerationSoftware/factorize/pull/421) against `main` from this VM.
+The pre-existing untracked `packages/api/test/event-matches.postgres.test.ts` was unavailable to recover in this checkout. Focused Event match coverage is present in the new `packages/api/test/event-match-repository.postgres.test.ts` and MCP resource coverage in `packages/api/test/mcp-skills.postgres.test.ts`.

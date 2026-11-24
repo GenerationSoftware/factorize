@@ -23,11 +23,6 @@ export function rankField(value: string, query: string, field: string): RankedSe
   };
 }
 
-export function sessionExcerpt(value: string, range: SearchMatch, radius = 90): string {
-  const start = Math.max(0, range.start - radius), end = Math.min(value.length, range.end + radius);
-  return `${start ? "…" : ""}${value.slice(start, end)}${end < value.length ? "…" : ""}`;
-}
-
 /** Match a query as an ordered sequence of terms, ignoring punctuation and case. */
 export function searchMatches(value: string, query: string): SearchMatch[] {
   const needle = query.normalize().toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");

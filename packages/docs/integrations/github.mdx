@@ -1,16 +1,15 @@
 ---
-title: Automate from GitHub
-description: Select an installation, repository, and event.
+title: GitHub Triggers
+description: Configure GitHub webhook inputs that publish Event occurrences.
 ---
 
-[Connect the Factorize GitHub App](/integrations/oauth) in the browser and approve the selected repositories. Ask `list_github_installations({})` for safe installation IDs. Select the repository in the browser trigger editor to obtain its numeric repository ID; MCP does not provide a repository picker.
+Connect a GitHub installation, then attach a GitHub source Trigger to an Event.
+Choose the installation, repository, webhook event, action, and optional
+conditions in the Trigger configuration. Factorize verifies webhook signatures
+and deduplicates provider delivery IDs before validating and storing the Event
+occurrence.
 
-Append this event to a successful manual trigger, preserving the complete configuration:
-
-```json
-{"kind":"webhook","config":{"provider":"github","installationId":12345,"repositoryId":67890,"event":"pull_request","action":"opened"}}
-```
-
-Replace illustrative IDs with the selected installation/repository IDs. GitHub requires either non-empty issue match rules or both event and action. Read the saved event's slug/reflection before using fields such as `{{event-2.pull_request.number}}`. Give the execution agent its own repository access.
-
-Open one test PR on the selected repository. Verify delivery timeline, trigger activity and run context, then output in the browser trace. Missing events often mean wrong repository selection, a suspended installation or event/action mismatch. Use [event troubleshooting](/troubleshooting/events). Delayed conflict workflows also verify live PR state; conditions previews do not perform that verification.
+Inspect safe delivery outcomes with `list_trigger_webhook_activity` and
+`list_webhook_deliveries`. Use [Event payload and condition guidance](/integrations/events)
+for payload validation and [troubleshooting](/troubleshooting/events) for
+rejected or missing deliveries.

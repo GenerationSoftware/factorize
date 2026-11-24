@@ -9,13 +9,10 @@ export type WebhookEventConfig = {
   projectId?: string; listId?: string; matchRules?: MatchRule[]; installationId?: number; repositoryId?: number;
   event?: string; action?: string; integrationId?: string; signingSecret?: string; secret?: string; conditions?: WebhookConditions;
 };
-export interface WebhookInvocation {
-  claimKey: string; payload: Record<string, unknown>;
-  occurrence: { externalId: string; metadata: Record<string, unknown> };
-}
+export interface WebhookMatch { deduplicationKey: string; payload: Record<string, unknown>; }
 
-/** Pure provider adapter: matching and normalization only; it never launches execution. */
-export function adaptWebhook(config: WebhookEventConfig, provider: WebhookProvider, deliveryId: string, payload: Record<string, any>, eventName?: string): WebhookInvocation | null {
+/** Pure provider adapter: matching, normalization, and delivery deduplication. */
+export function adaptWebhook(config: WebhookEventConfig, provider: WebhookProvider, deliveryId: string, payload: Record<string, any>, eventName?: string): WebhookMatch | null {
   if (config.provider !== provider) return null;
   if (provider === "linear") {
     const data = payload.data ?? {}, projectId = data.project?.id ?? data.issue?.project?.id;
@@ -33,9 +30,8 @@ export function adaptWebhook(config: WebhookEventConfig, provider: WebhookProvid
     ? { issue: payload.data?.issue ?? (payload.type === "Issue" ? payload.data : undefined) }
     : provider === "clickup" ? { task: payload.task } : {};
   return {
-    claimKey: `webhook:${normalizedProvider}:${deliveryId}`,
+    deduplicationKey: `webhook:${normalizedProvider}:${deliveryId}`,
     payload: { ...payload, ...providerAliases, provider: normalizedProvider, event: eventName ?? payload.type ?? "webhook", delivery_id: deliveryId },
-    occurrence: { externalId: deliveryId, metadata: { provider: normalizedProvider, event: eventName ?? payload.type ?? "webhook", action: payload.action ?? null } },
   };
 }
 

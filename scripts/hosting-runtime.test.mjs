@@ -54,7 +54,7 @@ test("actual Cloudflare local runtime enforces static/API/protocol ownership, he
   });
   try {
     await ready;
-    for (const path of ["/projects/id/runs", "/projects/id/settings", "/projects/id/settings/", "/future-feature/nested/page?tab=one", "/unknown", "/skills", "/skills/id", "/triggers/id/edit", "/triggers/id/settings", "/runs", "/runs/id", "/settings/authorized-clients", "/auth/verify?token=test-token"]) {
+    for (const path of ["/projects/id/settings", "/projects/id/settings/", "/future-feature/nested/page?tab=one", "/unknown", "/skills", "/skills/id", "/triggers/id/edit", "/triggers/id/settings", "/settings/authorized-clients", "/auth/verify?token=test-token"]) {
       const page = await read(port, path); assert.equal(page.status, 200); assert.match(page.headers["content-type"], /text\/html/); assert.equal(page.headers["cache-control"], "no-cache, must-revalidate"); assert.match(page.headers["content-security-policy"], /script-src 'self'/); assert.ok(!page.headers["content-security-policy"].includes("unsafe-inline")); assert.equal(page.headers["x-content-type-options"], "nosniff");
       const assetPath = page.body.match(/src="(\/assets\/[^"/]+\.js)"/)?.[1]; assert.ok(assetPath);
       const asset = await read(port, assetPath); assert.equal(asset.status, 200); assert.equal(asset.headers["cache-control"], "public, max-age=31536000, immutable");
