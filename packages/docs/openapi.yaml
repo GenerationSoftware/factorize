@@ -4384,7 +4384,7 @@ paths:
                       - proxy:use
                       - apps:manage
                 integrationOverrides:
-                  description: Integration ID to approved epoch-bound scope, or false to block.
+                  description: Integration ID to approved epoch-bound scope, or false to block. Explicit approval is required to re-enable a blocked integration, including when scopes are supplied.
                   type: object
                   propertyNames:
                     type: string

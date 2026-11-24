@@ -20,7 +20,7 @@ import { AgentApiService, listAgentPolicies } from "./agent-api";
 import {ProxyPayloads,createPayloadInput,appendPayloadInput,finalizePayloadInput,attachmentInput} from "./proxy-payloads";
 import {ProxyOperations,operationRef,operationRead} from "./proxy-operations";
 import {queryApiResponseInput} from "./agent-api-contracts";
-import { apiPolicyInput, integrationRef, requestApiInput, readApiResponseInput } from "./agent-api-contracts";
+import { apiPolicyInput, integrationRef, integrationScopePattern, requestApiInput, readApiResponseInput } from "./agent-api-contracts";
 import { integrationStatus, exeConnection, accessToken, createdAccessToken, clientPermissionsUpdate, clientNameInput, authorizedClient } from "./settings-contracts";
 import { namedOption, providerOptions, githubRepository, githubInstallation, tailIntegration } from "./editor-contracts";
 import { z } from "zod";
@@ -600,22 +600,25 @@ export class ApiService {
     const client = (await this.listAuthorizedClients()).find(client => client.grantId === grantId);
     if (!client) throw new ServiceError(404, "not_found", "Authorization not found.");
     const { integrations } = await listAgentPolicies(this.env, this.auth.tenantId);
-    let scopes = edit.scopes;
-    if (!scopes) {
-      scopes = client.scopes.filter(scope => !edit.disabledScopes?.includes(scope as any));
-      for (const [id, approval] of Object.entries(edit.integrationOverrides ?? {})) {
-        const integration = integrations.find(row => row.id === id);
-        if (!integration || (approval !== false && approval !== integration.requiredScope)) throw new ServiceError(409,"conflict","Integration availability changed. Reload permissions.");
-        scopes = approval === false ? scopes.filter(scope => scope !== integration.requiredScope) : [...scopes,integration.requiredScope];
-      }
+    let scopes = edit.scopes ?? client.scopes.filter(scope => !edit.disabledScopes?.includes(scope as any));
+    for (const [id, approval] of Object.entries(edit.integrationOverrides ?? {})) {
+      const integration = integrations.find(row => row.id === id);
+      if (!integration || (approval !== false && approval !== integration.requiredScope)) throw new ServiceError(409,"conflict","Integration availability changed. Reload permissions.");
+      scopes = approval === false ? scopes.filter(scope => scope.match(integrationScopePattern)?.[1] !== id) : [...scopes, approval];
     }
+    // A previously denied integration needs an explicit approval for its current epoch.
+    // A full scope snapshot alone might come from an older or stale permissions editor.
+    scopes = scopes.filter(scope => {
+      const id = scope.match(integrationScopePattern)?.[1];
+      return !id || client.integrationOverrides[id] !== false || edit.integrationOverrides?.[id] === scope;
+    });
     if (scopes.some(scope => !client.availableScopes.includes(scope) && !client.scopes.includes(scope))) throw new ServiceError(400, "invalid_request", "Scope is outside this authorization.");
     const currentScopes = new Set(integrations.filter(row => row.available && row.policy !== "disabled").map(row => row.requiredScope));
     if (scopes.some(scope => scope.startsWith("integration:") && !currentScopes.has(scope) && !client.scopes.includes(scope))) throw new ServiceError(409, "conflict", "Integration availability changed. Reload permissions.");
     const integrationOverrides = { ...client.integrationOverrides };
     for (const integration of integrations) {
       if (scopes.includes(integration.requiredScope)) delete integrationOverrides[integration.id];
-      else if (integration.available && integration.policy !== "disabled") integrationOverrides[integration.id] = false;
+      else if (edit.integrationOverrides?.[integration.id] === false || (integration.available && integration.policy !== "disabled")) integrationOverrides[integration.id] = false;
     }
     const result = await databaseFor(this.env).pool.query(`
       INSERT INTO app.agent_identities AS i(tenant_id,kind,subject,user_id,session_version,disabled_scopes,scope_overrides,integration_overrides,permissions_revision)
@@ -643,8 +646,11 @@ export class ApiService {
     return publicValue(z.array(authorizedClient), grants.map(grant => {
       const row = byGrant.get(grant.id), grantedScopes = normalizeScopes(grant.scope);
       const baseScopes = row?.scope_overrides ?? grantedScopes.filter(scope => !row?.disabled_scopes.includes(scope));
-      const baselineScopes = integrations.filter(integration => integration.policy === "baseline" && integration.available && row?.integration_overrides?.[integration.id] !== false).map(integration => integration.requiredScope);
-      const scopes = [...new Set([...baseScopes,...baselineScopes])].filter(scope => !row?.disabled_scopes.includes(scope));
+      const baselineScopes = integrations.filter(integration => integration.policy === "baseline" && integration.available).map(integration => integration.requiredScope);
+      const scopes = [...new Set([...baseScopes,...baselineScopes])].filter(scope => {
+        const id = scope.match(integrationScopePattern)?.[1];
+        return !row?.disabled_scopes.includes(scope) && (!id || row?.integration_overrides?.[id] !== false);
+      });
       const availableScopes = [...new Set([...globallyAvailable, ...scopes])];
       return { grantId: grant.id, clientId: grant.clientId, clientName: row?.display_name ?? byId.get(grant.clientId)?.clientName ?? grant.clientId, appName: byId.get(grant.clientId)?.clientName ?? grant.clientId,
         availableScopes, scopeLabels, scopes, revision: row?.permissions_revision ?? 0,
