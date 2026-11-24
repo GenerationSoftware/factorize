@@ -227,6 +227,144 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("MCP event webhook lifecycl
     expect(await detail(empty)).toEqual({ occurrenceId: empty, state: "no_delivery_records", items: [], truncated: false });
   });
 
+  const processing = async (toolName: string, subscriptionId: string, args: Record<string, unknown> = {}, identity = auth) =>
+    tool(toolName, { subscription_id: subscriptionId, ...args }, identity);
+  const configure = (id: string, enabled: boolean) =>
+    processing("set_event_processing_acknowledgments", id, { enabled, ...(enabled ? { ack_timeout_seconds: 30 } : {}) });
+  const ack = (id: string, events: string[], cooldown?: number) =>
+    processing("acknowledge_events", id, { event_ids: events, ...(cooldown ? { cooldown_seconds: cooldown } : {}) });
+  const replay = (id: string, events: string[]) =>
+    processing("replay_unacknowledged_events", id, { event_ids: events });
+  const inspectProcessing = async (occurrenceId: string) =>
+    (await tool("read_event_delivery_diagnostics", { occurrenceId })).structuredContent.items[0];
+  const makeRecoveryDue = (occurrenceId: string) => f.db.pool.query(
+    "UPDATE app.mcp_event_deliveries SET ack_due_at=now()-interval '1 second' WHERE occurrence_id=$1", [occurrenceId]);
+
+  it("acknowledges exact durable work and recovers only the unresolved original occurrence", async () => {
+    const id = (await subscribe()).message.result.id;
+    expect((await processing("get_event_processing_acknowledgments", id)).structuredContent.enabled).toBe(false);
+    const defaultEvent = (await fire("default-delivery")).occurrenceId;
+    await dispatchMcpEvents(f.env);
+    expect(await inspectProcessing(defaultEvent)).not.toHaveProperty("processing");
+
+    expect((await configure(id, true)).structuredContent).toMatchObject({ enabled: true, ackTimeoutSeconds: 30 });
+    const a = (await fire("ack-a")).occurrenceId;
+    const b = (await fire("ack-b")).occurrenceId;
+    const c = (await fire("ack-c")).occurrenceId;
+    expect((await ack(id, [a])).structuredContent.notAcknowledged).toEqual([a]);
+    await dispatchMcpEvents(f.env);
+    expect(await inspectProcessing(b)).toMatchObject({ status: "accepted", processing: { state: "awaiting_ack", recoveryAttempts: 0 } });
+    expect((await ack(id, [c, a, a], 20)).structuredContent.acknowledged).toEqual([c, a]);
+    const cooldown = (await processing("get_event_processing_acknowledgments", id)).structuredContent.cooldownUntil;
+    expect((await ack(id, [a], 300)).structuredContent).toMatchObject({ alreadyAcknowledged: [a], cooldownUntil: cooldown });
+
+    await makeRecoveryDue(b);
+    expect(await dispatchMcpEvents(f.env)).toBe(0);
+    const storage = { get: vi.fn(), getAlarm: async () => null, setAlarm: vi.fn() };
+    const alarm = new AlarmCoordinator({ storage } as unknown as DurableObjectState, f.env);
+    await alarm.alarm();
+    expect(storage.setAlarm).toHaveBeenCalledOnce();
+    expect(Math.abs(Number(storage.setAlarm.mock.calls[0][0]) - Date.parse(cooldown))).toBeLessThan(50);
+    await f.db.pool.query("UPDATE app.mcp_event_subscriptions SET cooldown_until=now()-interval '1 second' WHERE id=$1", [id]);
+
+    const originalCount = deliveries.length;
+    await alarm.alarm(); // No new event arrived to wake the scheduler.
+    const recovered = deliveries.slice(originalCount);
+    expect(recovered).toHaveLength(1);
+    expect(recovered[0].event.data.occurrenceId).toBe(b);
+    expect(recovered[0].id).not.toBe(b);
+    expect((await ack(id, [recovered[0].id])).structuredContent.notAcknowledged).toEqual([recovered[0].id]);
+    expect((await ack(id, [b])).structuredContent.acknowledged).toEqual([b]);
+    expect((await replay(id, [a, b, c])).structuredContent.queued).toEqual([]);
+    expect((await f.db.pool.query("SELECT 1 FROM app.event_occurrences WHERE tenant_id=$1", [f.tenantId])).rowCount).toBe(4);
+  });
+
+  it("serializes acknowledgments and policy disable with in-flight HTTP, and fences old generations", async () => {
+    const id = (await subscribe()).message.result.id;
+    await configure(id, true);
+    const second = (await subscribe(otherReceiver)).message.result.id;
+    await configure(second, true);
+    const event = (await fire("ack-race")).occurrenceId;
+    let entered!: () => void, release!: () => void;
+    const started = new Promise<void>(resolve => { entered = resolve; });
+    holdDelivery = () => { entered(); return new Promise<void>(resolve => { release = resolve; }); };
+    // Only the intended subscription is due; the other's copy cannot be acknowledged.
+    await f.db.pool.query("UPDATE app.mcp_event_deliveries SET next_attempt_at=now()+interval '1 hour' WHERE subscription_id=$1", [second]);
+    const send = dispatchMcpEvents(f.env);
+    await started;
+    expect((await ack(second, [event])).structuredContent.notAcknowledged).toEqual([event]);
+    const racingAck = ack(id, [event], 40);
+    release();
+    await send;
+    expect((await racingAck).structuredContent.acknowledged).toEqual([event]);
+
+    const waived = (await fire("waive-race")).occurrenceId;
+    await f.db.pool.query("UPDATE app.mcp_event_deliveries SET next_attempt_at=now()+interval '1 hour' WHERE subscription_id=$1", [second]);
+    await f.db.pool.query("UPDATE app.mcp_event_subscriptions SET cooldown_until=NULL WHERE id=$1", [id]);
+    const startedAgain = new Promise<void>(resolve => { entered = resolve; });
+    const sendAgain = dispatchMcpEvents(f.env);
+    await startedAgain;
+    const turningOff = configure(id, false);
+    release();
+    await sendAgain;
+    expect((await turningOff).structuredContent).toMatchObject({ enabled: false, cooldownUntil: null });
+    holdDelivery = undefined;
+    expect(await inspectProcessing(waived)).toMatchObject({ status: "accepted", processing: { state: "waived", nextRecoveryAt: null } });
+    expect(await inspectProcessing(event)).toMatchObject({ status: "accepted", processing: { state: "processed" } });
+    await configure(id, true);
+    expect((await ack(id, [waived])).structuredContent.notAcknowledged).toEqual([waived]);
+    expect((await replay(id, [waived])).structuredContent.queued).toEqual([]);
+    await unsubscribe();
+    expect((await ack(id, [event])).isError).toBe(true);
+    expect((await subscribe()).message.result.id).toBe(id);
+    await configure(id, true);
+    expect((await ack(id, [event])).structuredContent.notAcknowledged).toEqual([event]);
+    expect((await processing("get_event_processing_acknowledgments", id, {}, { ...auth, oauthGrantId: "other-grant" })).isError).toBe(true);
+  });
+
+  it("off clears a claimed but unstarted recovery and does not opt in old occurrences again", async () => {
+    const id = (await subscribe()).message.result.id;
+    await configure(id, true);
+    const occurrence = (await fire("unstarted-recovery")).occurrenceId;
+    await dispatchMcpEvents(f.env);
+    await f.db.pool.query(`UPDATE app.mcp_event_deliveries SET claim_id=gen_random_uuid(),recovery_event_id=gen_random_uuid()
+      WHERE occurrence_id=$1`, [occurrence]);
+    await f.db.pool.query("UPDATE app.mcp_event_subscriptions SET cooldown_until=now()+interval '1 hour' WHERE id=$1", [id]);
+    expect((await configure(id, false)).structuredContent.cooldownUntil).toBeNull();
+    expect((await f.db.pool.query("SELECT claim_id,recovery_event_id FROM app.mcp_event_deliveries WHERE occurrence_id=$1", [occurrence])).rows)
+      .toEqual([{ claim_id: null, recovery_event_id: null }]);
+    await configure(id, true);
+    await makeRecoveryDue(occurrence);
+    expect(await dispatchMcpEvents(f.env)).toBe(0);
+    expect(deliveries).toHaveLength(1);
+    expect(await inspectProcessing(occurrence)).toMatchObject({ status: "accepted", processing: { state: "waived" } });
+  });
+
+  it("recovers a persisted interrupted claim and caps automatic recovery attempts", async () => {
+    const id = (await subscribe()).message.result.id;
+    await configure(id, true);
+    const occurrence = (await fire("bounded-recovery")).occurrenceId;
+    await dispatchMcpEvents(f.env);
+    const interrupted = crypto.randomUUID();
+    await f.db.pool.query("UPDATE app.mcp_event_deliveries SET claim_id=gen_random_uuid(),recovery_event_id=$2,recovery_attempts=1 WHERE occurrence_id=$1",
+      [occurrence, interrupted]);
+    await makeRecoveryDue(occurrence);
+    await dispatchMcpEvents(f.env);
+    expect(deliveries.at(-1)).toMatchObject({ id: interrupted, event: { data: { occurrenceId: occurrence } } });
+    for (let i = 0; i < 3; i++) {
+      await makeRecoveryDue(occurrence);
+      await dispatchMcpEvents(f.env);
+    }
+    expect(deliveries).toHaveLength(4); // Initial delivery and three recoveries; the interrupted claim also counts.
+    expect(new Set(deliveries.map(d => d.id)).size).toBe(4);
+    expect(await inspectProcessing(occurrence)).toMatchObject({ status: "accepted", processing: { state: "exhausted", recoveryAttempts: 4 } });
+    expect((await replay(id, [occurrence])).structuredContent.queued).toEqual([occurrence]);
+    expect((await replay(id, [occurrence])).structuredContent.queued).toEqual([]);
+    await dispatchMcpEvents(f.env);
+    expect(deliveries.at(-1)?.event.data.occurrenceId).toBe(occurrence);
+    expect(deliveries).toHaveLength(5);
+  });
+
   it("discovers one stable type and fans out only matching occurrences without breaking legacy subscriptions", async () => {
     const catalog = (await request("events/list")).message.result;
     expect(catalog.events).toEqual([{

@@ -68,3 +68,20 @@ export type ReadEventOccurrencesInput = z.infer<typeof readEventOccurrencesInput
 
 
 export const readEventDeliveryDiagnosticsInput = z.strictObject({ occurrenceId: z.uuid() });
+
+
+const subscriptionId = z.string().regex(/^sub_[a-f0-9]{64}$/).describe("Exact subscription ID returned by events/subscribe.");
+const eventIds = z.array(z.uuid().transform(id => id.toLowerCase())).min(1).max(100)
+  .transform(ids => [...new Set(ids)])
+  .describe("Exact original occurrence UUIDs from webhook data.occurrenceId; never recovery webhook IDs, an ordered range, or a batch inferred from a wake.");
+export const getProcessingAcknowledgmentsInput = z.strictObject({ subscription_id: subscriptionId });
+export const setProcessingAcknowledgmentsInput = z.strictObject({
+  subscription_id: subscriptionId,
+  enabled: z.boolean(),
+  ack_timeout_seconds: z.number().int().min(30).max(86400).optional(),
+});
+export const acknowledgeEventsInput = z.strictObject({
+  subscription_id: subscriptionId, event_ids: eventIds,
+  cooldown_seconds: z.number().int().min(1).max(3600).optional(),
+});
+export const replayUnacknowledgedEventsInput = z.strictObject({ subscription_id: subscriptionId, event_ids: eventIds });

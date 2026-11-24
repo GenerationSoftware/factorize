@@ -242,6 +242,7 @@ its input and enforces the operation's required scope.
 
 | Tool | Authorization | Input |
 | --- | --- | --- |
+| `acknowledge_events` | Same active OAuth grant with `triggers:read` | Record durable processing of exact original occurrence UUIDs; optionally pace future delivery on this subscription |
 | `append_payload_chunk` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `cancel_api_operation` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `create_app` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
@@ -266,6 +267,9 @@ its input and enforces the operation's required scope.
 | `list_apps` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `list_cloudflare_tail_integrations` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `list_event_occurrences` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
+| `get_event_processing_acknowledgments` | Same active OAuth grant with `triggers:read` | Read the processing policy and cooldown for the active subscription owned by this OAuth grant |
+| `replay_unacknowledged_events` | Same active OAuth grant with `triggers:read` | Queue recovery for exact unresolved original occurrence UUIDs on this subscription |
+| `set_event_processing_acknowledgments` | Same active OAuth grant with `triggers:read` | Enable processing acknowledgment for future occurrences or waive outstanding acknowledgments on this subscription |
 | `read_event_delivery_diagnostics` | Owner credential with `triggers:read` | Read safe outbound MCP webhook delivery diagnostics for one occurrence ID |
 | `read_event_occurrences` | `triggers:read` | An `occurrenceId`, or a `definitionId` and inclusive `since` with optional `cursor` and `limit` |
 | `list_events` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
@@ -323,6 +327,43 @@ delivery tools and cannot retry an outbound message.
 
 `delete_event` permanently removes the Event, all attached Triggers and input
 configurations, and all stored occurrences.
+
+### Optional processing acknowledgments
+
+The standard MCP subscription request and HTTP delivery behavior are unchanged.
+HTTP 2xx means the callback accepted the wake, not that a task ran. Opt in for
+future occurrences on the exact subscription using
+`set_event_processing_acknowledgments` after subscribing. The setting is off
+by default. The same active OAuth grant with `triggers:read` can read it with
+`get_event_processing_acknowledgments`.
+
+- Acknowledge promptly **after** durable processing or handoff. Call
+  `acknowledge_events` with the exact `subscription_id` and successful original
+  `event_ids` from `data.occurrenceId`. Arrays accept 1–100 UUIDs. An ACK
+  reports newly processed, already processed, and not acknowledged IDs; do not
+  treat the last group as completed work.
+- A wake may arrive out of order or contain only part of the work. A recovery
+  webhook may use a fresh top-level `eventId`; read and deduplicate by the
+  unchanged original `data.occurrenceId`. UUIDs do not imply ordering or a
+  high-water mark. Do not assume a platform batch window, run cap, or check
+  cadence. Page durable history by its documented cursor and retain any work
+  you cannot complete; do not silently drop it.
+- To rate limit, pace in your client first. An optional `cooldown_seconds`
+  (1–3600) on an ACK with newly completed work pauses delivery only on that
+  subscription. Retrying the same ACK does not extend cooldown. Delayed
+  delivery remains durable and resumes when cooldown expires even without a
+  new event.
+- If the ACK timeout expires, Factorize sends bounded recovery wakes for that
+  original occurrence. Use `read_event_delivery_diagnostics` to distinguish HTTP
+  acceptance from awaiting ACK, processed, waived, cancelled, and exhausted.
+  `replay_unacknowledged_events` queues exact unresolved IDs on your active
+  opted-in subscription, subject to cooldown; it does not create business
+  occurrences or replay completed work.
+- Turning off waives unresolved acknowledgments, cancels unstarted recovery,
+  and clears subscription cooldown. Turning it on again applies only to
+  future occurrences. A reactivated subscription is a fresh generation and
+  starts with acknowledgments off.
+
 
 ## Triggers
 
