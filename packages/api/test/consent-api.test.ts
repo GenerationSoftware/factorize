@@ -7,12 +7,13 @@ const parsed = { responseType: "code", clientId: "client", redirectUri: "https:/
 const queryWithScope = { authorizationQuery: "client_id=client&scope=fixture" };
 const deniedId = "18a2410e-ea09-4fe0-af8a-719c0c91e6e2";
 const integrationScope = `integration:${deniedId}:1`;
-function fixture(defaultPreset?: string[], reconnect?: { approved: string[]; saved: string[]; denied?: boolean }) {
+function fixture(defaultPreset?: string[], reconnect?: { approved: string[]; saved: string[]; denied?: boolean; revision?: number }) {
   const values = new Map<string, string>();
   const used = new Set<string>();
   const query = vi.fn(async (sql: string, args: unknown[]) => {
+    if (sql.includes("pg_advisory_xact_lock")) return { rows: [] };
     if (sql.includes("FROM app.agent_identities")) return { rows: reconnect ? [{
-      subject: "previous-grant", scope_overrides: reconnect.saved, disabled_scopes: [], integration_overrides: reconnect.denied ? { [deniedId]: false } : {}, revoked_at: null,
+      subject: "previous-grant", scope_overrides: reconnect.saved, disabled_scopes: [], integration_overrides: reconnect.denied ? { [deniedId]: false } : {}, revoked_at: null, permissions_revision: reconnect.revision ?? 1,
     }] : [] };
     if (sql.includes("FROM app.agent_integrations")) return { rows: [{ id: deniedId, epoch: 1, available: true, policy: "baseline", name: "Fixture integration", description: null }] };
     if (sql.includes("FROM app.oauth_connections")) return { rows: [] };
@@ -110,6 +111,34 @@ describe("static consent support", () => {
     expect(oauth.completeAuthorization).toHaveBeenNthCalledWith(2, expect.objectContaining({
       scope: ["proxy:use", integrationScope], metadata: { tenantId: session.tenantId },
     }));
+  });
+
+  it("records displayed baseline integrations left unchecked as explicit denials", async () => {
+    const { env, oauth } = fixture(undefined, { approved: ["proxy:use", integrationScope], saved: ["proxy:use", integrationScope] });
+    oauth.parseAuthRequest.mockResolvedValue({ ...parsed, scope: ["proxy:use", integrationScope] });
+    const preview = await consentPreview(env, session, queryWithScope);
+    expect(preview.selectedScopes).toEqual(["proxy:use", integrationScope]);
+    const result = await consentDecision(env, session, { request: preview.request, signature: preview.signature, decision: "allow", scopes: ["proxy:use"] });
+    expect(result?.redirectTo).toContain("code=authorized");
+    expect(oauth.completeAuthorization).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      scope: ["proxy:use"], props: expect.objectContaining({ initialIntegrationDenials: [deniedId] }),
+    }));
+  });
+
+  it("requires a fresh consent review after a saved permission edit", async () => {
+    const saved = { approved: ["proxy:use", integrationScope], saved: ["proxy:use", integrationScope], denied: true, revision: 1 };
+    const { env, oauth } = fixture(undefined, saved);
+    oauth.parseAuthRequest.mockResolvedValue({ ...parsed, scope: ["proxy:use", integrationScope] });
+    const original = await consentPreview(env, session, queryWithScope);
+    saved.revision += 1;
+    const refreshed = await consentPreview(env, session, queryWithScope);
+    const approve = (preview: typeof original) => consentDecision(env, session, {
+      request: preview.request, signature: preview.signature, decision: "allow", scopes: preview.selectedScopes,
+    });
+    await expect(approve(original)).resolves.toBeNull();
+    expect(oauth.completeAuthorization).not.toHaveBeenCalled();
+    await expect(approve(refreshed)).resolves.toMatchObject({ redirectTo: expect.stringContaining("code=authorized") });
+    expect(oauth.completeAuthorization).toHaveBeenCalledTimes(1);
   });
 
   it("gives an actionable expired-link response and accepts a fresh authorization", async () => {

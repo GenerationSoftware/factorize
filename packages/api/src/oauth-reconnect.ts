@@ -1,7 +1,7 @@
 import type { GrantSummary, AuthRequest } from "@cloudflare/workers-oauth-provider";
 import { integrationScopePattern } from "./agent-api-contracts";
 import { normalizeScopes } from "./access-tokens";
-import { databaseFor } from "./postgres/database";
+import { databaseFor, type DatabaseClient } from "./postgres/database";
 import { matchesRegisteredRedirect } from "./oauth-continuation";
 import type { Env } from "./types";
 import type { Session } from "./session";
@@ -12,6 +12,7 @@ type ReconnectPolicy = {
   scope_overrides: string[] | null;
   integration_overrides: Record<string, string | false>;
   revoked_at: Date | null;
+  permissions_revision: number;
 };
 
 export function initialIntegrationOverrides(ids: unknown): Record<string, false> {
@@ -23,7 +24,15 @@ export function integrationForScope(scope: string) {
   return integrationScopePattern.exec(scope)?.[1];
 }
 
-export async function reconnectPreferences(env: Env, session: Session, request: AuthRequest) {
+export type ReconnectRevision = { grantId: string; revision: number };
+
+export async function lockOAuthPolicy(db: DatabaseClient, session: Pick<Session, "tenantId" | "userId">) {
+  // Consent does not have a grant ID yet. Use the owner/team key shared with
+  // permission edits and revocation, including before an identity row exists.
+  await db.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [`oauth-policy:${session.tenantId}:${session.userId}`]);
+}
+
+export async function reconnectPreferences(env: Env, session: Session, request: AuthRequest, db?: DatabaseClient) {
   if (!env.OAUTH_PROVIDER) return null;
   const grants: GrantSummary[] = [];
   const now = Math.floor(Date.now() / 1000);
@@ -43,8 +52,8 @@ export async function reconnectPreferences(env: Env, session: Session, request: 
     cursor = page.cursor;
   } while (cursor);
   if (!grants.length) return null;
-  const { rows } = await databaseFor(env).pool.query<ReconnectPolicy>(
-    `SELECT subject,disabled_scopes,scope_overrides,integration_overrides,revoked_at
+  const { rows } = await (db ?? databaseFor(env).pool).query<ReconnectPolicy>(
+    `SELECT subject,disabled_scopes,scope_overrides,integration_overrides,revoked_at,permissions_revision
      FROM app.agent_identities WHERE tenant_id=$1 AND user_id=$2 AND kind='oauth' AND subject=ANY($3)`,
     [session.tenantId, session.userId, grants.map(grant => grant.id)],
   );
@@ -55,6 +64,7 @@ export async function reconnectPreferences(env: Env, session: Session, request: 
   const policy = policies.get(grant.id);
   const overrides = policy?.integration_overrides ?? initialIntegrationOverrides(grant.metadata?.initialIntegrationDenials);
   return {
+    version: { grantId: grant.id, revision: policy?.permissions_revision ?? 0 } satisfies ReconnectRevision,
     preferredScopes: normalizeScopes(policy?.scope_overrides ?? grant.scope).filter(scope => {
       const integration = integrationForScope(scope);
       return !policy?.disabled_scopes.includes(scope) && (!integration || overrides[integration] !== false);

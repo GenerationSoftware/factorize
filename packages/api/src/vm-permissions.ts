@@ -4,6 +4,7 @@ import { integrationScopePattern } from "./agent-api-contracts";
 import { AgentApiError } from "./agent-api-error";
 import type { Database, DatabaseClient } from "./postgres/database";
 import type { OAuthProps } from "./types";
+import { initialIntegrationOverrides } from "./oauth-reconnect";
 import { z } from "zod";
 
 export const vmPermissionSource = z.union([
@@ -75,7 +76,7 @@ export async function resolveVmPermissions(db: DatabaseClient, auth: OAuthProps,
     const integration = integrations.get(scope);
     if (!integration || !integration.available || integration.policy === "disabled" || !effective.has("proxy:use")) throw forbidden();
     if (auth.authMethod === "oauth") {
-      if (connectionAccess(integration, [...effective], policy ?? { disabled_scopes: [], integration_overrides: {} }) !== "granted") throw forbidden();
+      if (connectionAccess(integration, [...effective], policy ?? { disabled_scopes: [], integration_overrides: initialIntegrationOverrides(auth.initialIntegrationDenials) }) !== "granted") throw forbidden();
     } else if (!effective.has(scope)) {
       throw forbidden();
     }

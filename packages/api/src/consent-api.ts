@@ -7,7 +7,7 @@ import type { AuthRequest } from "@cloudflare/workers-oauth-provider";
 import { hmac } from "./crypto";
 import type { Env, OAuthProps } from "./types";
 import type { Session } from "./session";
-import { integrationForScope, reconnectPreferences } from "./oauth-reconnect";
+import { integrationForScope, lockOAuthPolicy, reconnectPreferences, type ReconnectRevision } from "./oauth-reconnect";
 import { AGENT_SCOPES, normalizeScopes } from "./access-tokens";
 export const consentPreviewInput = z.object({ authorizationQuery: z.string().min(1).max(8192) }).strict();
 export const consentDecisionInput = z.object({ request: z.string().min(1).max(16384), signature: z.string().min(1).max(256), decision: z.enum(["allow", "deny"]), scopes: z.array(z.string()) }).strict();
@@ -21,7 +21,7 @@ type ConsentEnvelope = {
   nonce: string;
   connection?: string;
   allowedScopes?: string[];
-  deniedIntegrations?: string[];
+  policyVersion: ReconnectRevision | null;
 };
 const encode = (value: unknown) => btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(value))));
 const decode = (value: string) => JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(value), char => char.charCodeAt(0))));
@@ -67,7 +67,7 @@ export async function consentPreview(env: Env, session: Session, input: z.infer<
   await databaseFor(env).pool.query("DELETE FROM app.oauth_consent_previews WHERE expires_at<now()-interval '1 day'");
   const nonce = crypto.randomUUID();
   await databaseFor(env).pool.query("INSERT INTO app.oauth_consent_previews(id,expires_at) VALUES ($1,$2)", [nonce, new Date(expiresAt * 1000)]);
-  const request = encode({ parsed, expiresAt, nonce, connection: connectionId ?? undefined, allowedScopes: scopes, deniedIntegrations: preferences?.deniedIntegrations } satisfies ConsentEnvelope);
+  const request = encode({ parsed, expiresAt, nonce, connection: connectionId ?? undefined, allowedScopes: scopes, policyVersion: preferences?.version ?? null } satisfies ConsentEnvelope);
   return { integrationLabels, clientName: client.clientName ?? "this client", scopes, selectedScopes, unavailableSavedScopes,
     reconnect: !!preferences, request, signature: await hmac(binding(request, session), env.SESSION_SIGNING_SECRET), expiresAt: new Date(expiresAt * 1000).toISOString() };
 }
@@ -84,18 +84,26 @@ export async function consentDecision(env: Env, session: Session, input: z.infer
   const selected = normalizeScopes(input.scopes);
   const issuedScopes = selected;
   if (input.scopes.some(scope => !allowed.has(scope) && !allowed.has(normalizeScopes([scope])[0] ?? "") ) || selected.some(scope => !(AGENT_SCOPES as readonly string[]).includes(scope) && !isIntegrationScope(scope))) return null;
-  // Keep any denial added while the chooser was open. Only a scope that was
-  // shown unchecked because of a denial can explicitly clear that denial.
-  const initialDenied = new Set(envelope.deniedIntegrations);
-  const currentDenied = input.decision === "allow" ? (await reconnectPreferences(env, session, parsed))?.deniedIntegrations ?? [] : [];
-  if (issuedScopes.some(scope => {
-    const integration = integrationForScope(scope);
-    return !!integration && !initialDenied.has(integration) && currentDenied.includes(integration);
-  })) return null;
-  const selectedIntegrations = new Set(issuedScopes.map(integrationForScope));
-  const initialIntegrationDenials = [...new Set([...initialDenied, ...currentDenied])]
-    .filter(id => !initialDenied.has(id) || !selectedIntegrations.has(id));
   return databaseFor(env).transaction(async transaction => {
+    const initialIntegrationDenials = new Set<string>();
+    if (input.decision === "allow") {
+      await lockOAuthPolicy(transaction, session);
+      const current = await reconnectPreferences(env, session, parsed, transaction);
+      // Refuse stale approvals without consuming the preview or connection. A
+      // new review must display the latest settings before consent can proceed.
+      if (envelope.policyVersion === undefined ||
+          envelope.policyVersion?.grantId !== current?.version.grantId ||
+          envelope.policyVersion?.revision !== current?.version.revision) return null;
+      const selectedIntegrations = new Set(issuedScopes.map(integrationForScope));
+      for (const id of current?.deniedIntegrations ?? []) initialIntegrationDenials.add(id);
+      // An unchecked integration is an explicit denial even when the global
+      // baseline could otherwise grant it via proxy:use alone.
+      for (const scope of allowed) {
+        const id = integrationForScope(scope);
+        if (id && !selectedIntegrations.has(id)) initialIntegrationDenials.add(id);
+      }
+      for (const id of selectedIntegrations) if (id) initialIntegrationDenials.delete(id);
+    }
     const preview = await transaction.query("UPDATE app.oauth_consent_previews SET used_at=now() WHERE id=$1 AND used_at IS NULL AND expires_at>clock_timestamp() RETURNING id", [envelope.nonce]);
     if (!preview.rows.length) return null;
     if (envelope.connection) {
@@ -104,7 +112,7 @@ export async function consentDecision(env: Env, session: Session, input: z.infer
     }
     if (input.decision === "deny") { const redirect = new URL(parsed.redirectUri); redirect.searchParams.set("error", "access_denied"); redirect.searchParams.set("state", parsed.state); if (parsed.issuer) redirect.searchParams.set("iss", parsed.issuer); return { redirectTo: redirect.toString() }; }
     await integrationConsentLabels(env, session.tenantId, issuedScopes);
-    const denied = initialIntegrationDenials.length ? { initialIntegrationDenials } : {};
+    const denied = initialIntegrationDenials.size ? { initialIntegrationDenials: [...initialIntegrationDenials] } : {};
     const props: OAuthProps = { tenantId: session.tenantId, userId: session.userId, sessionVersion: session.sessionVersion, scopes: issuedScopes, authMethod: "oauth", ...denied };
     const { redirectTo } = await env.OAUTH_PROVIDER!.completeAuthorization({ request: parsed, userId: session.userId, metadata: { tenantId: session.tenantId, ...denied }, scope: issuedScopes, props, revokeExistingGrants: false });
     return { redirectTo };
