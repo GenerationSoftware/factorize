@@ -1,7 +1,5 @@
 import { gitHttpsFetch } from "./git-https";
-import {authenticateHostedRunRequest} from "./hosted-run-auth";
 import { SkillLibrary } from "./skill-library";
-import { authenticateVmGrant, VM_GRANT_HEADER } from "./vm-grants";
 import { staticApp, securityHeaders } from "./static-app";
 import { OAuthProvider, AuthorizationError, getOAuthApi, type AuthRequest, type OAuthProviderOptions } from "@cloudflare/workers-oauth-provider";
 import app from "./index";
@@ -13,12 +11,8 @@ import { consentDecision } from "./consent-api";
 import { addDeviceMetadata, DEVICE_GRANT, deviceAuthorization, deviceClientRegistration, deviceToken, deviceVerification } from "./device-oauth";
 import type { Env, OAuthProps } from "./types";
 import { AGENT_SCOPES, ACCESS_SCOPES, authenticateAccessToken, normalizeScopes } from "./access-tokens";
-import { authenticateVendorRunRequest, RUN_IDENTITY_HEADER } from "./vendor-run-auth";
-import { artifactUpload, readArtifactUploadGrant } from "./artifact-upload";
-import { traceChunkUpload } from "./trace-chunk-upload";
 import { databaseFor } from "./postgres/database";
 import { IdentityRepository } from "./postgres/identity-repository";
-import { runOutboundProxyFetch } from "./run-outbound-proxy";
 import { oidcApiAuth, oidcRequest } from "./oidc-provider";
 import { xOAuthCallback } from "./x-oauth-callback";
 
@@ -93,7 +87,6 @@ function provider(env: Env) { return new OAuthProvider<Env>(providerOptions(env)
 export { AlarmCoordinator } from "./alarm-coordinator";
 const backend = { async fetch(request: Request, env: Env, ctx: ExecutionContext) {
   if (new URL(request.url).hostname === "git.factorize.sh") return gitHttpsFetch(request, env, ctx);
-  if (new URL(request.url).pathname.startsWith("/internal/run-proxy/")) return runOutboundProxyFetch(request, env);
   if (new URL(request.url).pathname === "/oauth/x/callback") return request.method === "GET" ? xOAuthCallback(request, env) : new Response("Method not allowed", { status: 405, headers: { Allow: "GET" } });
   const oidc = await oidcRequest(request, env);
   if (oidc) return oidc;
@@ -102,42 +95,15 @@ const backend = { async fetch(request: Request, env: Env, ctx: ExecutionContext)
   const oauth = provider(env);
   const url = new URL(request.url);
   const apiEnv = { ...env, OAUTH_PROVIDER: env.OAUTH_PROVIDER ?? getOAuthApi(providerOptions(env), env) };
-  const upload = url.pathname.match(/^\/internal\/run-(artifacts|trace-chunks)\/([^/]+)$/);
-  if (upload) {
-    let token: string;
-    try { token = decodeURIComponent(upload[2]!); } catch { return new Response("Invalid upload grant", {status: 401}); }
-    const [auth, grant] = await Promise.all([authenticateVendorRunRequest(request, env, {artifactFinalization: true}), readArtifactUploadGrant(token, env.SESSION_SIGNING_SECRET)]);
-    if (!auth || !grant || auth.tenantId !== grant.tenantId || auth.runId !== grant.runId) return new Response("Vendor-verified run identity and a matching upload grant are required", {status: 401});
-    return upload[1] === "artifacts" ? artifactUpload(request, env, token) : traceChunkUpload(request, env, token);
-  }
   if (url.pathname.startsWith("/internal/")) return new Response("Not found", {status: 404});
-  if((url.pathname==="/mcp"||url.pathname.startsWith("/api/v1"))&&request.headers.get("Authorization")?.startsWith("Bearer fpi_")){
-    const auth=await authenticateHostedRunRequest(request,apiEnv);
-    if(!auth)return Response.json({error:{code:"invalid_token",message:"The hosted run identity is invalid or no longer active."}},{status:401});
-    return protectedApiFetch(request,apiEnv,auth,ctx);
-  }
-  if ((url.pathname === "/mcp" || url.pathname.startsWith("/api/v1")) && request.headers.has(RUN_IDENTITY_HEADER)) {
-    const auth = await authenticateVendorRunRequest(request, env);
-    if (!auth) return Response.json({ error: { code: "invalid_token", message: "The vendor identity is invalid or the run is no longer authorized." } }, { status: 401, headers: { "WWW-Authenticate": 'Bearer error="invalid_token"' } });
-    return protectedApiFetch(request, apiEnv, auth, ctx);
-  }
   if (url.pathname.startsWith("/api/v1/") && /^Bearer fza_/i.test(request.headers.get("Authorization") ?? "")) {
     const auth = await oidcApiAuth(request, env);
     if (!auth) return Response.json({ error: { code: "invalid_token" } }, {status: 401, headers: { "WWW-Authenticate": 'Bearer error="invalid_token"', "Cache-Control": "no-store" } });
     return protectedApiFetch(request, apiEnv, auth, ctx);
   }
   const proxyEndpoint = request.method === "POST" && ["/api/v1/agent/requests","/api/v1/agent/responses/read"].includes(url.pathname);
-  if (request.headers.has(VM_GRANT_HEADER)) {
-    if (!proxyEndpoint) return Response.json({error:{code:"forbidden"}},{status:403});
-    const auth = await authenticateVmGrant(apiEnv,request);
-    if (!auth) return Response.json({error:{code:"invalid_token"}},{status:401});
-    return protectedApiFetch(request,apiEnv,auth,ctx);
-  }
-  const grantEndpoint = (request.method === "POST" && /^\/api\/v1\/agent\/vm-grants\/[a-f0-9-]+\/renew$/.test(url.pathname))
-    || (url.pathname === "/api/v1/agent/vm-grants" && request.method === "POST")
-    || (request.method === "DELETE" && /^\/api\/v1\/agent\/vm-grants\/[a-f0-9-]+$/.test(url.pathname));
   const reflectionEndpoint = request.method === "GET" && url.pathname === "/api/v1/agent/reflection";
-  if ((proxyEndpoint || grantEndpoint || reflectionEndpoint) && request.headers.get("Authorization")?.startsWith("Bearer ")) {
+  if ((proxyEndpoint || reflectionEndpoint) && request.headers.get("Authorization")?.startsWith("Bearer ")) {
     // These HTTP operations are part of the agent resource only with explicit
     // proxy consent. Other REST operations retain their normal audience check.
     const token = await apiEnv.OAUTH_PROVIDER.unwrapToken<OAuthProps>(request.headers.get("Authorization")!.slice(7));

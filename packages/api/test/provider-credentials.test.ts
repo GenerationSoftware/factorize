@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as github from "../src/github";
-import { resolveRunProviderCredentials } from "../src/provider-credentials";
+import { resolveProviderCredentials } from "../src/provider-credentials";
 import { ConnectionRepository } from "../src/postgres/connection-repository";
 import { GitHubRepository } from "../src/postgres/github-repository";
 import type { Env } from "../src/types";
@@ -12,21 +12,21 @@ const env = { CREDENTIAL_ENCRYPTION_KEY: "test", LINEAR_CLIENT_ID: "linear-clien
 
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
-describe("run provider credential lifecycle", () => {
+describe("provider credential selection", () => {
   it("resolves only the active tenant's selected GitHub installations and denies suspended selections", async () => {
     const installation = vi.spyOn(GitHubRepository.prototype, "installation").mockImplementation(function(this: any, id: number) {
       if (this.tenantId !== tenantId) return Promise.resolve(null);
       return Promise.resolve(id === 17 ? { state: "active" } : id === 18 ? { state: "suspended" } : null);
     });
     const mint = vi.spyOn(github, "installationToken").mockResolvedValue("rotated-installation-token");
-    const result = await resolveRunProviderCredentials({ database, env, tenantId, githubInstallationIds: [17, 18], linearSelected: false });
+    const result = await resolveProviderCredentials({ database, env, tenantId, githubInstallationIds: [17, 18], linearSelected: false });
     expect(result).toEqual({ githubInstallations: [
       { installationId: 17, available: true, accessToken: "rotated-installation-token" },
       { installationId: 18, available: false },
     ], linearConnection: null });
     expect(installation.mock.calls.map(([id]) => id)).toEqual([17, 18, 17]);
     expect(mint).toHaveBeenCalledTimes(1);
-    await resolveRunProviderCredentials({ database, env, tenantId: otherTenant, githubInstallationIds: [17], linearSelected: false });
+    await resolveProviderCredentials({ database, env, tenantId: otherTenant, githubInstallationIds: [17], linearSelected: false });
     expect(mint).toHaveBeenCalledTimes(1);
   });
 
@@ -37,13 +37,13 @@ describe("run provider credential lifecycle", () => {
     const get = vi.spyOn(ConnectionRepository.prototype, "get").mockResolvedValue(old);
     const rotate = vi.spyOn(ConnectionRepository.prototype, "rotateLinearTokens").mockResolvedValue(current);
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({ access_token: "new-access", refresh_token: "new-refresh", expires_in: 3600 })));
-    const result = await resolveRunProviderCredentials({ database, env, tenantId, githubInstallationIds: [], linearSelected: true });
+    const result = await resolveProviderCredentials({ database, env, tenantId, githubInstallationIds: [], linearSelected: true });
     expect(result).toEqual({ githubInstallations: [], linearConnection: { connectionId: "linear", available: true, accessToken: "new-access" } });
     expect(get).toHaveBeenCalledTimes(1);
     expect(rotate).toHaveBeenCalledWith("old-refresh", expect.objectContaining({ accessToken: "new-access", refreshToken: "new-refresh" }));
 
     get.mockClear();
-    const unselected = await resolveRunProviderCredentials({ database, env, tenantId, githubInstallationIds: [], linearSelected: false });
+    const unselected = await resolveProviderCredentials({ database, env, tenantId, githubInstallationIds: [], linearSelected: false });
     expect(unselected.linearConnection).toBeNull();
     expect(get).not.toHaveBeenCalled();
   });
@@ -51,7 +51,7 @@ describe("run provider credential lifecycle", () => {
   it("returns no credential after Linear disconnect and never refreshes an unselected connection", async () => {
     database.pool.query.mockResolvedValue({ rows: [], rowCount: 0 });
     const get = vi.spyOn(ConnectionRepository.prototype, "get");
-    const result = await resolveRunProviderCredentials({ database, env, tenantId, githubInstallationIds: [], linearSelected: true });
+    const result = await resolveProviderCredentials({ database, env, tenantId, githubInstallationIds: [], linearSelected: true });
     expect(result.linearConnection).toEqual({ connectionId: "linear", available: false });
     expect(get).not.toHaveBeenCalled();
   });

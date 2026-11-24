@@ -1,5 +1,5 @@
 import { z } from "zod";
-export const eventAvailabilityResponse = z.object({ manual: z.literal(true), schedule: z.literal(true), triggerLifecycle: z.literal(true), linear: z.boolean(), clickup: z.boolean(), github: z.boolean(), cloudflareTail: z.boolean() });
+export const eventAvailabilityResponse = z.object({ manual: z.literal(true), schedule: z.literal(true), linear: z.boolean(), clickup: z.boolean(), github: z.boolean(), cloudflareTail: z.boolean() });
 export const namedOption = z.object({ id: z.string(), name: z.string() });
 export const providerOptions = z.object({ statuses: z.array(namedOption), users: z.array(namedOption), labels: z.array(namedOption) });
 export const githubInstallation = z.object({ installationId: z.union([z.number().int(), z.string().regex(/^[0-9]+$/)]), accountLogin: z.string(), accountType: z.string(), state: z.string(), updatedAt: z.string() });

@@ -37,4 +37,4 @@ SELECT tenant_id, attempted_at, error FROM app.skill_library_backfill WHERE erro
 SELECT count(*) AS skills_without_artifacts FROM app.skills WHERE artifact_version IS NULL;
 ```
 
-Keep a pre-cutover database backup and retain the existing repositories through the rollback window. After migration starts, use a Worker that understands Artifacts references. An older database-only Worker needs its skill ciphertext restored before it can serve migrated records. PostgreSQL retains metadata and commit pointers for active skills, and existing immutable run snapshots continue to serve queued runs.
+Keep a pre-cutover database backup and retain the existing repositories through the rollback window. After migration starts, use a Worker that understands Artifacts references. An older database-only Worker needs its skill ciphertext restored before it can serve migrated records. PostgreSQL retains metadata and commit pointers for active Skills while the Artifact repository keeps each published version immutable.

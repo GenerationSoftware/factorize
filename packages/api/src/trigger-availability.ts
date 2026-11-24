@@ -1,7 +1,6 @@
 export type EventAvailability = {
   manual: true;
   schedule: true;
-  triggerLifecycle: true;
   linear: boolean;
   clickup: boolean;
   github: boolean;
@@ -11,7 +10,6 @@ export type EventAvailability = {
 export const installedEventAvailability = (linearConnected: boolean, clickupConnected: boolean, githubStates: string[], tailInstallationCount: number): EventAvailability => ({
   manual: true,
   schedule: true,
-  triggerLifecycle: true,
   linear: linearConnected,
   clickup: clickupConnected,
   github: githubStates.some(state => state === "active"),

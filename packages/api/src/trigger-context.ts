@@ -11,7 +11,6 @@ const commonWebhook: ContextPath[] = [
 
 export const eventContextCatalog: Record<string, ContextPath[]> = {
   manual: [
-    { path: "prompt", type: "string", description: "Prompt supplied by the manual invocation.", example: "Review the failing build" },
     { path: "data", type: "object", description: "Complete manual JSON data; interpolate this path to insert the full object as JSON." },
   ],
   schedule: [
@@ -54,26 +53,11 @@ export const eventContextCatalog: Record<string, ContextPath[]> = {
     { path: "repository.full_name", type: "string", description: "Owner and repository name.", example: "acme/widgets" },
   ],
   cloudflareTail: [...commonWebhook,
-    { path: "outcome", type: "string", description: "Sanitized Worker invocation outcome." },
+    { path: "outcome", type: "string", description: "Sanitized Worker event processing outcome." },
     { path: "scriptName", type: "string", description: "Worker script that emitted the Tail event." },
     { path: "eventTimestamp", type: "number", description: "Event timestamp in milliseconds." },
     { path: "logs", type: "array", description: "Sanitized console log records." },
     { path: "exceptions", type: "array", description: "Sanitized exception records." },
-  ],
-  triggerIdle: [
-    { path: "source_trigger_id", type: "string", description: "Trigger whose runs have all completed." },
-    { path: "event", type: "string", description: "Event name: runsZero." },
-    { path: "completed_at", type: "string", description: "Completion timestamp of the last run (ISO 8601)." },
-  ],
-  triggerLifecycle: [
-    { path: "event", type: "string", description: "Event name: edited for a trigger edit." },
-    { path: "edited_at", type: "string", description: "Trigger save timestamp for an edited event (ISO 8601)." },
-    { path: "source_trigger_id", type: "string", description: "Trigger that was edited or whose run reached a final state." },
-    { path: "sourceTriggerId", type: "string", description: "Trigger whose run reached a terminal state." },
-    { path: "sourceRunId", type: "string", description: "Run that reached a terminal state." },
-    { path: "state", type: "string", description: "Terminal state: succeeded, failed, or stopped." },
-    { path: "completedAt", type: "string", description: "Terminal transition time (ISO 8601)." },
-    { path: "outputs", type: "object", description: "Structured outputs from the source run, when available." },
   ],
 };
 

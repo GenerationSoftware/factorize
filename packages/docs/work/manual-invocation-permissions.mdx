@@ -1,8 +1,0 @@
----
-title: Manual trigger invocation permissions
-description: Authorize triggers to start other triggers with run-scoped credentials and manage destination permissions.
----
-
-For preset-backed skills, configure allowed destination triggers in a **permission preset**. Every accepted run captures those destinations, bounded by its caller or parent run. Later preset edits affect future runs. Direct and automated runs use the same captured grants; disabling a skill prevents new runs without modifying accepted ones.
-
-The legacy standalone trigger API can read destinations with `GET /api/v1/triggers/{triggerId}/invocation-permissions` and replace them using `PUT` with `{"destinationTriggerIds":["..."]}`. Destinations must belong to the same team. For a skill-backed trigger, reads expose effective preset destinations and writes return `permissions_retired`; update the permission preset instead. Run credentials cannot edit invocation permissions. [Skills and presets](/work/skills) describes defaults and run snapshots.

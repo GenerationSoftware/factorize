@@ -4,10 +4,11 @@ import { readFileSync } from "node:fs";
 test("static cutover preserves the existing production Worker and state identities", () => {
   const baseline = JSON.parse(readFileSync(new URL("worker-infrastructure-baseline.json", import.meta.url)));
   const current = JSON.parse(readFileSync(new URL("../packages/api/wrangler.jsonc", import.meta.url)));
-  const { assets: oldAssets, ...oldBackend } = baseline;
-  const { assets, routes, ...backend } = current;
+  const { assets: oldAssets, r2_buckets: oldBuckets, ...oldBackend } = baseline;
+  const { assets, routes, r2_buckets: buckets, ...backend } = current;
   assert.deepEqual(routes, [{ pattern: "app.factorize.sh", custom_domain: true }, { pattern: "git.factorize.sh", custom_domain: true }]);
   assert.deepEqual(backend, oldBackend);
+  assert.deepEqual(buckets, [{ binding: "PROXY_ARTIFACTS", bucket_name: oldBuckets[0].bucket_name }]);
   assert.equal(oldAssets.binding, assets.binding);
   assert.deepEqual(assets, { directory: "../app/dist", binding: "ASSETS", run_worker_first: true, not_found_handling: "none" });
 });

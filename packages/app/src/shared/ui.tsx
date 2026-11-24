@@ -27,53 +27,6 @@ export function MultiSelectHeader({ label, options, selected, onChange, onClear 
   const dialog = <div ref={dialogRef} role="dialog" aria-label={`${label} filter`} style={{ top: dialogPosition.top, left: dialogPosition.left }} className="fixed z-50 max-h-[min(32rem,calc(100vh-1rem))] w-64 overflow-y-auto rounded-lg border border-stone-300 bg-white p-3 text-sm shadow-lg dark:border-slate-700 dark:bg-slate-900"><fieldset><legend className="font-semibold">Filter {label.toLowerCase()}s</legend>{options.length ? options.map(option => <label key={option.id} className="flex min-h-10 items-center gap-2 py-1"><input type="checkbox" checked={selected.includes(option.id)} onChange={event => onChange(option.id, event.target.checked)} /><span className="truncate">{option.label}</span></label>) : <p className="py-2 text-slate-500">No {label.toLowerCase()}s available.</p>}</fieldset>{selected.length > 0 && <button type="button" className="mt-2 min-h-10 text-left font-semibold underline underline-offset-4" onClick={onClear}>Clear {label.toLowerCase()} filters</button>}</div>;
   return <th scope="col" className={tableCellClasses}><div ref={ref} className="relative"><button ref={buttonRef} type="button" aria-haspopup="dialog" aria-expanded={open} aria-label={`${label}, ${summary}`} className="font-semibold underline decoration-transparent underline-offset-4 hover:decoration-current focus-visible:rounded-sm focus-visible:decoration-current focus-visible:outline-none" onClick={() => setOpen(value => !value)}>{label}{selected.length > 0 && <span aria-hidden="true"> ({selected.length})</span>}</button>{open && createPortal(dialog, document.body)}</div></th>;
 }
-export const runStatuses = ["queued", "reserved", "starting", "running", "blocked", "stopping", "succeeded", "failed", "stopped", "ignored", "done"] as const;
-export type RunStatus = typeof runStatuses[number];
-const runStatusLabels: Record<RunStatus, string> = { queued: "Queued", reserved: "Reserved", starting: "Starting", running: "Running", blocked: "Blocked", stopping: "Stopping", succeeded: "Succeeded", failed: "Failed", stopped: "Stopped", ignored: "Ignored", done: "Done" };
-export function StatusHeader({ selected, sortDirection, onFilterChange, onSortChange, onClear, className = "" }: { selected: RunStatus[]; sortDirection?: "asc" | "desc"; onFilterChange: (status: RunStatus, checked: boolean) => void; onSortChange: (direction?: "asc" | "desc") => void; onClear: () => void; className?: string }) {
-  const [open, setOpen] = useState(false), [dialogPosition, setDialogPosition] = useState({ top: 0, left: 0 }), ref = useRef<HTMLDivElement>(null), dialogRef = useRef<HTMLDivElement>(null), buttonRef = useRef<HTMLButtonElement>(null);
-  const positionDialog = () => {
-    const button = buttonRef.current;
-    if (!button) return;
-    const rect = button.getBoundingClientRect();
-    setDialogPosition({ top: Math.min(rect.bottom + 8, Math.max(8, window.innerHeight - 620)), left: Math.min(rect.left, Math.max(8, window.innerWidth - 264)) });
-  };
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") { setOpen(false); buttonRef.current?.focus(); } };
-    const onClick = (event: MouseEvent) => { const target = event.target as Node; if (ref.current && !ref.current.contains(target) && dialogRef.current && !dialogRef.current.contains(target)) setOpen(false); };
-    const onViewportChange = () => positionDialog();
-    document.addEventListener("keydown", onKey); document.addEventListener("mousedown", onClick); window.addEventListener("resize", onViewportChange); window.addEventListener("scroll", onViewportChange, true);
-    return () => { document.removeEventListener("keydown", onKey); document.removeEventListener("mousedown", onClick); window.removeEventListener("resize", onViewportChange); window.removeEventListener("scroll", onViewportChange, true); };
-  }, [open]);
-  useLayoutEffect(() => { if (open) positionDialog(); }, [open]);
-  const filterSummary = selected.length ? `${selected.length} status${selected.length === 1 ? "" : "es"} selected` : "all statuses";
-  const showDialog = open;
-  const dialog = <div ref={dialogRef} role="dialog" aria-label="Status filter and sort" style={{ top: dialogPosition.top, left: dialogPosition.left }} className="fixed z-50 w-64 rounded-lg border border-stone-300 bg-white p-3 text-sm shadow-lg dark:border-slate-700 dark:bg-slate-900"><fieldset><legend className="font-semibold">Filter statuses</legend>{runStatuses.map(status => <label key={status} className="flex min-h-10 items-center gap-2 py-1"><input type="checkbox" checked={selected.includes(status)} onChange={event => onFilterChange(status, event.target.checked)} /><RunStatusDot state={status} decorative />{runStatusLabels[status]}</label>)}</fieldset><div className="mt-2 border-t border-stone-200 pt-2 dark:border-slate-700"><span className="font-semibold">Sort status</span><div className="mt-1 flex gap-2"><button type="button" className="min-h-10 rounded border px-2 underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2" aria-pressed={sortDirection === "asc"} onClick={() => onSortChange("asc")}>Ascending</button><button type="button" className="min-h-10 rounded border px-2 underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2" aria-pressed={sortDirection === "desc"} onClick={() => onSortChange("desc")}>Descending</button></div></div><button type="button" className="mt-2 min-h-10 text-left font-semibold underline underline-offset-4" onClick={onClear}>Clear filters and reset sort</button></div>;
-  return <th scope="col" aria-sort={sortDirection ? sortDirection === "asc" ? "ascending" : "descending" : "none"} className={`${tableCellClasses} ${className}`}>
-    <div ref={ref} className="relative"><button ref={buttonRef} type="button" aria-haspopup="dialog" aria-expanded={showDialog} aria-label={`Status, ${filterSummary}${sortDirection ? `, sorted ${sortDirection}` : ", not sorted"}`} className="whitespace-nowrap font-semibold underline decoration-transparent underline-offset-4 hover:decoration-current focus-visible:rounded-sm focus-visible:decoration-current focus-visible:outline-none" onClick={() => setOpen(value => !value)}>Status{selected.length > 0 && <span aria-hidden="true"> ({selected.length})</span>}{sortDirection && <span aria-hidden="true"> {sortDirection === "asc" ? "↑" : "↓"}</span>}</button>
-      {showDialog && createPortal(dialog, document.body)}
-    </div></th>;
-}
-const runStatusStyles: Record<string, { label: string; color: string; pulse?: boolean }> = {
-  queued: { label: "Queued", color: "bg-amber-500" }, reserved: { label: "Reserved", color: "bg-amber-500" }, starting: { label: "Starting", color: "bg-blue-500" }, running: { label: "Running", color: "bg-blue-500", pulse: true },
-  blocked: { label: "Blocked", color: "bg-amber-500" }, stopping: { label: "Stopping", color: "bg-amber-500" }, succeeded: { label: "Succeeded", color: "bg-emerald-500" }, done: { label: "Done", color: "bg-emerald-500" },
-  failed: { label: "Failed", color: "bg-red-500" }, stopped: { label: "Stopped", color: "bg-slate-500" }, ignored: { label: "Ignored", color: "bg-slate-400" },
-};
-function runStatusDetails(state: string, failureSource?: string | null, failure?: { source?: string } | null) {
-  const base = runStatusStyles[state] ?? { label: state || "Unknown", color: "bg-slate-400" };
-  const source = failure?.source ?? (failureSource === "agent" ? "run" : failureSource === "system" ? "system" : null);
-  return state === "failed" && source ? { ...base, label: source === "run" ? "Run failed" : "System failed" } : base;
-}
-export function RunStatusDot({ state, failureSource, failure, decorative = false }: { state: string; failureSource?: string | null; failure?: { source?: string } | null; decorative?: boolean }) {
-  const status = runStatusDetails(state, failureSource, failure);
-  return <span role={decorative ? undefined : "img"} aria-label={decorative ? undefined : `Status: ${status.label}`} aria-hidden={decorative || undefined} title={status.label} className={`inline-block size-2.5 rounded-full ${status.color} ${status.pulse ? "motion-safe:animate-pulse" : ""}`} />;
-}
-export function RunStatusLabel({ state, failureSource, failure, className = "" }: { state: string; failureSource?: string | null; failure?: { source?: string } | null; className?: string }) {
-  const status = runStatusDetails(state, failureSource, failure);
-  const text = state === "failed" && status.label !== "Failed" ? status.label : state || "Unknown";
-  return <span role="img" aria-label={`Status: ${status.label}`} className={`inline-flex items-center gap-2 ${className}`}><RunStatusDot state={state} failureSource={failureSource} failure={failure} decorative /><span className="first-letter:uppercase">{text}</span></span>;
-}
 export function Button({ variant = "secondary", className = "", ...props }: ComponentProps<"button"> & { variant?: keyof typeof buttonClasses }) {
   return <button {...props} className={`inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${buttonClasses[variant]} ${className}`} />;
 }
@@ -87,16 +40,6 @@ export function Label({ className = "", ...props }: ComponentProps<"label">) { r
 export function Page({ className = "", ...props }: ComponentProps<"main">) { return <main {...props} id="main-content" className={`mx-auto w-full min-w-0 max-w-6xl flex-1 px-4 py-8 sm:px-6 sm:py-12 lg:px-8 ${className}`} />; }
 export function ActionBar({ className = "", ...props }: ComponentProps<"div">) { return <div {...props} className={`mb-5 flex flex-wrap items-center justify-between gap-3 ${className}`} />; }
 export function Breadcrumb({ children }: { children?: ReactNode }) { return <nav aria-label="Breadcrumb" className="mb-4 flex min-h-6 min-w-0 flex-wrap items-center gap-2 text-sm">{children}</nav>; }
-export function ResourceHeader({ type, title, titleActions, description, children }: { type: "Project" | "Trigger" | "Run"; title: string; titleActions?: ReactNode; description?: ReactNode; children?: ReactNode }) {
-  return <div className="mb-6 min-w-0">
-    <p className="mb-1 min-h-4 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{type}</p>
-    <div className="flex min-w-0 flex-wrap items-start justify-between gap-4">
-      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3"><h1 className="min-w-0 break-words text-3xl font-bold tracking-tight">{title}</h1>{titleActions}</div>
-      {children}
-    </div>
-    {description && <div className="mt-2 text-sm text-slate-600 dark:text-slate-400">{description}</div>}
-  </div>;
-}
 export function Card({ className = "", ...props }: ComponentProps<"section">) { return <section {...props} className={`min-w-0 rounded-2xl border border-stone-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:p-6 ${className}`} />; }
 export function PageHeader({ title, description, children }: { title: string; description?: string; children?: ReactNode }) {
   return <div className="mb-8 flex min-w-0 flex-wrap items-start justify-between gap-4"><div className="min-w-0"><h1 className="text-3xl font-bold tracking-tight">{title}</h1>{description && <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">{description}</p>}</div>{children}</div>;

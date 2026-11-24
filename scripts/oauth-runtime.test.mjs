@@ -68,12 +68,12 @@ test('local OAuth consent and device grants authorize REST/MCP and respect revoc
     const exchange = await form('/oauth/token', { grant_type: 'authorization_code', client_id: clientId, code: destination.searchParams.get('code'), redirect_uri: redirectUri, code_verifier: verifier, resource: origin+'/mcp' }); assert.equal(exchange.status, 200, exchange.text);
     const bearer = { Authorization: 'Bearer '+exchange.json.access_token };
     // OAuth resource remains /mcp; do not broaden its audience during migration.
-    assert.equal((await send('/api/v1/trigger-summaries', 'GET', undefined, bearer)).status, 401);
+    assert.equal((await send('/api/v1/triggers', 'GET', undefined, bearer)).status, 401);
     const key = await json('/api/v1/access-tokens', { name: 'Protocol fixture', scopes: ["team:read", "triggers:read", "integrations:read"], expiryDays: 7 }, owner); assert.equal(key.status, 201, key.text);
     const restBearer = { Authorization: 'Bearer '+key.json.token };
-    assert.equal((await send('/api/v1/trigger-summaries', 'GET', undefined, restBearer)).status, 200);
+    assert.equal((await send('/api/v1/triggers', 'GET', undefined, restBearer)).status, 200);
     assert.equal((await send('/api/v1/access-tokens', 'GET', undefined, restBearer)).status, 403);
-    assert.equal((await send('/api/v1/runs', 'GET', undefined, restBearer)).status, 403);
+    assert.equal((await send('/api/v1/events', 'GET', undefined, restBearer)).status, 200);
     const rpc = async (method, params, id, credentials = bearer) => {
       const result = await json('/mcp', { jsonrpc: '2.0', id, method, params }, { ...credentials, Accept: 'application/json, text/event-stream', 'MCP-Protocol-Version': '2025-11-25' });
       assert.equal(result.status, 200, result.text);
@@ -120,9 +120,9 @@ test('local OAuth consent and device grants authorize REST/MCP and respect revoc
     assert.deepEqual((await rpc('tools/call', { name: 'list_triggers', arguments: {} }, 6, { Authorization: 'Bearer '+deviceToken.json.access_token })).result.structuredContent.items, []);
     assert.equal((await form('/oauth/token', poll)).json.error, 'expired_token');
     await db.query('UPDATE app.members SET session_version=2 WHERE tenant_id=$1 AND user_id=$2', [tenantId,userId]);
-    assert.equal((await send('/api/v1/trigger-summaries', 'GET', undefined, bearer)).status, 401);
+    assert.equal((await send('/api/v1/triggers', 'GET', undefined, bearer)).status, 401);
     const revoked = await rpc('tools/call', { name: 'list_triggers', arguments: {} }, 4); assert.ok(revoked.error || revoked.result?.isError);
-    assert.equal((await send('/api/v1/trigger-summaries', 'GET', undefined, restBearer)).status, 401);
+    assert.equal((await send('/api/v1/triggers', 'GET', undefined, restBearer)).status, 401);
     const revokedDevice = await rpc('tools/call', { name: 'list_triggers', arguments: {} }, 7, { Authorization: 'Bearer '+deviceToken.json.access_token }); assert.ok(revokedDevice.error || revokedDevice.result?.isError);
   } finally {
     if (child) { try { process.kill(-child.pid, 'SIGTERM'); } catch (error) { if (error.code !== 'ESRCH') throw error; } await new Promise(resolve => child.exitCode !== null || child.signalCode !== null ? resolve() : child.once('exit', resolve)); }

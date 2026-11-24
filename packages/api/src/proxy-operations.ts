@@ -28,7 +28,7 @@ export class ProxyOperations {
   const parsed=requestApiInput.parse(input),api=this.api();
   if(this.auth.authMethod==="oauth"&&!this.auth.scopes.includes("proxy:use"))throw new AgentApiError(403,"insufficient_scope","Renew consent with proxy:use before requesting integrations.","proxy:use");
   const {identity,integration}=await api.authorize(parsed.integration);
-  if(!this.env.RUN_ARTIFACTS || !this.env.SCHEDULER)throw new AgentApiError(503,"proxy_unavailable","Durable proxy storage/scheduling is unavailable.");
+  if(!this.env.PROXY_ARTIFACTS || !this.env.SCHEDULER)throw new AgentApiError(503,"proxy_unavailable","Durable proxy storage/scheduling is unavailable.");
   const size=parsed.body===undefined?0:Buffer.byteLength(parsed.body,parsed.encoding==="base64"?"base64":"utf8");
   if(size>32*1024*1024)throw new AgentApiError(413,"request_too_large","Request exceeds the fixed 32 MiB limit.");
   if(parsed.encoding==="base64"&&parsed.body&&!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(parsed.body))throw new AgentApiError(400,"invalid_request","Invalid base64 request body.");
@@ -58,7 +58,7 @@ export class ProxyOperations {
   const value=operationRead.parse(input),row=await this.authorized(value.operationId);
   if(value.offset>row.size)throw new AgentApiError(400,"invalid_request","Offset exceeds the bytes retained so far.");
   const length=Math.min(value.limit,row.size-value.offset),bytes=new Uint8Array(length);let copied=0;
-  while(copied<length){const offset=value.offset+copied,part=Math.floor(offset/blockBytes),within=offset%blockBytes,count=Math.min(length-copied,blockBytes-within);const object=await this.env.RUN_ARTIFACTS!.get(`${keyFor(row)}/${part}`,{range:{offset:within,length:count}});if(!object)throw new AgentApiError(503,"response_unavailable","Retained operation bytes are temporarily unavailable.");const chunk=new Uint8Array(await object.arrayBuffer());if(chunk.length!==count)throw new AgentApiError(503,"response_unavailable","Retained operation bytes are incomplete.");bytes.set(chunk,copied);copied+=count;}
+  while(copied<length){const offset=value.offset+copied,part=Math.floor(offset/blockBytes),within=offset%blockBytes,count=Math.min(length-copied,blockBytes-within);const object=await this.env.PROXY_ARTIFACTS!.get(`${keyFor(row)}/${part}`,{range:{offset:within,length:count}});if(!object)throw new AgentApiError(503,"response_unavailable","Retained operation bytes are temporarily unavailable.");const chunk=new Uint8Array(await object.arrayBuffer());if(chunk.length!==count)throw new AgentApiError(503,"response_unavailable","Retained operation bytes are incomplete.");bytes.set(chunk,copied);copied+=count;}
   await this.authorized(value.operationId);return {operationId:row.id,offset:value.offset,nextOffset:value.offset+length,body:Buffer.from(bytes).toString("base64"),encoding:"base64",size:row.size,state:row.state,done:row.state!=="queued"&&row.state!=="running"&&value.offset+length>=row.size};
  }
 }
@@ -73,7 +73,7 @@ export async function processProxyOperation(env:Env,tenantId:string,id:string){
  const controller=new AbortController(),deadline=AbortSignal.timeout(15*60_000),signal=AbortSignal.any([controller.signal,deadline]);
  let fault:string|undefined,checking=false,reader:ReadableStreamDefaultReader<Uint8Array>|undefined;
  const auth=JSON.parse(await decrypt(row.encrypted_auth,env.CREDENTIAL_ENCRYPTION_KEY)) as OAuthProps;
- const api=new AgentApiService(env,auth,true);
+ const api=new AgentApiService(env,auth);
  const check=async()=>{
   const current=(await db.pool.query("SELECT state,expires_at FROM app.proxy_operations WHERE tenant_id=$1 AND id=$2",[tenantId,id])).rows[0];
   if(current?.expires_at<=new Date())throw new AgentApiError(410,"operation_expired","Operation reached its 30 minute expiry.");
@@ -85,13 +85,13 @@ export async function processProxyOperation(env:Env,tenantId:string,id:string){
  let size=0,status:number|null=null;
  try{
   await check();const request=requestApiInput.parse(JSON.parse(await decrypt(row.encrypted_request,env.CREDENTIAL_ENCRYPTION_KEY)));
-  const outbound=await proxyRequestBody(env,auth,request,true);
+  const outbound=await proxyRequestBody(env,auth,request);
   const response=await api.forward(request.integration,request.path,new Request(env.APP_ORIGIN,{method:request.method,headers:outbound.headers,body:outbound.body,signal,duplex:"half"} as RequestInit));status=response.status;
   const headers:Record<string,string>={};response.headers.forEach((value,name)=>{headers[name]=value;});await db.pool.query("UPDATE app.proxy_operations SET status=$3,headers=$4 WHERE tenant_id=$1 AND id=$2 AND state='running'",[tenantId,id,status,headers]);
   reader=response.body?.getReader();const pending=new Uint8Array(blockBytes);let pendingSize=0,part=0;
   if(reader)for(;;){const next=await readNext(reader,signal);if(next.done)break;await check();if(size+next.value.length>64*1024*1024)throw new AgentApiError(413,"response_too_large","Response exceeds the fixed 64 MiB limit; earlier bytes remain readable.");
    for(let offset=0;offset<next.value.length;){const count=Math.min(blockBytes-pendingSize,next.value.length-offset);pending.set(next.value.subarray(offset,offset+count),pendingSize);pendingSize+=count;offset+=count;
-    await env.RUN_ARTIFACTS!.put(`${keyFor(row)}/${part}`,pending.slice(0,pendingSize).buffer);size+=count;
+    await env.PROXY_ARTIFACTS!.put(`${keyFor(row)}/${part}`,pending.slice(0,pendingSize).buffer);size+=count;
     const saved=await db.pool.query("UPDATE app.proxy_operations SET size=$3,updated_at=now() WHERE tenant_id=$1 AND id=$2 AND state='running' RETURNING id",[tenantId,id,size]);if(!saved.rowCount)throw new AgentApiError(409,"canceled","Operation canceled.");
     if(pendingSize===blockBytes){part++;pendingSize=0;}
    }

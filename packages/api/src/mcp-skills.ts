@@ -63,9 +63,3 @@ export function skillResource(tenant:string,skill:PublishedSkill,path:string,uri
   const mimeType=path.endsWith(".md")?"text/markdown":path.endsWith(".json")?"application/json":/\.(png|jpg|jpeg|gif|webp)$/.test(path)?`image/${path.split(".").at(-1)==="jpg"?"jpeg":path.split(".").at(-1)}`:"application/octet-stream";
   try {return {uri,mimeType,text:new TextDecoder("utf-8",{fatal:true}).decode(bytes)};}catch{return {uri,mimeType,blob:base64(bytes)};}
 }
-
-export function snapshotSkillUri(tenant:string,run:string,name:string,path="SKILL.md") {return `skill://runs/${tenant}/${run}/${name}/${path.split("/").map(encodeURIComponent).join("/")}`;}
-export function parseSnapshotSkillUri(uri:string,tenant:string,run:string){
- const prefix=`skill://runs/${tenant}/${run}/`;if(!uri.startsWith(prefix))throw new SkillContentError("Unknown skill resource.");
- return parseSkillUri(`skill://teams/${tenant}/`+uri.slice(prefix.length),tenant);
-}

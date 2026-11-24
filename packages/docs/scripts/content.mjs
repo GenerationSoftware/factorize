@@ -4,7 +4,7 @@ import { root } from "./exports.mjs";
 
 export function checkInventory(implementation, reference) {
   const actual = [...implementation.matchAll(/\b(?:tool|registerTool)\("([^"]+)"/g)].map(match => match[1]).sort();
-  const documented = [...reference.matchAll(/^\| `([^\`]+)` \|/gm)].map(match => match[1]).filter(name => name.includes("_")).sort();
+  const documented = [...reference.matchAll(/^\| `([^`]+)` \|/gm)].map(match => match[1]).filter(name => name.includes("_")).sort();
   if (!actual.length || JSON.stringify(actual) !== JSON.stringify(documented)) throw new Error("MCP inventory differs from registered tools");
 }
 
@@ -27,17 +27,11 @@ export async function checkContent() {
   }
   const main = ["index", "quickstart", "mcp/overview"].map(name => guides.get(name)).join("\n");
   for (const url of ["https://app.factorize.sh", "https://app.factorize.sh/mcp"]) if (!main.includes(url)) throw new Error("Missing hosted URL");
-  for (const phrase of ["get_team", "get_api_reflection", "requiresVm", "create_trigger", "invoke_trigger", "get_run", "idempotencyKey", "browser", "output"]) if (!guides.get("quickstart").includes(phrase)) throw new Error(`Incomplete first-trigger guide: ${phrase}`);
-  if (/Worker secrets|POSTMARK_SERVER_TOKEN|LINEAR_CLIENT_SECRET|Cloudflare account/.test(main)) throw new Error("Operator prerequisite in main onboarding");
-  for (const body of guides.values()) if (/username\/password|username, email|Trigger create object|mirrors REST/.test(body)) throw new Error("Stale auth or capability claim");
-  const cutover = guides.get("self-hosting/credential-cutover");
-  for (const phrase of ["verify that each is terminal", "verify deletion of only the", "prepare-credential-cutover.mjs", "re-enter unreadable custom bearer", "must not select every tenant credential automatically", "do not substitute another credential silently"]) {
-    if (!cutover.includes(phrase)) throw new Error(`Incomplete credential cutover and repair procedure: ${phrase}`);
-  }
+  for (const phrase of ["create_event", "create_trigger", "fire_trigger", "list_event_occurrences", "idempotencyKey", "Subscribe"]) if (!guides.get("quickstart").includes(phrase)) throw new Error(`Incomplete Event walkthrough: ${phrase}`);
   const reference = guides.get("mcp/tools");
   checkInventory(await readFile(resolve(root, "../api/src/protected-api.ts"), "utf8"), reference);
-  for (const term of ["expectedUpdatedAt", "replaces configuration", "duplicate", "manual:", "edited", "Current", "not full REST parity"]) if (!reference.includes(term)) throw new Error(`Missing contract detail: ${term}`);
+  for (const phrase of ["resource-updated notification", "factorize://events/", "duplicate", "standalone"]) if (!reference.includes(phrase)) throw new Error(`Missing Event/Trigger contract detail: ${phrase}`);
   const readme = await readFile(resolve(root, "../../README.md"), "utf8");
   if (!readme.includes("https://app.factorize.sh/mcp") || readme.indexOf("Optional self-hosting") < readme.indexOf("Connect a supported")) throw new Error("README positioning drift");
-  console.log(`Validated ${pages.length} navigation pages, local links, hosted workflow and complete MCP inventory.`);
+  console.log(`Validated ${pages.length} navigation pages, local links, hosted Event workflow and complete MCP inventory.`);
 }

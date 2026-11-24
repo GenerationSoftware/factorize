@@ -48,7 +48,7 @@ export function safeReturnTo(value: string | undefined): string {
   try {
     const url = new URL(value, "https://local.invalid");
     if (url.origin !== "https://local.invalid") return "/integrations";
-    if (!/^\/(?:authorize|device|integrations|app-consent|vms|clients(?:\/[^/]+)?|apps(?:\/registered)?|skills(?:\/[^/]+(?:\/(?:runs|settings(?:\/(?:general|vm|permissions|trigger))?))?)?|triggers(?:\/[^/]+(?:\/(?:edit|settings(?:\/(?:general|vm|context|permissions|events))?))?)?|runs(?:\/[^/]+(?:\/(?:trace|info|vms))?)?|settings(?:\/(?:profile|vm|permissions|skills|vm-presets|integrations|api-keys(?:\/new)?|authorized-clients|password))?)$/.test(url.pathname)) return "/integrations";
+    if (!/^\/(?:authorize|device|integrations|events|app-consent|clients(?:\/[^/]+)?|apps(?:\/registered)?|skills(?:\/[^/]+)?|triggers(?:\/[^/]+(?:\/(?:edit|settings(?:\/(?:general|context|events))?))?)?|settings(?:\/(?:profile|integrations|api-keys(?:\/new)?|authorized-clients|password))?)$/.test(url.pathname)) return "/integrations";
     return url.pathname + url.search + url.hash;
   } catch { return "/integrations"; }
 }

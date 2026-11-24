@@ -3,52 +3,36 @@ title: Authentication and scopes
 description: OAuth 2.1, device authorization, and access-token rules.
 ---
 
-Protected API and MCP requests use `Authorization: Bearer <token>`. Browser users may also use their signed Factorize session cookie. Access is tenant-bound; owner membership and session version are rechecked on every service call.
-
-## Browser accounts
-
-Create an email/password account at `/auth/signup`. Confirm the Postmark verification link to verify your email and sign in automatically. Recovery is at `/auth/password-reset`; legacy Linear-only users use that flow to choose a password while retaining their workspace. Change your password from the account menu. Resetting/changing passwords or signing out invalidates existing sessions and delegated credentials.
-
-Linear OAuth is an integration connection available only after native sign-in. Workspace membership, not the connected Linear identity, controls authorization.
-
-## Connecting an MCP client
-
-Start connecting in your MCP client, then sign in or choose **Create an account**. Signup, resend verification, and password recovery retain an individual server-stored connection, including the client, state, PKCE challenge, and validated callback. Simultaneous attempts have separate browser cookies and cannot overwrite each other. Verification signs you in, then resumes an explicit **Allow / Deny** screen. Verifying an email never grants MCP access or changes existing workspace authorization.
-
-Callback requests remain active for one hour from initiation; email links expire after one hour and can be used once. If you verify on another browser or device, return to the browser where you started the connection. Its waiting signup screen resumes automatically after verification. The callback is completed there, because local callback listeners and client browser state may belong to that device. The verification browser cannot approve that callback request. Device-flow requests can instead be reviewed and approved in the verification browser.
-
-An expired or completed request cannot be extended by resending email or recovering a password. Start a new connection in the MCP client; for device flow request a new code. Email verification can still succeed even if its associated client request expired.
+Protected REST and MCP requests use `Authorization: Bearer <token>`. Browser
+users may also use their signed Factorize session cookie. Access is tenant-bound;
+ownership and session version are rechecked on service calls.
 
 ## Scopes
 
 | Scope | Allows |
 | --- | --- |
-| `team:read` | View projects |
-| `team:write` | Create, update, and delete projects |
-| `triggers:read` | View triggers and trigger configuration |
-| `triggers:write` | Create, update, enable, disable, and delete triggers |
-| `runs:read` | Inspect runs, context, traces, and diagnostics |
-| `runs:invoke` | Invoke triggers |
-| `runs:cancel` | Stop or cancel runs, including `kill` |
-| `runs:write` | Rename runs; legacy grants also retain invocation and cancellation access |
-| `integrations:read` | View integration metadata and provider resources |
-| `integrations:write` | Create, configure, test, and remove integrations |
+| `team:read` | Read team settings |
+| `team:write` | Update team settings |
+| `triggers:read` | Discover Events, Triggers, and stored occurrences |
+| `triggers:write` | Manage Events and Triggers |
+| `skills:read` | Read standalone team Skills |
+| `skills:write` | Create, update, and delete Skills |
+| `integrations:read` | Read integration metadata and provider resources |
+| `integrations:write` | Manage integration connections |
+| `proxy:use` | Use authorized external integration APIs |
+| `apps:manage` | Manage registered applications |
 
-Scopes are independent: write does not imply read. Trigger configuration can cause future execution through schedules, webhooks, and lifecycle events; existing runs survive template deletion. Key and OAuth grant administration and trace replay always require an interactive owner session.
+Scopes are independent; write does not imply read. Integration-specific scopes
+are granted separately. Owner-only operations require an interactive browser
+session.
 
-Factorize exposes 13 application scopes, plus `proxy:use` and `vm:grant` for agent integration access. Each scope grants its documented operations. `runs:write` covers run renaming and error reports. Invocation uses `runs:invoke`, cancellation uses `runs:cancel`, and inspection uses `runs:read`.
+## OAuth clients
 
-Authorization-code clients must use PKCE S256. Implicit and plain PKCE are disabled. Access tokens last 1 hour; refresh tokens can last 30 days. RFC 7009 revocation is advertised by discovery.
+Authorization-code clients must use PKCE S256. Implicit and plain PKCE are
+disabled. Access tokens last one hour; refresh tokens can last up to 30 days.
+RFC 7009 revocation is advertised by discovery. Device authorization is also
+supported for public clients; follow the advertised OAuth metadata and device
+verification instructions.
 
-## Device flow
-
-1. Register a public client at `POST /oauth/register` with `grant_types` containing `urn:ietf:params:oauth:grant-type:device_code` and `token_endpoint_auth_method: none`.
-2. POST form data to `/oauth/device_authorization` with `client_id`, `scope`, and optional `resource`.
-3. Display `user_code` and `verification_uri` (or open `verification_uri_complete`). The user enters the code, signs in or creates an account, verifies email if needed, and explicitly allows or denies the named client.
-4. Poll `/oauth/token` with form fields `grant_type=urn:ietf:params:oauth:grant-type:device_code`, `client_id`, and `device_code`. Confidential clients must also authenticate. A successful response contains the usual OAuth tokens; the device code is consumed once. The browser displays completion and can be closed.
-
-Device codes expire after 10 minutes from issuance, including time spent signing up. Honor the returned `interval` (initially 5 seconds). Each early poll returns `slow_down` and permanently increases that request’s interval by 5 seconds; wait the new interval before polling again. Invalid client authentication never changes another client’s polling schedule. The token endpoint returns `authorization_pending`, `slow_down`, `access_denied`, or `expired_token` as appropriate.
-
-Never send Linear, exe.dev, or connection credentials to an API client. Tokens are revocable and responses omit stored secrets.
-
-Trigger run scopes are configurable per trigger, including privileged orchestration writes. See [manual invocation and run permissions](/work/manual-invocation-permissions) for defaults, snapshot timing, and destination authorization.
+Never send provider credentials to an API client. Stored integration secrets
+are used server-side and omitted from responses.

@@ -6,7 +6,7 @@ describe("same-origin static ownership", () => {
   it("serves frontend deep links without a page allowlist with an external-bundle policy and revalidated entry HTML", async () => {
     const fetch = vi.fn(async (request: Request) => new Response(request.method === "HEAD" ? null : "entry", { headers: { "Content-Type": "text/html" } }));
     const env = { ASSETS: { fetch } } as unknown as Env;
-    for (const path of ["/projects/id/runs", "/projects/id/settings", "/projects/id/settings/", "/future-feature/nested/page?tab=one", "/unknown", "/api-tools", "/healthz-dashboard", "/skills", "/skills/id", "/", "/triggers", "/triggers/new", "/triggers/id/edit", "/triggers/id/settings", "/projects", "/projects/new", "/projects/id", "/runs", "/runs/id", "/runs/id/trace", "/settings/authorized-clients", "/settings/targets", "/auth/verify?token=one-time", "/authorize?client_id=test", "/device?user_code=ABCD-2345"]) {
+    for (const path of ["/projects/id/settings", "/projects/id/settings/", "/future-feature/nested/page?tab=one", "/unknown", "/api-tools", "/healthz-dashboard", "/skills", "/skills/id", "/", "/triggers", "/triggers/new", "/triggers/id/edit", "/triggers/id/settings", "/projects", "/projects/new", "/projects/id", "/settings/authorized-clients", "/settings/targets", "/auth/verify?token=one-time", "/authorize?client_id=test", "/device?user_code=ABCD-2345"]) {
       const response = await staticApp(new Request(`https://app.factorize.sh${path}`), env);
       expect(response?.status).toBe(200);
       expect(response?.headers.get("content-security-policy")).toBe(STATIC_CSP);

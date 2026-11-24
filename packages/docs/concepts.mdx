@@ -1,72 +1,23 @@
 ---
-title: Teams, Triggers, Events, skills, and runs
-description: Understand the shared team workspace and hosted Pi execution.
+title: Events, Triggers, and Skills
+description: Understand Factorize's durable event model and standalone instruction documents.
 ---
 
-A **team** owns skills, integrations, Triggers, runs, permissions and settings.
-Each new user receives a personal team automatically. There are no projects or
-personal run defaults. Save model, optional VM, capacity and permission defaults
-in **Team settings**. New Triggers copy those defaults; later Team edits affect
-future Triggers and direct launches.
+A **team** owns Events, Triggers, Skills, integrations, and authorization settings.
 
-A **run** is one accepted execution. Start one directly with an optional skill
-and prompt, images, or a shell script. A **Trigger** is a named saved template
-with Events that launch runs manually, on a schedule, from a webhook, or from
-another Trigger's lifecycle. Trigger and skill names use 1–64 lowercase letters,
-digits and single hyphens and share one team namespace. The name manual is reserved.
+An **Event** is a named durable record with a versioned JSON payload schema. A
+matching Trigger creates an occurrence, which subscribers can read later. An
+Event may have multiple Triggers.
 
-**Pi** is the only Factorize-managed agent and runs in the Factorize build.
-Configure an OpenAI-compatible provider URL and optional key through a model
-integration. PostgreSQL persists sessions, streaming events, compaction and tool
-receipts. Pi uses the same Factorize MCP tools and Skills extension as external
-agents. Skills contain portable intentions; they do not select a VM or model.
-Reflection reports the host, effective permissions and verified current_vm.
+A **Trigger** watches one input source: a schedule, signed webhook, provider
+notification, or explicit fire request. Matching and duplicate-delivery checks
+happen before Factorize validates and stores the Event occurrence. A Trigger
+publishes data; it does not launch an agent or create an execution.
 
-Agent runs default to **Requires VM** off. Enable it when a task needs an exe.dev
-or Fly workspace; scripts always require one. An explicit VM selection precedes
-the Team default. An unavailable selection fails without fallback. Factorize
-waits for readiness before Pi's first turn; vm_exec uses only the server-bound
-workspace. Pi is never installed in that VM.
+A **Skill** is a standalone reusable Markdown instruction document. It can be
+managed independently and is not required by an Event or Trigger.
 
-## Context and media
-
-A Trigger has one optional skill and an optional literal prompt. Each Event has
-an optional Mustache template. With no template, the Event adds no text. Use
-`{{webhook}}` explicitly for the complete normalized webhook object, or select
-smaller fields. Context combines skill instructions, literal prompt, fired Event
-text and manual instructions, in that order. The run-name template can use all
-structured Event data independently. Empty effective agent input is rejected.
-
-All team skills are available through the MCP Skills extension, with complete
-supporting files. Accepted runs pin their selected package so library edits,
-renames or deletion do not alter it. Deletion of a skill referenced by a saved
-Trigger requires first removing that reference.
-
-Pi 1.5.2 accepts text and images. Factorize passes original image bytes through
-R2-backed references without conversion. Upload images in Start run or through
-the public media endpoints; fetch_media and read_media handle authorized API
-images during execution. Audio and video blocks are unsupported by the pinned
-framework. Inputs and images actually referenced in results follow run retention;
-other blobs are scratch with a one-hour terminal recovery window.
-
-## Capacity and recovery
-
-Team capacity bounds active and waiting runs. Each Trigger has a concurrency
-limit of 1–50 and one waiting slot. Automatic Events coalesce while a run waits;
-query the provider for authoritative work. Editing a Trigger never changes an
-accepted run's snapshots. The Runs table keeps the run name, captured Source,
-and optional /skill plus prompt preview, or shortened script.
-
-start_run returns an idempotent receipt immediately. Poll get_run for state and
-results. Independent run alarms and PostgreSQL leases recover checkpoints and
-known tool results. Interrupted detached launches reuse stable keys. Unknown
-mutating effects block with pi_tool_uncertain and are not repeated automatically.
-Canceling a run revokes its execution identity and retries workspace cleanup.
-
-## Scripts and historical traces
-
-Code scripts execute as exedev in /home/exedev/workspace on the selected VM.
-They receive FACTORIZE_INPUT_PATH for structured Event data and
-FACTORIZE_RESULT_PATH for the result JSON. Scripts need no agent executable or
-model account. Original historical runs, encrypted inputs, files and trace
-parsers remain readable after the hosted Pi cutover.
+MCP clients discover Event definitions, subscribe to their occurrence resource,
+and receive a resource-updated notification after a new occurrence. They then
+read the resource to obtain durable data. Occurrences are also available through
+the authorized REST API, so a reconnecting client can recover stored data.

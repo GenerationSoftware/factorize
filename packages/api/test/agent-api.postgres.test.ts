@@ -42,7 +42,7 @@ describe.skipIf(!url)("persisted agent grants and cleanup",()=>{
       const expired=crypto.randomUUID(),pending=crypto.randomUUID(),live=crypto.randomUUID();
       for(const [id,age,size] of [[expired,-1,10],[pending,-1,null],[live,1,10]]) await f.db.pool.query("INSERT INTO app.agent_proxy_responses(tenant_id,id,identity_id,integration_id,integration_epoch,object_key,size,expires_at) VALUES($1,$2,$3,$4,1,$2::uuid::text,$5,now()+$6*interval '1 day')",[f.tenantId,id,identity.id,integration,size,age]);
       const deleted:string[]=[];let failed=true;
-      f.env.RUN_ARTIFACTS={list:vi.fn(async({prefix}:{prefix:string})=>({objects:[{key:prefix+'0'}],truncated:false})),delete:vi.fn(async(keys:string[])=>{if(failed)throw new Error("storage unavailable");deleted.push(...keys);})} as any;
+      f.env.PROXY_ARTIFACTS={list:vi.fn(async({prefix}:{prefix:string})=>({objects:[{key:prefix+'0'}],truncated:false})),delete:vi.fn(async(keys:string[])=>{if(failed)throw new Error("storage unavailable");deleted.push(...keys);})} as any;
       await expect(cleanupAgentResponses(f.env)).rejects.toThrow("storage unavailable");
       expect((await f.db.pool.query("SELECT * FROM app.agent_proxy_responses")).rowCount).toBe(3);
       failed=false;await cleanupAgentResponses(f.env);

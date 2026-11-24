@@ -1,154 +1,18 @@
 ---
-title: Connect your accounts
-description: Browser setup, resource access, and delivery verification.
+title: Integration access
+description: Connect external services used by Trigger inputs and MCP clients.
 ---
 
-Factorize accounts own dashboard identity. Sign up with an email and password, verify your email to sign in automatically, then open [Integrations](https://app.factorize.sh/integrations) to connect Linear when using Linear-backed triggers. Linear OAuth only connects the workspace; it never signs you in. Register `/auth/linear/callback`, configure issue and issue-label webhooks at `/webhooks/linear`, and store the client credentials and signing secret as Worker secrets. ClickUp is optional: register `/auth/clickup/callback`; connecting it automatically registers its task webhook. GitHub uses an installed GitHub App, while exe.dev and Cloudflare Tail connections are configured in Integrations.
+Integrations hold server-side credentials used to validate provider webhooks or
+make authorized API requests. Select only the integrations needed for your
+Triggers or MCP connection. Credentials are encrypted and never returned by
+Factorize APIs.
 
-| Account | Browser action and required access | Verification |
-| --- | --- | --- |
-| exe.dev | Add an account-level token, test credentials, and save. VM configurations select workspace images and tags; managed agents use hosted Pi with a separate model integration. Needs VM listing/creation/SSH/deletion, per-run WIF integration management and exclusive VM attachment; see [operations](/self-hosting/operations). | Test connection, then `list_execution_configs`; optionally diagnose the saved connection. |
-| Linear | Connect Linear and approve the workspace. Your account must access the selected project and issues; organization policies may require an administrator. | Select project/rules in the browser editor, send one matching event, inspect delivery/run. |
-| ClickUp | Connect ClickUp and approve the intended workspace/team with access to the list/tasks. | Select list/rules, change one matching task and inspect delivery/run. |
-| GitHub | Connect GitHub to install/authorize the Factorize App on the intended account/repositories; organization approval may be required. | Confirm active installation and repository selection, then send a matching event. |
+Bearer API, GitHub, Linear, ClickUp, X, Fly.io, exe.dev, Amp, and Cloudflare Tail
+integrations have distinct setup flows. Cloudflare Tail is an inbound webhook
+signing integration. Use the browser's Integrations page to connect or revoke
+credentials and to choose which MCP clients may access them.
 
-The provider consent/installation screen is the authority for granted permissions. Grant access to the selected resources; changing those resources can require provider reauthorization. Trigger-event access and execution-agent access are separate: select an existing GitHub installation or Linear connection in each trigger to authorize its backend proxy access. Factorize reuses those credentials and their existing upstream permissions; it does not deliver tokens to the VM.
-
-MCP exposes safe connection/installation/target metadata, not tokens. Account connections, resource pickers and credential management require browser setup. Reconnect Linear/ClickUp from Integrations; use GitHub's Configure installation link for repository access and verify the installation is active. Do not disconnect integrations while triggers still reference them; update those triggers first.
-
-After changing access, create one controlled event and use `list_webhook_deliveries`, `get_webhook_delivery`, `list_trigger_webhook_activity`, and `list_runs` to verify delivery and execution. See [triggers not firing](/troubleshooting/events). Hosted Factorize manages OAuth application registration, callbacks and webhook infrastructure. Operators of their own deployment use [configuration](/self-hosting/configuration).
-
-
-## Credentials selected by a trigger
-
-In Integrations, add custom bearer credentials with a fixed HTTPS
-origin. Add model integrations with an OpenAI-compatible provider URL and an optional API key. Factorize encrypts credentials on the server. Stored secrets cannot be viewed. A keyless provider requires only its URL. Model IDs and optional effort are selected in Team defaults, Triggers, or direct run overrides, independently of VM configuration.
-
-Select only the bearer integrations, GitHub installations, Linear connection and model integration that each Trigger needs. Pi runs in Factorize and uses MCP tools. Skills can use their VM tools to execute code.
-Each run uses its saved selection and Factorize API scope snapshot; later trigger
-edits affect future runs. Disconnect revokes existing run access permanently,
-even after reconnecting the same account. Select a replacement explicitly for
-future runs. Missing selections remain visible for repair and are never
-silently replaced with all available credentials.
-
-exe.dev and Fly guests use a localhost helper that authenticates to Factorize
-with fresh vendor signatures bound to that exact VM/run. Selected upstream
-credentials stay in the backend. Canceling or terminating a run removes its API
-and outbound access, independently of external VM deletion retries.
-
-## Sign in with Factorize
-
-Register confidential server-side applications from **Apps → Registered apps**.
-Add exact callback URLs and create a client secret in the browser. Copy the
-secret when prompted and store it in the app's server environment. HTTPS
-callbacks are required for deployed apps. Loopback HTTP callbacks are supported
-for local development. The registration starts as **Team only**. Enable
-**Available to everyone** to accept Factorize users from other teams.
-
-Configure an OpenID Connect client with the following values:
-
-| Setting | Value |
-| --- | --- |
-| Hosted issuer | `https://app.factorize.sh/oauth/apps` |
-| Discovery document | `https://app.factorize.sh/oauth/apps/.well-known/openid-configuration` |
-| Flow | Authorization code with PKCE S256 |
-| Client authentication | Client secret using HTTP Basic or form credentials |
-| Sign-in scope | `openid` |
-
-OIDC discovery supplies the authorization, token, UserInfo, and JWKS URLs.
-Validate the signed ID token with the issuer, app client ID as audience,
-expiration, and the nonce used in the authorization request. Use the token's
-`sub` claim as the Factorize user identifier. Request `email` to receive a
-verified email. To call the Factorize API, request the specific application
-scopes the app needs, such as `runs:read`, and send the resulting access token
-to the corresponding `/api/v1` endpoint. Factorize asks the user to approve the
-requested access. It applies to the team the user signed in with. Request
-`offline_access` when the server needs a refresh token.
-
-Users can revoke a sign-in authorization from **Apps → Connected apps**.
-Disabling an app blocks its connections. Rotating its secret invalidates old
-credentials. Update the server with the new secret and ask users to authorize
-again. Existing sessions managed by the external app follow its own session
-policy.
-
-An MCP connection with `apps:manage` can use `list_apps`, `get_app`,
-`create_app`, and `update_app` for app registrations. Use the browser to issue
-or rotate client secrets.
-
-## MCP API proxy access
-
-External MCP clients continue to authenticate with OAuth; execution VMs continue
-to use vendor OIDC. These identities have separate grants. Run selections never
-inherit an external client's approvals.
-
-In Integrations → MCP API access, choose a policy for each custom
-bearer integration, GitHub installation, Linear connection, and model account:
-
-* **Baseline:** immediately available to all active MCP authorizations. Removing
-  baseline access immediately removes access derived from that policy.
-* **Requestable:** visible in reflection, but each separately authorized
-  connection must obtain consent before use.
-* **Disabled:** unavailable for requests and consent. Disabling or disconnecting
-  permanently invalidates existing integration approvals. Re-enabling as
-  requestable requires fresh consent. Replacing a credential without deleting
-  its integration preserves approvals.
-
-Start OAuth with only the Factorize resource scopes your client needs; do not
-request the complete integration catalog. `get_api_reflection` returns the
-current agent identity, effective Factorize scopes, integration references,
-readable names and descriptions, instructions, access state, connection
-availability, and the required integration scope. Availability describes stored
-connection state, not a guarantee that an upstream credential is healthy.
-
-POST JSON to the reflected `proxy.requestUrl` with `integration`, an HTTP `method`, a relative `path` including
-an optional query, optional safe `headers`, and optional `body`. `encoding` is
-`utf8` by default or `base64` for binary input. The origin and upstream
-credentials are selected by Factorize. A grant covers the whole integration,
-bounded by the credential's upstream permissions. Redirects are rejected.
-
-Missing requestable access produces an HTTP 403 response with a
-`WWW-Authenticate: Bearer` challenge containing `error="insufficient_scope"`,
-`scope`, and `resource_metadata`. Reauthorize with the union of your currently
-needed scopes and the challenged scope, approve the named integration in the
-browser, exchange the new code, then retry. The new authorization is independent
-of other connections, including copies of the same client. Refresh retains the
-authorization identity; a narrowed token uses only its presented scopes.
-Integration scopes have the form `integration:{reference UUID}:{revocation epoch}`;
-use the value returned by reflection rather than constructing or caching it.
-
-Responses preserve the upstream `status`, safe `headers`, byte `size`, and body.
-An upstream non-2xx status is distinct from a local authorization or proxy error.
-UTF-8 responses of up to 32 KiB return inline with `encoding: "utf8"`; binary
-responses use `base64`. Larger responses are consumed into R2 and return a
-`handle` and `expiresAt`.
-
-POST JSON to `proxy.readResponseUrl` with the handle and a byte `offset` (initially zero).
-Chunks are always base64, up to 64 KiB; use `nextOffset` until `done` is true.
-Handles are tenant/identity bound, expire after 30 minutes, and recheck access on
-every read. Revocation blocks subsequent calls and reads but cannot undo an
-upstream action already accepted. Existing VM proxy URLs retain true streaming.
-
-The same operations are documented under `/api/v1/agent/reflection`,
-`/api/v1/agent/requests`, and `/api/v1/agent/responses/read`. Authorize `proxy:use` to use the HTTP proxy with the agent credential. Existing MCP authorizations without this scope require renewed consent. Other REST operations retain their own authentication requirements. MCP clients use `request_api` and `read_api_response` with the same validated arguments and authorization as these HTTP endpoints. Owner policy endpoints require an interactive browser session. In **Clients**, find each MCP authorization and its VM access history. Choose **Edit permissions** to apply the team's default permission preset within the scopes already approved for the connection. Changes apply to later requests from the connection and its delegated VMs. Integration approvals continue to follow their existing consent and policy. Owners can revoke individual connections. MCP clients can set their connection label with `rename_mcp_client`.
-
-The scheduler maintenance heartbeat removes expired response objects and their
-PostgreSQL receipts. A receipt exists before any R2 block is written, including
-interrupted/unreturned responses. Object deletion failures retain receipts for
-retry. Operators must retain the scheduler and RUN_ARTIFACTS binding when
-rolling out migration `0054_agent_api_grants`.
-
-## External VM access
-
-Start Codex with the device login helper from the Factorize checkout:
-
-```sh
-node scripts/agent-login.mjs codex
-```
-
-Approve the displayed code. The helper sets the short-lived Factorize credential for the child process and configures the Factorize MCP connection to use it. Supply additional integration scopes from reflection in the space-separated `FACTORIZE_SCOPES` environment variable on a subsequent login. In a shell with this environment, send JSON to the reflected request URL using `curl -H "@$FACTORIZE_AGENT_AUTH_FILE" --json ...`. The file is private to your OS user and the helper removes it when the child exits. For exe.dev, send method `POST`, path `/exec`, headers `{"Content-Type":"text/plain"}` and a command in `body`.
-
-After creating a VM, call `grant_vm` with the reflected provider integration ID, VM name (exe.dev) or Machine ID (Fly.io), selected integration IDs and an idempotency key. Fly.io also requires the app name. Reflection advertises the eligible provider as `vmGrantProvider`. The guest obtains its provider OIDC token and local proof using the receipt instructions; those authenticate only the HTTP proxy operations. Provider credentials and the parent client token never enter the VM.
-
-New grants last one hour. Call `renew_vm_grant` before expiry to reset the timeout to one hour from renewal. Renewal requires the same active OAuth authorization and continuing access to the provider and all selected integrations. A refreshed client token can explicitly renew; client token refresh alone, proxy requests and creation retries do not extend a grant. Expired/revoked grants require a new grant with a new idempotency key. Parent authorization revocation and integration access removal/disconnection block subsequent access. Existing grants retain their stored expiry until explicitly renewed.
-
-For exe.dev, the guest reads its dedicated WIF token endpoint. For Fly.io, it requests a fresh JWT by POSTing the receipt audience to the local OIDC endpoint through `/.fly/api`. OIDC token renewal proves current VM identity; it does not renew the one-hour Factorize grant. Follow the returned proof-file and proxy URL instructions for either provider. Access through independent provider-native integrations is outside this grant. Revocation removes the exe.dev Factorize identity integration; Fly has no per-grant provider attachment. Both leave the VM running.
+Events and Trigger source definitions store references and configuration, not
+credentials. Disconnecting an integration can prevent its future input
+processing; it does not rewrite already stored Event occurrences.

@@ -8,8 +8,7 @@
     "build": "tsc --noEmit && vite build",
     "check": "npm run build && npm test && npm run test:functional",
     "test": "node --test --test-concurrency=2 test/*.test.mjs",
-    "test:functional": "playwright test --config=playwright.functional.config.mjs",
-    "test:visual": "playwright test --config=playwright.visual.config.mjs"
+    "test:functional": "playwright test --config=playwright.functional.config.mjs"
   },
   "dependencies": {
     "@tanstack/react-query": "5.104.1",
@@ -22,12 +21,10 @@
     "react-markdown": "^10.1.0"
   },
   "devDependencies": {
-    "@axe-core/playwright": "^4.13.0",
     "@playwright/test": "^1.64.0",
     "@tailwindcss/vite": "4.3.3",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
-    "playwright": "^1.64.0",
     "tailwindcss": "4.3.3",
     "typescript": "^5.9.3",
     "vite": "8.3.4"

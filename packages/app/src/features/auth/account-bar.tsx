@@ -8,7 +8,7 @@ import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { api } from "factorize-api-client";
 import { messageOf, refreshIdentity, sessionQuery } from "./session";
-import { triggerQuery, triggersQuery } from "../jobs/queries";
+import { triggerQuery, triggersQuery } from "../triggers/queries";
 import { ResourceSwitcher } from "../../shared/resource-switcher";
 import beeMark from "../../assets/bee-mark-monochrome.png";
 
@@ -24,7 +24,7 @@ export function AccountBar() {
   const routeTriggerId = triggerMatch && triggerMatch[1] !== "new" ? decodeURIComponent(triggerMatch[1]) : undefined;
   const currentTriggerId = routeTriggerId;
   const routeTrigger = useQuery({ ...triggerQuery(currentTriggerId ?? ""), enabled: !!authenticated && !!currentTriggerId, retry: false });
-  const projectTriggers = useQuery({ ...triggersQuery({ sort: "title" }), enabled: !!authenticated && !!currentTriggerId });
+  const projectTriggers = useQuery({ ...triggersQuery(), enabled: !!authenticated && !!currentTriggerId });
   const navigate = useNavigate();
   const logout = useMutation({
     retry: false,
@@ -60,7 +60,7 @@ export function AccountBar() {
           {routeSkillId && <><span aria-hidden="true" className="text-slate-400">/</span><Link to="/skills/$skillId" params={{skillId:routeSkillId}} title={routeSkill.data?.key} className="min-w-0 max-w-[35vw] truncate sm:max-w-56">{routeSkill.data?.key??"Loading skill…"}</Link><ResourceSwitcher compact kind="Skill" items={(skillOptions.data?.items??[]).map(item=>({id:item.id,name:item.key}))} currentId={routeSkillId} loading={skillOptions.isPending} error={skillOptions.error?.message} onSelect={id=>void navigate({to:"/skills/$skillId",params:{skillId:id}})}/></>}
           {!routeSkillId && currentTriggerId && <><span aria-hidden="true" className="hidden text-slate-400 sm:mr-1 sm:inline">/</span><div className="flex min-w-0 items-center">
             {routeTrigger.data ? <Link to="/triggers/$triggerId" params={{ triggerId: routeTrigger.data.id }} title={routeTrigger.data.name} className="min-w-0 max-w-[42vw] truncate rounded-md py-1 text-slate-700 transition-colors hover:bg-stone-100 hover:text-factorize-700 dark:text-slate-200 dark:hover:bg-slate-800 sm:max-w-56">{routeTrigger.data.name}</Link> : <span className="truncate text-slate-600 dark:text-slate-300">{routeTrigger.isPending ? "Loading trigger…" : routeTrigger.error ? "Trigger unavailable" : "Trigger"}</span>}
-            <ResourceSwitcher compact kind="Trigger" items={(projectTriggers.data?.items ?? []).map(trigger => ({ id: trigger.id, name: trigger.name }))} currentId={currentTriggerId} loading={projectTriggers.isPending} error={projectTriggers.error?.message} onSelect={chooseTrigger} />
+            <ResourceSwitcher compact kind="Trigger" items={(projectTriggers.data ?? []).map(trigger => ({ id: trigger.id, name: trigger.name }))} currentId={currentTriggerId} loading={projectTriggers.isPending} error={projectTriggers.error?.message} onSelect={chooseTrigger} />
           </div></>}
         </div> : <Link to="/" className="text-sm font-semibold">Dashboard</Link>}
       </div>
@@ -85,7 +85,7 @@ export function AccountBar() {
         </div> : <Link to="/auth/login" className="rounded-lg px-3 py-2 text-sm font-semibold">Account</Link>}
       </div>
     </nav>
-    {authenticated && (["/", "/triggers", "/runs", "/skills", "/integrations"].includes(pathname) || pathname.startsWith("/runs/") || pathname === "/vms" || pathname === "/apps" || pathname.startsWith("/apps/") || (pathname === "/clients" || pathname.startsWith("/clients/")) || pathname.startsWith("/settings/") || pathname === "/settings") && <TeamNavigation pathname={pathname}/>}
+    {authenticated && (["/", "/triggers", "/events", "/skills", "/integrations"].includes(pathname) || pathname === "/apps" || pathname.startsWith("/apps/") || (pathname === "/clients" || pathname.startsWith("/clients/")) || pathname.startsWith("/settings/") || pathname === "/settings") && <TeamNavigation pathname={pathname}/>}
     {logout.isError && <p role="alert">{logout.error.message}</p>}
   </header>;
 }

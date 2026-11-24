@@ -3,7 +3,7 @@ import { installedEventAvailability, sameProviderReference } from "../src/trigge
 
 describe("trigger event availability", () => {
   it("only offers universal events with zero installations", () => {
-    expect(installedEventAvailability(false, false, [], 0)).toEqual({ manual: true, schedule: true, triggerLifecycle: true, linear: false, clickup: false, github: false, cloudflareTail: false });
+    expect(installedEventAvailability(false, false, [], 0)).toEqual({ manual: true, schedule: true, linear: false, clickup: false, github: false, cloudflareTail: false });
   });
 
   it("offers each provider for one matching installation", () => {

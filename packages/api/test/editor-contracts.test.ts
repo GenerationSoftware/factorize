@@ -1,14 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { eventAvailabilityResponse, namedOption, providerOptions, githubInstallation, githubRepository, tailIntegration } from "../src/editor-contracts";
-import {exeConnection} from "../src/settings-contracts";
-import { triggerResponse } from "../src/job-contracts";
+import { namedOption, providerOptions, githubInstallation, githubRepository, tailIntegration } from "../src/editor-contracts";
+import { triggerResponse } from "../src/trigger-contracts";
 import { generateOpenApi } from "../src/api-contract";
 describe("public editor contracts", () => {
-  it("describes required target metadata and provider resources without credential fields", () => {
-    const target={connectionId:"vm",credentialStatus:"connected",accountTags:["workspace"],tags:[]};
-    expect(exeConnection.parse({...target,apiToken:"private",agentKind:"codex",models:["old"]})).toEqual(target);
-    expect(exeConnection.safeParse({...target,accountTags:[42]}).success).toBe(false);
-    expect(eventAvailabilityResponse.parse({ manual: true, schedule: true, triggerLifecycle: true, linear: false, clickup: false, github: false, cloudflareTail: false }).linear).toBe(false);
+  it("validates provider resource schemas without exposing credential fields", () => {
     expect(namedOption.parse({ id: "option", name: "Name", secret: "private" })).toEqual({ id: "option", name: "Name" });
     expect(providerOptions.safeParse({ statuses: [], users: [], labels: [] }).success).toBe(true);
     expect(githubInstallation.safeParse({ installationId: 1, accountLogin: "owner", accountType: "Organization", state: "active", updatedAt: new Date().toISOString() }).success).toBe(true);

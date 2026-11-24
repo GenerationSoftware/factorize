@@ -1,15 +1,16 @@
 ---
 title: Connection problems
-description: Recover authorization, scopes, and execution integrations.
+description: Recover MCP authorization, scopes, and integration access.
 ---
 
 | Symptom | Action |
 | --- | --- |
-| Browser consent fails or is cancelled | Sign in to the correct verified Factorize owner account, restart authorization from the client, and approve the requested scopes. Finish signup/email verification separately before restarting. |
-| Client never connects | Confirm the exact URL `https://app.factorize.sh/mcp`, remote Streamable HTTP and OAuth support. Open the client's MCP status view and authenticate; use [client-specific instructions](/mcp/overview). |
-| `invalid_token` or access disappears | Reauthorize the client. Password resets/changes and sign-out invalidate delegated credentials. An expired access token needs client refresh or renewed login. |
-| `insufficient_scope` | Reconnect and grant `triggers:read` for discovery, `triggers:write` for Trigger edits, `runs:read` for inspection, `runs:write` for renaming, `runs:invoke` for invocation, and `runs:cancel` for stop. |
-| `list_execution_configs` returns no items | In dashboard Integrations, test and save an exe.dev or Amp integration in the same workspace. MCP cannot create credential-bearing connections. |
-| Target exists but repository/model access fails | Test the saved execution integration and check execution-account repository/model access and VM tags. For exe.dev, `diagnose_exe_integration` uses the saved connection ID and creates/deletes a temporary VM. |
+| Browser consent fails or is cancelled | Sign in to the intended Factorize account, restart authorization from the client, and approve the requested scopes. |
+| Client never connects | Confirm `https://app.factorize.sh/mcp`, remote Streamable HTTP and OAuth support. Open the client's MCP status view and authenticate; see [client-specific instructions](/mcp/overview). |
+| `invalid_token` or access disappears | Reauthorize the client. Password reset, password change, or sign-out can invalidate delegated credentials. |
+| `insufficient_scope` | Reconnect and grant `triggers:read` to discover Events and occurrences, or `triggers:write` to manage Events and Triggers. Add `skills:*` or integration scopes only when needed. |
+| Provider input is not arriving | Check the saved integration and Trigger source configuration. For delivery diagnosis, see [Event troubleshooting](/troubleshooting/events). |
 
-To reconnect access, open [Account settings → Authorized clients](https://app.factorize.sh/settings/authorized-clients), revoke the old client if necessary, remove/reconnect its authorization in the MCP client, then authorize again. Verify with “List my Factorize triggers” followed by “List my execution integrations.” Revocation affects access, not stored triggers. Provider reconnection is separate: use [Integrations](https://app.factorize.sh/integrations).
+Revoking an MCP authorization affects access but does not delete stored Events,
+Triggers, or occurrences. Provider reconnection is separate and can be managed
+from the Integrations page.

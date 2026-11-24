@@ -17,9 +17,9 @@ function validExpiry(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-/** Resolve provider credentials for one already-authorized run snapshot. The
- * caller supplies only the immutable selection read from that active run. */
-export async function resolveRunProviderCredentials(input: {
+/** Resolve provider credentials for one already-authorized integration. The
+ * caller supplies only the selection read from the caller request. */
+export async function resolveProviderCredentials(input: {
   database: Database;
   env: Env;
   tenantId: string;

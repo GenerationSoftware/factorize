@@ -88,7 +88,7 @@ describe.skipIf(!dbUrl)("Sign in with Factorize", () => {
     const { keys } = await jwks.json() as { keys: Array<JsonWebKey & { kid: string }> };
     const key = await crypto.subtle.importKey("jwk", keys.find(item => item.kid === kid)!, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["verify"]);
     expect(await crypto.subtle.verify("RSASSA-PKCS1-v1_5", key, Buffer.from(signature,"base64url"), new TextEncoder().encode(header+"."+payload))).toBe(true);
-    expect((await request("/api/v1/runs", { headers: { Authorization: "Bearer " + issued.access_token } })).status).toBe(403);
+    expect((await request("/api/v1/events", { headers: { Authorization: "Bearer " + issued.access_token } })).status).toBe(403);
     expect(await (await request("/oauth/apps/userinfo", { headers: { Authorization: "Bearer " + issued.access_token } })).json()).toEqual({ sub: f.userId });
     expect((await exchange(id, secret, code)).status).toBe(400);
   });
@@ -107,14 +107,14 @@ describe.skipIf(!dbUrl)("Sign in with Factorize", () => {
     expect(new URL(denial.redirectTo).searchParams.get("error")).toBe("access_denied");
     expect((await decide(reqId(started), f.cookie)).status).toBe(404);
 
-    const code = await receiveCode(id, f.cookie, { scope: "openid email runs:read offline_access" });
+    const code = await receiveCode(id, f.cookie, { scope: "openid email triggers:read offline_access" });
     expect((await exchange(id, "a".repeat(43), code)).status).toBe(401);
     expect((await exchange(id, secret, code, "b".repeat(64))).status).toBe(400);
     const response = await exchange(id, secret, code);
     expect(response.status).toBe(200);
     const issued = await response.json() as { access_token: string; refresh_token: string };
     const apiHeaders = { Authorization: "Bearer " + issued.access_token };
-    expect((await request("/api/v1/runs", { headers: apiHeaders })).status).toBe(200);
+    expect((await request("/api/v1/events", { headers: apiHeaders })).status).toBe(200);
     expect(await (await request("/oauth/apps/userinfo", { headers: apiHeaders })).json()).toMatchObject({ sub: f.userId, email_verified: true });
     const refreshed = await refresh(id, secret, issued.refresh_token);
     expect(refreshed.status).toBe(200);
@@ -122,7 +122,7 @@ describe.skipIf(!dbUrl)("Sign in with Factorize", () => {
     const next = await refreshed.json() as { refresh_token: string };
     const connection = (await appApi().listConnectedApps()).find(value => value.appId === id)!;
     await appApi().revokeConnectedApp(connection.id);
-    expect((await request("/api/v1/runs", { headers: apiHeaders })).status).toBe(401);
+    expect((await request("/api/v1/events", { headers: apiHeaders })).status).toBe(401);
     expect((await refresh(id, secret, next.refresh_token)).status).toBe(400);
   });
 
@@ -136,21 +136,21 @@ describe.skipIf(!dbUrl)("Sign in with Factorize", () => {
     const { id, secret } = await register();
     expect((await decide(reqId(await authorize(id)), cookie)).status).toBe(404);
     await appApi().updateApp(id, { name:"Sample server", redirectUris:[redirectUri], public:true, enabled:true });
-    const code = await receiveCode(id, cookie, {scope:"openid offline_access runs:read"});
+    const code = await receiveCode(id, cookie, {scope:"openid offline_access triggers:read"});
     const response = await exchange(id, secret, code);
     expect(response.status).toBe(200);
     const issued = await response.json() as { access_token: string; refresh_token: string };
     const apiHeaders = { Authorization: "Bearer " + issued.access_token };
-    const result = await request("/api/v1/runs", { headers:apiHeaders });
+    const result = await request("/api/v1/events", { headers:apiHeaders });
     expect(result.status).toBe(200);
-    expect((await result.json() as {items:unknown[]}).items).toEqual([]);
+    expect(await result.json()).toEqual(expect.arrayContaining([expect.objectContaining({ name: expect.any(String), triggerCount: expect.any(Number), occurrenceCount: expect.any(Number) })]));
     const rotated = await appApi().rotateAppSecret(id);
     expect((await refresh(id, secret, issued.refresh_token)).status).toBe(401);
     expect((await refresh(id, rotated.clientSecret, issued.refresh_token)).status).toBe(400);
-    expect((await request("/api/v1/runs", { headers:apiHeaders })).status).toBe(401);
-    const newCode = await receiveCode(id,cookie,{scope:"openid runs:read"});
+    expect((await request("/api/v1/events", { headers:apiHeaders })).status).toBe(401);
+    const newCode = await receiveCode(id,cookie,{scope:"openid triggers:read"});
     const newest = await (await exchange(id,rotated.clientSecret,newCode)).json() as {access_token:string};
     await appApi().updateApp(id,{name:"Sample server",redirectUris:[redirectUri],public:true,enabled:false});
-    expect((await request("/api/v1/runs",{headers:{Authorization:"Bearer "+newest.access_token}})).status).toBe(401);
+    expect((await request("/api/v1/events",{headers:{Authorization:"Bearer "+newest.access_token}})).status).toBe(401);
   });
 });

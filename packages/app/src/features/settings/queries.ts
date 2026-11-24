@@ -16,15 +16,3 @@ export const bearerIntegrationsQuery = queryOptions({
     return data;
   },
 });
-
-export const modelAccountsQuery = queryOptions({
-  queryKey: ["settings", "model-accounts"],
-  queryFn: async ({ signal }) => {
-    const { data, error } = await api.GET("/api/v1/model-accounts", { signal });
-    if (!data || error) throw new Error(messageOf(error));
-    if (!Array.isArray(data.accounts) || !Number.isSafeInteger(data.revision)) {
-      throw new Error("Model accounts could not be loaded. Reload the page to try again.");
-    }
-    return data;
-  },
-});

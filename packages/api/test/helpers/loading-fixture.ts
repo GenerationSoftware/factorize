@@ -3,7 +3,6 @@ import { Database } from "../../src/postgres/database";
 import { IdentityRepository } from "../../src/postgres/identity-repository";
 import { ConnectionRepository } from "../../src/postgres/connection-repository";
 import { signSession } from "../../src/index";
-import { encrypt } from "../../src/crypto";
 import worker from "../../src/worker";
 import type { Env, OAuthProps } from "../../src/types";
 
@@ -12,9 +11,8 @@ export async function loadingFixture(url: string) {
   let tearingDown = false;
   let unexpectedPoolError: Error | undefined;
   const name = `loading_test_${crypto.randomUUID().replaceAll("-", "")}`;
-  const tenantId = crypto.randomUUID(), userId = crypto.randomUUID(), otherTenant = crypto.randomUUID(), projectId = crypto.randomUUID();
+  const tenantId = crypto.randomUUID(), userId = crypto.randomUUID(), otherTenant = crypto.randomUUID();
   const triggerIds = Array.from({ length: 10 }, () => crypto.randomUUID());
-  const runId = crypto.randomUUID();
   async function setup() {
     admin = new Database({ connectionString: url });
     await admin.pool.query(`CREATE DATABASE ${name}`);
@@ -34,27 +32,25 @@ export async function loadingFixture(url: string) {
     } } as unknown as Fetcher, DATABASE: db, APP_ORIGIN: "https://factorize.test", SESSION_SIGNING_SECRET: "local-test-signing", OAUTH_PROVIDER: { listUserGrants: async () => ({ items: [] }) } as any, CREDENTIAL_ENCRYPTION_KEY: btoa("a".repeat(32)) } as Env;
     await new IdentityRepository(db, tenantId).upsertOwner(userId, "owner@example.test");
     await db.pool.query("INSERT INTO app.tenants(id) VALUES ($1)", [otherTenant]);
-    await db.pool.query("INSERT INTO app.projects(tenant_id,id,name) VALUES ($1,$2,'Default'),($1,md5(($1::uuid)::text || ':legacy')::uuid,'Legacy'),($3,md5(($3::uuid)::text || ':default')::uuid,'Default')", [tenantId, projectId, otherTenant]);
-    auth = { tenantId, userId, sessionVersion: 0, scopes: ["team:read", "triggers:read", "integrations:read", "team:write", "triggers:write", "integrations:write", "runs:read", "runs:invoke", "runs:cancel", "runs:write"], authMethod: "session" };
+    auth = { tenantId, userId, sessionVersion: 0, scopes: ["team:read", "triggers:read", "integrations:read", "team:write", "triggers:write", "integrations:write"], authMethod: "session" };
     const member = await new IdentityRepository(db, tenantId).member(userId); auth.sessionVersion = member!.sessionVersion;
-    await db.pool.query("UPDATE app.team_settings SET run_defaults=run_defaults||'{\"capacity\":50}'::jsonb WHERE tenant_id=$1", [tenantId]);
     cookie = `factorize_session=${await signSession({ ...auth, email: "owner@example.test", exp: Math.floor(Date.now()/1000)+3600 }, env.SESSION_SIGNING_SECRET)}`;
-    const prompt = await encrypt("Prompt", env.CREDENTIAL_ENCRYPTION_KEY);
     for (const [i, id] of triggerIds.entries()) {
-      await db.pool.query("INSERT INTO app.triggers(tenant_id,id,project_id,name,slug,encrypted_prompt,execution_config,concurrency_limit) VALUES ($1, $2, $3, $4, $4, $5, $6, 2)", [tenantId, id, projectId, `Trigger-${i}`, prompt, { agentKind: "codex", connectionId: "local" }]);
+      const eventId = crypto.randomUUID();
+      await db.pool.query("INSERT INTO app.event_definitions(tenant_id,id,name,current_revision) VALUES($1,$2,$3,1)", [tenantId,eventId,`trigger-${i}`]);
+      await db.pool.query("INSERT INTO app.event_definition_revisions(tenant_id,definition_id,revision,payload_schema) VALUES($1,$2,1,'{\"type\":\"object\"}')", [tenantId,eventId]);
+      await db.pool.query("INSERT INTO app.triggers(tenant_id,id,event_definition_id,name,slug) VALUES ($1,$2,$3,$4,$4)", [tenantId,id,eventId,`Trigger-${i}`]);
       for (const [position, kind] of ["manual", "schedule"].entries()) await db.pool.query("INSERT INTO app.events(tenant_id,id,trigger_id,kind,slug,position,config) VALUES ($1,$2,$3,$4,$4,$5,$6)", [tenantId, crypto.randomUUID(), id, kind, position, kind === "schedule" ? { cron: "0 * * * *", timezone: "UTC" } : {}]);
     }
     // Same trigger ID in another tenant must never contribute events or statistics.
-    await db.pool.query("INSERT INTO app.triggers(tenant_id,id,project_id,name,slug,encrypted_prompt,execution_config,concurrency_limit) VALUES ($1,$2,md5(($1::uuid)::text || ':default')::uuid,'Private','private',$3,'{}',1)", [otherTenant, triggerIds[0], prompt]);
+    const otherEventId = crypto.randomUUID();
+    await db.pool.query("INSERT INTO app.event_definitions(tenant_id,id,name,current_revision) VALUES($1,$2,'private',1)", [otherTenant,otherEventId]);
+    await db.pool.query("INSERT INTO app.event_definition_revisions(tenant_id,definition_id,revision,payload_schema) VALUES($1,$2,1,'{\"type\":\"object\"}')", [otherTenant,otherEventId]);
+    await db.pool.query("INSERT INTO app.triggers(tenant_id,id,event_definition_id,name,slug) VALUES($1,$2,$3,'Private','private')", [otherTenant,triggerIds[0],otherEventId]);
     await db.pool.query("INSERT INTO app.events(tenant_id,id,trigger_id,kind,slug) VALUES ($1,$2,$3,'manual','private')", [otherTenant, crypto.randomUUID(), triggerIds[0]]);
-    for (const [i, state] of ["running", "succeeded", "queued"].entries()) {
-      const id = i === 2 ? runId : crypto.randomUUID(), invocationId = crypto.randomUUID();
-      await db.pool.query("INSERT INTO app.invocations(tenant_id,id,trigger_id,source,claim_key,context,event_id) VALUES ($1,$2,$3,'manual',$4,'{}',(SELECT id FROM app.events WHERE tenant_id=$1 AND trigger_id=$3 AND kind='manual'))", [tenantId, invocationId, triggerIds[0], `test-${i}`]);
-      await db.pool.query("INSERT INTO app.trigger_runs(tenant_id,id,trigger_id,invocation_id,state,encrypted_prompt,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)", [tenantId, id, triggerIds[0], invocationId, state, prompt, new Date(1000+i*1000)]);
-      await db.pool.query("INSERT INTO app.runs(tenant_id,id,trigger_id,invocation_id,provider,issue_id,agent_kind,state,execution_backend_kind,agent_name,execution_config) VALUES ($1,$2,$3,$4,'manual',$5,'codex',$6,'exe-vm','',$7)", [tenantId, id, triggerIds[0], invocationId, `test-${i}`, state, { agentKind: "codex", connectionId: "local" }]);
-    }
+
     const connections = new ConnectionRepository(db, tenantId, env.CREDENTIAL_ENCRYPTION_KEY);
-    await connections.put("exe:local", { apiToken: "private-exe-token", agentKind: "codex", models: [] });
+    await connections.put("exe:local", { apiToken: "private-exe-token" });
     await connections.put("amp:local", { accessToken: "private-amp-token", project: "project" });
     await connections.put("cloudflare-tail:local", { signingSecret: "private-tail-secret", name: "Local" });
   }
@@ -70,5 +66,5 @@ export async function loadingFixture(url: string) {
   const request = (path: string, value = cookie) => worker.fetch(new Request(`https://factorize.test${path}`, { headers: { Cookie: value } }), env, { waitUntil() {} } as any);
 
   try { await setup(); } catch (error) { await cleanup(); throw error; }
-  return { db, env, auth, cookie, triggerIds, runId, tenantId, userId, otherTenant, projectId, request, cleanup };
+  return { db, env, auth, cookie, triggerIds, tenantId, userId, otherTenant, request, cleanup };
 }

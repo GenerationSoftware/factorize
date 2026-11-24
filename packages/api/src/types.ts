@@ -1,10 +1,6 @@
 export type FilterType = "owner" | "creator" | "status" | "label" | "assignee";
 export interface MatchRule { type: FilterType; targetId: string; }
-export type RunState = "queued" | "reserved" | "starting" | "running" | "done" | "blocked" | "failed" | "ignored" | "stopping" | "stopped" | "succeeded";
-
 export interface Env {
-  /** Explicit local test environment; never configured on deployed Workers. */
-  TEST_DOCKER_EXECUTION?: { enabled: true; image: string };
   SCHEDULER?: DurableObjectNamespace;
   ASSETS: Fetcher;
   APP_ORIGIN: string;
@@ -29,13 +25,7 @@ export interface Env {
   POSTMARK_FROM_EMAIL?: string;
   POSTMARK_MESSAGE_STREAM?: string;
   SKILL_ARTIFACTS?: Artifacts;
-  RUN_ARTIFACTS?: R2Bucket;
-  /** Pause automatic retention and artifact-history deletion while retaining maintenance visibility. */
-  RUN_HISTORY_RETENTION_PAUSED?: string;
-  TRACE_PRIMARY_MODE?: "execution_stream" | "native_session";
-  TRACE_STREAM_TENANTS?: string;
-  /** OpenAI-compatible Codex endpoint configured for the execution environment. */
-  CODEX_MODEL_BASE_URL?: string;
+  PROXY_ARTIFACTS?: R2Bucket;
   HYPERDRIVE?: Hyperdrive;
   /** Test-only injection point; production uses HYPERDRIVE. */
   DATABASE?: import("./postgres/database").Database;
@@ -47,19 +37,12 @@ export type OAuthProps = {
   sessionVersion: number;
   scopes: string[];
   accessTokenId?: string;
-  /** Set only by a verified, active execution credential. */
-  runId?: string;
-  runTriggerId?: string;
-  piLeaseId?:string;
-  piLeaseEpoch?:number;
-  runIdentityProvider?: "exe.dev" | "fly.io";
   /** Stable identifier for the OAuth authorization grant; never a bearer token. */
-  vmGrantId?: string;
   oauthGrantId?: string;
   oauthClientId?: string;
   /** Expiry of the presented, verified OAuth access token. */
   oauthExpiresAt?: number;
-  authMethod?: "session" | "oauth" | "access_token" | "vendor_identity" | "vm_grant" | "hosted_pi";
+  authMethod?: "session" | "oauth" | "access_token";
 };
 
 export interface WorkItem {
@@ -77,8 +60,6 @@ export interface WorkItem {
 export interface ExeConnectionInput {
   connectionId?: string;
   apiToken?: string;
-  tags?: string[];
-  agentKind?: "codex" | "claude" | "pi";
 }
 
 export interface AmpConnectionInput { connectionId?: string; accessToken?: string; project?: string; apiBaseUrl?: string; }

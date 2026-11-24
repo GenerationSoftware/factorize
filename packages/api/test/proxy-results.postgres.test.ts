@@ -13,7 +13,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("bounded retained proxy res
   f=await loadingFixture(process.env.AUTH_TEST_DATABASE_URL!);const id=crypto.randomUUID();
   await new CredentialRepository(f.db,f.tenantId,f.env.CREDENTIAL_ENCRYPTION_KEY).write({id,kind:"bearer",name:"Fixture",origin:"https://fixture.example.com",description:null,expectedRevision:0,idempotencyKey:crypto.randomUUID(),operation:"upsert",managedSecret:"private"});
   integration=(await f.db.pool.query("UPDATE app.agent_integrations SET policy='baseline' WHERE tenant_id=$1 AND credential_id=$2 RETURNING id",[f.tenantId,id])).rows[0].id;
-  f.env.RUN_ARTIFACTS={put:async(key:string,value:ArrayBuffer)=>{maxWrite=Math.max(maxWrite,value.byteLength);objects.set(key,new Uint8Array(value).slice());},get:async(key:string,options:any)=>{const data=objects.get(key);if(!data)return null;const bytes=options?.range?data.slice(options.range.offset,options.range.offset+options.range.length):data;return {arrayBuffer:async()=>bytes.buffer};}} as any;
+  f.env.PROXY_ARTIFACTS={put:async(key:string,value:ArrayBuffer)=>{maxWrite=Math.max(maxWrite,value.byteLength);objects.set(key,new Uint8Array(value).slice());},get:async(key:string,options:any)=>{const data=objects.get(key);if(!data)return null;const bytes=options?.range?data.slice(options.range.offset,options.range.offset+options.range.length):data;return {arrayBuffer:async()=>bytes.buffer};}} as any;
   service=new AgentApiService(f.env,{...f.auth,authMethod:"oauth",oauthGrantId:"responses",oauthClientId:"fixture",oauthExpiresAt:Date.now()/1000+3600,scopes:["proxy:use"]});
  });
  afterAll(async()=>{vi.unstubAllGlobals();await f?.cleanup();});

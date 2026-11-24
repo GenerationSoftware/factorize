@@ -13,10 +13,10 @@ type Row={tenant_id:string;id:string;identity_id:string;owner_user_id:string;nam
 const fail=(status:number,code:string,message:string)=>new AgentApiError(status,code,message);
 export class ProxyPayloads {
  private db;
- constructor(private env:Env,private auth:OAuthProps,private durableRun=false){this.db=databaseFor(env);}
- private api(){return new AgentApiService(this.env,this.auth,this.durableRun);}
+ constructor(private env:Env,private auth:OAuthProps){this.db=databaseFor(env);}
+ private api(){return new AgentApiService(this.env,this.auth);}
  private async identity(){const identity=await this.api().identity();if(identity.kind==="oauth"&&(!this.auth.scopes.includes("proxy:use")||identity.policy.disabled_scopes.includes("proxy:use")))throw fail(403,"insufficient_scope","The proxy:use scope is required for request payloads.");return identity;}
- private bucket(){if(!this.env.RUN_ARTIFACTS)throw fail(503,"payload_unavailable","Artifact storage is unavailable.");return this.env.RUN_ARTIFACTS;}
+ private bucket(){if(!this.env.PROXY_ARTIFACTS)throw fail(503,"payload_unavailable","Artifact storage is unavailable.");return this.env.PROXY_ARTIFACTS;}
  private receipt(row:Row){return {handle:row.id,name:row.name,mediaType:row.media_type,size:row.size,state:row.state,sha256:row.sha256,expiresAt:row.expires_at.toISOString(),uploadUrl:`${this.env.APP_ORIGIN}/api/v1/proxy-payloads/${row.id}/bytes`,browserUploadUrl:`${this.env.APP_ORIGIN}/uploads/proxy/${row.id}`};}
  async authorized(id:string){
   const row=(await this.db.pool.query<Row>("SELECT * FROM app.proxy_payloads WHERE tenant_id=$1 AND id=$2 AND expires_at>now()",[this.auth.tenantId,id])).rows[0];
@@ -25,7 +25,7 @@ export class ProxyPayloads {
    const member=await new IdentityRepository(this.db,this.auth.tenantId).member(this.auth.userId);
    if(row.owner_user_id!==this.auth.userId||member?.role!=="owner"||member.sessionVersion!==this.auth.sessionVersion)throw fail(403,"forbidden","This upload belongs to another identity.");
    const owner=(await this.db.pool.query("SELECT revoked_at FROM app.agent_identities WHERE tenant_id=$1 AND id=$2",[row.tenant_id,row.identity_id])).rows[0];if(!owner||owner.revoked_at)throw fail(403,"forbidden","The originating connection was revoked.");
-  }else if((await this.identity()).id!==row.identity_id)throw fail(403,"forbidden","Payload belongs to another connection or run.");
+  }else if((await this.identity()).id!==row.identity_id)throw fail(403,"forbidden","Payload belongs to another connection.");
   return row;
  }
  async create(input:z.infer<typeof createPayloadInput>){
@@ -96,18 +96,16 @@ export class ProxyPayloads {
    const row=await this.api().authorizeRead({handle:source.handle,offset:0}),api=this.api();let offset=0;
    return {size:row.size,stream:async()=>new ReadableStream({async pull(c){if(offset>=row.size){c.close();return;}const chunk=await api.read({handle:source.handle,offset});offset=chunk.nextOffset;c.enqueue(Buffer.from(chunk.body,"base64"));}})};
   }
-  if(this.auth.runId!==source.runId&&!this.auth.scopes.includes("runs:read"))throw fail(403,"forbidden","Reading another run's artifact requires runs:read.");
-  await this.api().identity();const row=(await this.db.pool.query("SELECT object_key,byte_size FROM app.run_artifacts WHERE tenant_id=$1 AND run_id=$2 AND id=$3 AND state='stored'",[this.auth.tenantId,source.runId,source.artifactId])).rows[0];if(!row)throw fail(404,"not_found","Retained run artifact not found.");
-  return {size:Number(row.byte_size),stream:async()=>{await this.api().identity();const object=await this.bucket().get(row.object_key);if(!object)throw fail(404,"not_found","Artifact bytes are unavailable.");return object.body;}};
+  throw fail(400,"invalid_request","Unsupported request body source.");
  }
 }
 export async function cleanupProxyPayloads(env:Env){
- if(!env.RUN_ARTIFACTS)return;const db=databaseFor(env),rows=(await db.pool.query("SELECT tenant_id,id FROM app.proxy_payloads WHERE expires_at<now() LIMIT 50")).rows;
- for(const row of rows){let cursor:string|undefined;do{const page=await env.RUN_ARTIFACTS.list({prefix:`proxy-payloads/${row.tenant_id}/${row.id}/`,cursor});if(page.objects.length)await env.RUN_ARTIFACTS.delete(page.objects.map(object=>object.key));cursor=page.truncated?page.cursor:undefined;}while(cursor);await db.pool.query("DELETE FROM app.proxy_payloads WHERE tenant_id=$1 AND id=$2 AND expires_at<now()",[row.tenant_id,row.id]);}
+ if(!env.PROXY_ARTIFACTS)return;const db=databaseFor(env),rows=(await db.pool.query("SELECT tenant_id,id FROM app.proxy_payloads WHERE expires_at<now() LIMIT 50")).rows;
+ for(const row of rows){let cursor:string|undefined;do{const page=await env.PROXY_ARTIFACTS.list({prefix:`proxy-payloads/${row.tenant_id}/${row.id}/`,cursor});if(page.objects.length)await env.PROXY_ARTIFACTS.delete(page.objects.map(object=>object.key));cursor=page.truncated?page.cursor:undefined;}while(cursor);await db.pool.query("DELETE FROM app.proxy_payloads WHERE tenant_id=$1 AND id=$2 AND expires_at<now()",[row.tenant_id,row.id]);}
  await db.pool.query("UPDATE app.proxy_payloads SET state='pending',lease_id=NULL,lease_expires_at=NULL WHERE state='uploading' AND lease_expires_at<now()");
 }
-export async function proxyRequestBody(env:Env,auth:OAuthProps,input:{body?:string;encoding:"utf8"|"base64";bodySource?:z.infer<typeof requestBodySource>;multipart?:z.infer<typeof multipartPart>[];headers:Record<string,string>},durableRun=false){
- const payloads=new ProxyPayloads(env,auth,durableRun),headers={...input.headers};
+export async function proxyRequestBody(env:Env,auth:OAuthProps,input:{body?:string;encoding:"utf8"|"base64";bodySource?:z.infer<typeof requestBodySource>;multipart?:z.infer<typeof multipartPart>[];headers:Record<string,string>}){
+ const payloads=new ProxyPayloads(env,auth),headers={...input.headers};
  if(input.bodySource){const source=await payloads.body(input.bodySource);if(source.size>32*1024*1024)throw fail(413,"request_too_large","Source exceeds fixed 32 MiB request limit.");return {body:await source.stream(),headers};}
  if(!input.multipart)return {body:input.body===undefined?undefined:Buffer.from(input.body,input.encoding==="base64"?"base64":"utf8"),headers};
  const boundary="factorize-"+crypto.randomUUID(),pieces:{size:number;stream:()=>Promise<ReadableStream<Uint8Array>>}[]=[];

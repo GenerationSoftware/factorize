@@ -1,7 +1,3 @@
-import { installSkillArtifacts } from "./helpers/memory-skill-git";
-import { SkillContent } from "../src/skill-content";
-import { SkillRepository } from "../src/postgres/skill-repository";
-import worker from "../src/worker";
 import { describe, expect, it, vi } from "vitest";
 import { loadingFixture } from "./helpers/loading-fixture";
 import { protectedApiFetch } from "../src/protected-api";
@@ -12,71 +8,6 @@ vi.mock("@cloudflare/workers-oauth-provider", () => ({ OAuthProvider: class {}, 
 const url = process.env.AUTH_TEST_DATABASE_URL;
 // Each test creates and migrates an isolated database before exercising the API.
 describe.skipIf(!url)("cookie protocol APIs against PostgreSQL", { timeout: 30_000 }, () => {
-  it("lists skills and their usage through an existing browser session", async () => {
-    const f = await loadingFixture(url!);
-    installSkillArtifacts(f.env);
-    try {
-      const request = (body?: unknown) => worker.fetch(new Request(f.env.APP_ORIGIN + "/api/v1/skills", {
-        method: body ? "POST" : "GET",
-        headers: { Cookie: f.cookie, Origin: f.env.APP_ORIGIN, "Content-Type": "application/json" },
-        ...(body ? { body: JSON.stringify(body) } : {}),
-      }), f.env, {} as ExecutionContext);
-      const empty = await request();
-      expect(empty.status).toBe(200);
-      expect(await empty.json()).toEqual({ items: [], nextCursor: null });
-      const created = await request({ key: "review", body: "Review carefully" });
-      expect(created.status).toBe(201);
-      const skill = await created.json() as { id: string };
-      const detail = await worker.fetch(new Request(f.env.APP_ORIGIN + `/api/v1/skills/${skill.id}`, { headers: { Cookie: f.cookie, Origin: f.env.APP_ORIGIN } }), f.env, {} as ExecutionContext);
-      expect(detail.status).toBe(200);
-      expect(await detail.json()).toMatchObject({ id: skill.id, key: "review", body: "Review carefully", revision: 1, usageCount: 0 });
-      await f.db.pool.query("INSERT INTO app.trigger_skills(tenant_id,trigger_id,skill_id,position) VALUES($1,$2,$3,0)", [f.tenantId, f.triggerIds[0], skill.id]);
-      const listed = await request();
-      expect(listed.status).toBe(200);
-      const page = await listed.json() as { items: Record<string, unknown>[]; nextCursor: string | null };
-      expect(page.items).toHaveLength(1);
-      expect(page.items[0]).toMatchObject({ id: skill.id, key: "review", revision: 1, usageCount: 1 });
-      expect(page.items[0]).not.toHaveProperty("body");
-      expect(page.nextCursor).toBeNull();
-    } finally { await f.cleanup(); }
-  });
-
-  it("reads, previews and attaches persisted skills through the API", async () => {
-    const f = await loadingFixture(url!);
-    installSkillArtifacts(f.env);
-    try {
-      const request = (path: string, method = "GET", body?: unknown) => worker.fetch(new Request(f.env.APP_ORIGIN + "/api/v1" + path, {
-        method, headers: { Cookie: f.cookie, Origin: f.env.APP_ORIGIN, "Content-Type": "application/json" },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-      }), f.env, {} as ExecutionContext);
-      const body = "Literal skill {{notATemplate}}";
-      const created = await request("/skills", "POST", { key: "integration-context", body });
-      expect(created.status).toBe(201);
-      const skill = await created.json() as { id: string };
-      const read = await request(`/skills/${skill.id}`);
-      expect(read.status).toBe(200);
-      expect(await read.json()).toMatchObject({ id: skill.id, body });
-      const repository = new SkillRepository(f.db, f.tenantId, f.env.CREDENTIAL_ENCRYPTION_KEY, undefined, new SkillContent(f.env.SKILL_ARTIFACTS));
-      expect(await repository.get("integration-context")).toMatchObject({ id: skill.id, body });
-      expect(await repository.get("missing-key")).toBeNull();
-      expect(await repository.get(crypto.randomUUID())).toBeNull();
-      const other = new SkillRepository(f.db, f.otherTenant, f.env.CREDENTIAL_ENCRYPTION_KEY);
-      expect(await other.get(skill.id)).toBeNull();
-      expect(await other.get("integration-context")).toBeNull();
-      const preview = await request("/triggers/preview", "POST", { skillId: skill.id, prompt: "Trigger task" });
-      expect(preview.status).toBe(200);
-      expect(await preview.json()).toMatchObject({ prompt: body + "\n\nTrigger task" });
-      const saved = await request(`/triggers/${f.triggerIds[0]}`, "PUT", {
-        name: "skill-trigger",  prompt: "Trigger task", executionConfigId: "local",
-        concurrencyLimit: 2, events: [], skillId: skill.id,
-      });
-      expect(saved.status).toBe(200);
-      const trigger = await f.request(`/api/v1/triggers/${f.triggerIds[0]}`);
-      expect(trigger.status).toBe(200);
-      expect(await trigger.json()).toMatchObject({ prompt: "Trigger task", skillId:skill.id,skill:{ id: skill.id, key: "integration-context", revision: 1 } });
-    } finally { await f.cleanup(); }
-  });
-
   it("checks real owner/session version before consent and rejects revoked sessions", async () => {
     const f = await loadingFixture(url!);
     try {

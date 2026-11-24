@@ -8,7 +8,7 @@ function fromBase64(value: string): Uint8Array {
 function toBase64(value: Uint8Array): string {
   // Spreading a large transcript into a function call exceeds the JavaScript
   // argument limit. Chunking preserves the existing wire format without
-  // imposing an artificial size limit on encrypted run output.
+  // imposing an artificial size limit on encrypted stored data.
   const chunkSize = 0x8000;
   let binary = "";
   for (let offset = 0; offset < value.length; offset += chunkSize) {
