@@ -132,10 +132,14 @@ A team can grant Factorize permissions to an existing exe.dev VM or Fly.io Machi
 
 ### 8. Publish the validated change
 
-- [ ] Commit the implementation and completed checklist and push the validated commit to `origin/main`.
+- [x] Commit the implementation and completed checklist and push the validated commit to `origin/main`.
 
 **Acceptance criteria**
 
 - Every implementation criterion has a recorded result. The checklist records the status of each provider's live release gate.
 - Reconcile with current `origin/main` and repeat full validation if the code changes during reconciliation. Preserve unrelated commits and use a normal push.
 - Confirm the intended commit is present on `origin/main` after the push. Report the commit and validation results.
+
+**Verification record**
+
+- `git fetch origin main` confirmed the validated code was based on the current main branch. The normal push published implementation commit `9fab0a5712629f0620a140998d91e8b11d90a305`. `git ls-remote --exit-code origin refs/heads/main` confirmed it on the remote. The provider gates remain closed as recorded above.
