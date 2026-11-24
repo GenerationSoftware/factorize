@@ -1,3 +1,4 @@
+import { GoogleCallbackFailure, googleCallbackStage, reportGoogleCallbackFailure } from "./google-callback-diagnostics";
 import { serialize } from "hono/utils/cookie";
 import { z } from "zod";
 import { hashPassword, normalizeEmail, tokenDigest, verifyPassword } from "./auth";
@@ -70,7 +71,9 @@ const jwtClaims = z.object({
   iat: z.number().int(),
   nbf: z.number().int().optional(),
   email: z.string().email().max(320),
-  email_verified: z.literal(true),
+  // Google documents Boolean true, but its signed-token example for the
+  // authorization-code flow also shows the exact JSON string "true".
+  email_verified: z.union([z.literal(true), z.literal("true")]),
   hd: z.string().min(1).max(253).optional(),
 });
 function decodePart(input: string) {
@@ -79,30 +82,41 @@ function decodePart(input: string) {
   return Uint8Array.from(atob(padded), char => char.charCodeAt(0));
 }
 async function exchangeGoogleCode(env: Env, attempt: Attempt, code: string) {
-  const token = await fetch(tokenUrl, {
+  const token = await googleCallbackStage("token_transport", () => fetch(tokenUrl, {
     method: "POST", redirect: "error", signal: AbortSignal.timeout(10_000),
     body: new URLSearchParams({
       grant_type: "authorization_code", code, client_id: env.GOOGLE_SIGN_IN_CLIENT_ID!, client_secret: env.GOOGLE_SIGN_IN_CLIENT_SECRET!,
       redirect_uri: redirectUri(env), code_verifier: attempt.verifier!,
     }),
+  }));
+  if (!token.ok) {
+    const { error } = await token.json().then(value => z.object({ error: z.unknown().optional() }).parse(value)).catch(() => ({ error: undefined }));
+    throw new GoogleCallbackFailure(error === "invalid_client" ? "token_invalid_client" : error === "invalid_grant" ? "token_invalid_grant" : "token_rejected");
+  }
+  const { id_token } = await googleCallbackStage("token_response", async () => z.object({ id_token: z.string().min(1).max(16384) }).parse(await token.json()));
+  const { header, claims, parts } = await googleCallbackStage("id_token_shape", () => {
+    const parts = id_token.split(".");
+    if (parts.length !== 3) throw new Error("Invalid Google identity token.");
+    const decoder = new TextDecoder("utf-8", { fatal: true });
+    return {
+      header: jwtHeader.parse(JSON.parse(decoder.decode(decodePart(parts[0])))),
+      claims: jwtClaims.parse(JSON.parse(decoder.decode(decodePart(parts[1])))),
+      parts,
+    };
   });
-  if (!token.ok) throw new Error("Google sign-in was not verified.");
-  const { id_token } = z.object({ id_token: z.string().min(1).max(16384) }).parse(await token.json());
-  const parts = id_token.split(".");
-  if (parts.length !== 3) throw new Error("Invalid Google identity token.");
-  const decoder = new TextDecoder("utf-8", { fatal: true });
-  const header = jwtHeader.parse(JSON.parse(decoder.decode(decodePart(parts[0]))));
-  const claims = jwtClaims.parse(JSON.parse(decoder.decode(decodePart(parts[1]))));
   const now = Math.floor(Date.now() / 1000);
   if (claims.aud !== env.GOOGLE_SIGN_IN_CLIENT_ID || (claims.azp && claims.azp !== claims.aud) || claims.nonce !== attempt.nonce ||
-      claims.exp <= now || claims.exp <= claims.iat || claims.iat > now + 30 || claims.iat < now - maxAge || (claims.nbf ?? 0) > now + 30) throw new Error("Invalid Google sign-in claims.");
-  const resolveKey = createJwksResolver({ jwksUri });
-  const jwk = await resolveKey(header.kid, false);
-  if (jwk?.kty !== "RSA" || (jwk.alg && jwk.alg !== "RS256")) throw new Error("Google signing key unavailable.");
-  const key = await crypto.subtle.importKey("jwk", jwk, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["verify"]);
-  if (!await crypto.subtle.verify("RSASSA-PKCS1-v1_5", key, decodePart(parts[2]), encoder.encode(parts[0] + "." + parts[1]))) {
-    throw new Error("Google identity signature invalid.");
+      claims.exp <= now || claims.exp <= claims.iat || claims.iat > now + 30 || claims.iat < now - maxAge || (claims.nbf ?? 0) > now + 30) {
+    throw new GoogleCallbackFailure("id_token_claims");
   }
+  const key = await googleCallbackStage("google_signing_key", async () => {
+    const jwk = await createJwksResolver({ jwksUri })(header.kid, false);
+    if (jwk?.kty !== "RSA" || (jwk.alg && jwk.alg !== "RS256")) throw new Error("Google signing key unavailable.");
+    return crypto.subtle.importKey("jwk", jwk, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["verify"]);
+  });
+  const validSignature = await googleCallbackStage("id_token_signature", () =>
+    crypto.subtle.verify("RSASSA-PKCS1-v1_5", key, decodePart(parts[2]), encoder.encode(parts[0] + "." + parts[1])));
+  if (!validSignature) throw new GoogleCallbackFailure("id_token_signature");
   const email = normalizeEmail(claims.email);
   return { subject: claims.sub, email, authoritativeEmail: email.endsWith("@gmail.com") || !!claims.hd, issuedAt: claims.iat };
 }
@@ -170,25 +184,34 @@ async function syncGoogleRecovery(sql: DatabaseClient, userId: string, google: {
 }
 
 export async function redeemGoogleCallback(request: Request, env: Env) {
+  const result = await redeemGoogleCallbackAttempt(request, env);
+  if ("status" in result) {
+    reportGoogleCallbackFailure(request, result.status === 409 ? "account_collision" : result.status === 403 ? "account_unavailable" : "attempt_unavailable");
+  }
+  return result;
+}
+
+async function redeemGoogleCallbackAttempt(request: Request, env: Env) {
   const parsed = new URL(request.url);
   const state = z.uuid().safeParse(parsed.searchParams.get("state"));
   const code = parsed.searchParams.get("code");
   const digest = await digestFor(request, env);
-  if (!googleEnabled(env) || !state.success || !code || code.length > 4096 || !digest || parsed.searchParams.has("error")) return expired();
+  if (parsed.searchParams.has("error")) throw new GoogleCallbackFailure("provider_denied");
+  if (!googleEnabled(env) || !state.success || !code || code.length > 4096 || !digest) throw new GoogleCallbackFailure("callback_input");
   const db = databaseFor(env);
-  const attempt = await db.transaction(async sql => {
+  const attempt = await googleCallbackStage("attempt_store", () => db.transaction(async sql => {
     const row = (await sql.query<Attempt>(`SELECT * FROM app.google_sign_in_attempts
       WHERE id=$1 AND browser_digest=$2 AND verifier IS NOT NULL AND expires_at>clock_timestamp() FOR UPDATE`, [state.data, digest])).rows[0];
     if (row) await sql.query("UPDATE app.google_sign_in_attempts SET verifier=NULL WHERE id=$1", [row.id]);
     return row;
-  });
-  if (!attempt) return expired();
+  }));
+  if (!attempt) throw new GoogleCallbackFailure("attempt_unavailable");
   const google = await exchangeGoogleCode(env, attempt, code);
-  const linked = (await db.pool.query<{ user_id: string }>(`SELECT user_id FROM app.auth_accounts
-    WHERE provider='google' AND provider_account_id=$1`, [google.subject])).rows[0];
+  const linked = (await googleCallbackStage("account_store", () => db.pool.query<{ user_id: string }>(`SELECT user_id FROM app.auth_accounts
+    WHERE provider='google' AND provider_account_id=$1`, [google.subject]))).rows[0];
   if (attempt.password_user_id && linked?.user_id !== attempt.password_user_id) return fail(403, "Use the Google account linked to your Factorize account.");
   if (linked) {
-    return db.transaction(async sql => {
+    return googleCallbackStage("account_store", () => db.transaction(async sql => {
       // Lock attempt before user, consistent with both password setup and linking.
       const active = (await sql.query("SELECT id FROM app.google_sign_in_attempts WHERE id=$1 AND expires_at>clock_timestamp() FOR UPDATE", [attempt.id])).rows.length;
       if (!active) return expired();
@@ -203,12 +226,14 @@ export async function redeemGoogleCallback(request: Request, env: Env) {
       }
       await sql.query("DELETE FROM app.google_sign_in_attempts WHERE id=$1", [attempt.id]);
       return { identity, returnTo: attempt.return_to, connection: attempt.connection_id ?? undefined };
-    });
+    }));
   }
-  const existing = (await db.pool.query<{ id: string }>("SELECT id FROM app.auth_users WHERE lower(email)=$1", [google.email])).rows[0];
-  const updated = await db.pool.query(`UPDATE app.google_sign_in_attempts SET google_subject=$2,email=$3,existing_user_id=$4,email_confirmed=$5,provider_managed_email=$5,provider_observed_at=$6
-    WHERE id=$1 AND expires_at>clock_timestamp() RETURNING id`, [attempt.id, google.subject, google.email, existing?.id ?? null, google.authoritativeEmail, google.issuedAt]);
-  return updated.rowCount ? { pending: true as const } : expired();
+  return googleCallbackStage("account_store", async () => {
+    const existing = (await db.pool.query<{ id: string }>("SELECT id FROM app.auth_users WHERE lower(email)=$1", [google.email])).rows[0];
+    const updated = await db.pool.query(`UPDATE app.google_sign_in_attempts SET google_subject=$2,email=$3,existing_user_id=$4,email_confirmed=$5,provider_managed_email=$5,provider_observed_at=$6
+      WHERE id=$1 AND expires_at>clock_timestamp() RETURNING id`, [attempt.id, google.subject, google.email, existing?.id ?? null, google.authoritativeEmail, google.issuedAt]);
+    return updated.rowCount ? { pending: true as const } : expired();
+  });
 }
 
 async function pendingAttempt(db: DatabaseClient, digest: string, lock = false) {
