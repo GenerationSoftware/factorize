@@ -189,8 +189,11 @@ export async function checkOAuth({ read: send, stream, db, tenantId, userId, coo
   const saved = await change(edit);
   assert.equal(saved.status, 200, saved.text);
   assert.equal((await change(edit)).status, 409);
-  const blocked = await rpc('tools/call', {name:'list_triggers',arguments:{}}, 9);
-  assert.ok(blocked.error || blocked.result?.isError);
+  const challengeRequest = credentials => json('/mcp', { jsonrpc: '2.0', id: 9, method: 'tools/call', params: {name:'list_triggers',arguments:{}} },
+    { ...credentials, Accept: 'application/json, text/event-stream', 'MCP-Protocol-Version': '2025-11-25' });
+  const blocked = await challengeRequest(bearer);
+  assert.equal(blocked.status, 403, blocked.text);
+  assert.match(blocked.headers['www-authenticate'], /insufficient_scope.*scope="triggers:read"/);
   const reflect = async (credentials = bearer) => (await rpc('tools/call', {name:'get_api_reflection',arguments:{}}, 10, credentials)).result.structuredContent;
   assert.equal((await reflect()).integrations.find(row => row.id === integrationId).access, 'requestable');
 
@@ -240,7 +243,7 @@ export async function checkOAuth({ read: send, stream, db, tenantId, userId, coo
   assert.equal((await form('/oauth/token', poll)).json.error, 'expired_token');
   await db.query('UPDATE app.members SET session_version=2 WHERE tenant_id=$1 AND user_id=$2', [tenantId,userId]);
   assert.equal((await send('/api/v1/triggers', 'GET', undefined, bearer)).status, 401);
-  const revoked = await rpc('tools/call', { name: 'list_triggers', arguments: {} }, 4); assert.ok(revoked.error || revoked.result?.isError);
+  const revoked = await challengeRequest(bearer); assert.equal(revoked.status, 401); assert.match(revoked.headers['www-authenticate'], /invalid_token/);
   assert.equal((await send('/api/v1/triggers', 'GET', undefined, restBearer)).status, 401);
-  const revokedDevice = await rpc('tools/call', { name: 'list_triggers', arguments: {} }, 7, { Authorization: 'Bearer '+deviceToken.json.access_token }); assert.ok(revokedDevice.error || revokedDevice.result?.isError);
+  const revokedDevice = await challengeRequest({ Authorization: 'Bearer '+deviceToken.json.access_token }); assert.equal(revokedDevice.status, 401);
 }
