@@ -182,9 +182,8 @@ make authorized API requests. Select only the integrations needed for your
 Triggers or MCP connection. Credentials are encrypted and never returned by
 Factorize APIs.
 
-Bearer API, GitHub, Linear, ClickUp, X, Fly.io, exe.dev, Amp, and Cloudflare Tail
-integrations have distinct setup flows. Cloudflare Tail is an inbound webhook
-signing integration. Use the browser's Integrations page to connect or revoke
+Bearer API, GitHub, Linear, ClickUp, X, Fly.io, exe.dev, Amp, and Cloudflare REST API
+integrations have distinct setup flows. Cloudflare Tail is retired. Use the browser's Integrations page to connect or revoke
 credentials and to choose which MCP clients may access them.
 
 Events and Trigger source definitions store references and configuration, not
@@ -666,9 +665,10 @@ management, administrative account operations, other mutations, and
 unrecognized routes are denied. Disconnecting removes Factorize's saved
 credentials; revoke the OAuth grant in Cloudflare for provider-side removal.
 
-The legacy standalone Cloudflare Tail setup is retired. Already configured
-Tail webhooks and records are not deleted by this migration, and this
-integration does not add log streaming or new log triggers.
+Cloudflare Tail is retired. Old webhook endpoints return HTTP 410 and
+Factorize no longer delivers Tail events. Historical configuration and Event
+occurrences remain available for inspection or removal. The REST API integration
+does not add log streaming or log triggers.
 
 ## Configure Linear
 

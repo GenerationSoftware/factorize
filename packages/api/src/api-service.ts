@@ -97,6 +97,13 @@ export class ApiService {
       // plus an insertion, never an in-place mutation of historical identity.
       const candidate = source.id ? prior.get(source.id) : undefined;
       const old = candidate?.kind === source.kind ? candidate : undefined;
+      if (source.kind === "webhook" && source.config.provider === "cloudflareTail") {
+        if (!old || old.config.provider !== "cloudflareTail" || old.config.integrationId !== source.config.integrationId) {
+          throw new ServiceError(400, "invalid_request", "Cloudflare Tail is retired. Remove this source or choose a different provider.");
+        }
+        // Retain historical configuration unchanged when editing other fields.
+        return { ...old, enabled: false };
+      }
       while (used.has(`source-${next}`)) next++;
       const slug = old?.slug ?? source.slug ?? `source-${next++}`; used.add(slug);
       return { id: old?.id ?? crypto.randomUUID(), triggerId: old?.triggerId ?? "", kind: source.kind, slug, enabled: source.enabled !== false, config: source.config, template:source.template, createdAt: old?.createdAt ?? timestamp, updatedAt: timestamp };
@@ -106,7 +113,7 @@ export class ApiService {
 
 
   private async presentTrigger(trigger: Trigger) {
-    return publicValue(triggerResponse, { ...trigger, eventId: trigger.eventId ?? null, sources: trigger.sources.map(source => ({ ...source, config: source.kind === "webhook" ? { ...source.config, ...(source.config.signingSecret || source.config.secret ? { secretConfigured: true } : {}), ...(source.config.provider === "cloudflareTail" ? { destination: this.env.APP_ORIGIN + "/webhooks/cloudflare/" + encodeURIComponent(this.auth.tenantId) + "/" + encodeURIComponent(trigger.id) } : {}) } : source.config })) });
+    return publicValue(triggerResponse, { ...trigger, eventId: trigger.eventId ?? null, sources: trigger.sources.map(source => ({ ...source, enabled: source.kind === "webhook" && source.config.provider === "cloudflareTail" ? false : source.enabled, config: source.kind === "webhook" ? { ...source.config, ...(source.config.signingSecret || source.config.secret ? { secretConfigured: true } : {}) } : source.config })) });
   }
   async mcpListSkills(cursor?:string) {
     await this.authorizeIdentity();
@@ -324,7 +331,7 @@ export class ApiService {
     const result = await new EventMatchRepository(databaseFor(this.env), () => wakeMcpDeliveries(this.env)).match({ tenantId: this.auth.tenantId, triggerId, triggerRevision: trigger.revision, sourceIdentity: `manual:${source.id}`, deduplicationKey, evidence: input.data ?? {}, decision: "matched" });
     return { occurrenceId: result.occurrence?.id ?? null, duplicate: result.duplicate };
   }
-  async listTriggerEventAvailability() { await this.authorize("triggers:read"); const [kinds, installations] = await Promise.all([this.connections().kinds(), new GitHubRepository(databaseFor(this.env),this.auth.tenantId).installations()]), states=installations.map((x:any)=>x.state); return installedEventAvailability(kinds.includes("linear"),kinds.includes("clickup"),states,kinds.filter(x=>x.startsWith("cloudflare-tail:")).length); }
+  async listTriggerEventAvailability() { await this.authorize("triggers:read"); const [kinds, installations] = await Promise.all([this.connections().kinds(), new GitHubRepository(databaseFor(this.env),this.auth.tenantId).installations()]), states=installations.map((x:any)=>x.state); return installedEventAvailability(kinds.includes("linear"),kinds.includes("clickup"),states); }
   async previewSchedule(input: unknown) {
     await this.authorize("triggers:read");
     try {

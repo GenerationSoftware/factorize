@@ -115,9 +115,10 @@ management, administrative account operations, other mutations, and
 unrecognized routes are denied. Disconnecting removes Factorize's saved
 credentials; revoke the OAuth grant in Cloudflare for provider-side removal.
 
-The legacy standalone Cloudflare Tail setup is retired. Already configured
-Tail webhooks and records are not deleted by this migration, and this
-integration does not add log streaming or new log triggers.
+Cloudflare Tail is retired. Old webhook endpoints return HTTP 410 and
+Factorize no longer delivers Tail events. Historical configuration and Event
+occurrences remain available for inspection or removal. The REST API integration
+does not add log streaming or log triggers.
 
 ## Configure Linear
 

@@ -10,12 +10,16 @@ export function TriggerEditor() {
   const params = useParams({ strict: false }), id = params.triggerId; const navigate = useNavigate(), cache = useQueryClient();
   const current = useQuery({ ...triggerQuery(id ?? ""), enabled: !!id }), events = useQuery(eventsQuery());
   const [name, setName] = useState(""), [eventId, setEventId] = useState(""), [kind, setKind] = useState<"manual" | "schedule" | "webhook">("manual"), [cron, setCron] = useState("0 * * * *"), [timezone, setTimezone] = useState("UTC"), [webhook, setWebhook] = useState('{"provider":"linear","projectId":"","matchRules":[]}');
+  const [removeRetired, setRemoveRetired] = useState(false);
+  const retiredSources = current.data?.sources.flatMap(source => source.kind === "webhook" && source.config.provider === "cloudflareTail" ? [{ id: source.id, integrationId: source.config.integrationId }] : []) ?? [];
   const [initialized, setInitialized] = useState(false);
-  if (current.data && !initialized) { setName(current.data.name); setEventId(current.data.eventId ?? ""); const source = current.data.sources[0]; if (source?.kind === "schedule") { setKind("schedule"); setCron(source.config.cron); setTimezone(source.config.timezone); } else if (source?.kind === "webhook") { setKind("webhook"); setWebhook(JSON.stringify(source.config, null, 2)); } setInitialized(true); }
+  if (current.data && !initialized) { setName(current.data.name); setEventId(current.data.eventId ?? ""); const source = current.data.sources.find(source => source.kind !== "webhook" || source.config.provider !== "cloudflareTail"); if (source?.kind === "schedule") { setKind("schedule"); setCron(source.config.cron); setTimezone(source.config.timezone); } else if (source?.kind === "webhook") { setKind("webhook"); setWebhook(JSON.stringify(source.config, null, 2)); } setInitialized(true); }
   const inputSource: InputSource | undefined = kind === "manual" ? { kind, enabled: true, config: {} } : kind === "schedule" ? { kind, enabled: true, config: { cron, timezone } } : (() => { try { const config = JSON.parse(webhook); return { kind, enabled: true, config } as InputSource; } catch { return undefined; } })();
   const save = useMutation({ mutationFn: async () => {
     if (!inputSource) throw new Error("Webhook configuration must be valid JSON.");
-    const body = { name, eventId, sources: [inputSource] };
+    const retired = removeRetired ? [] : retiredSources.map(source => ({ id: source.id, kind: "webhook" as const, enabled: false,
+      config: { provider: "cloudflareTail" as const, integrationId: source.integrationId } }));
+    const body = { name, eventId, sources: [inputSource, ...retired] };
     const result = id ? await api.PUT("/api/v1/triggers/{triggerId}", { params: { path: { triggerId: id } }, body }) : await api.POST("/api/v1/triggers", { body });
     if (!result.data || result.error) throw new Error(messageOf(result.error)); return result.data;
   }, onSuccess: async trigger => { await Promise.all([cache.invalidateQueries({ queryKey: ["triggers"] }), cache.invalidateQueries({ queryKey: ["events"] })]); await navigate({ to: "/triggers/$triggerId", params: { triggerId: trigger.id } }); } });
@@ -25,6 +29,8 @@ export function TriggerEditor() {
     <Label>Name<Input required value={name} onChange={e => setName(e.target.value)} /></Label>
     <Label>Event<Select required value={eventId} onChange={e => setEventId(e.target.value)}><option value="">Select an Event</option>{(events.data ?? []).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></Label>
     <Label>Input source<Select value={kind} onChange={e => setKind(e.target.value as typeof kind)}><option value="manual">Manual</option><option value="schedule">Schedule</option><option value="webhook">Provider webhook</option></Select></Label>
+    {retiredSources.length > 0 && <div><p>Cloudflare Tail is retired. These sources no longer deliver events.</p>
+      <label><input type="checkbox" checked={removeRetired} onChange={e => setRemoveRetired(e.target.checked)} /> Remove retired Cloudflare Tail sources on save</label></div>}
     {kind === "schedule" && <><Label>Cron<Input required value={cron} onChange={e => setCron(e.target.value)} /></Label><Label>Timezone<Input required value={timezone} onChange={e => setTimezone(e.target.value)} /></Label></>}
     {kind === "webhook" && <Label>Provider configuration (JSON)<Textarea rows={8} value={webhook} onChange={e => setWebhook(e.target.value)} /></Label>}
     {events.error && <p role="alert">{events.error.message}</p>}{!events.data?.length && <p role="alert">Create an Event before adding a Trigger. <Link to="/events" className="underline">Open Events</Link>.</p>}

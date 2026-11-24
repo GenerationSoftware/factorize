@@ -127,6 +127,46 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("MCP event webhook lifecycl
     "SELECT occurrence_id,status,attempts,http_status FROM app.mcp_event_deliveries ORDER BY updated_at,occurrence_id",
   )).rows;
 
+  it("retires Cloudflare Tail ingress and suppresses a queued Tail callback without removing history", async () => {
+    expect((await subscribe()).message.result).toBeDefined();
+    const outcome = await new EventMatchRepository(f.db).match({
+      tenantId: f.tenantId, triggerId: source.triggerId, triggerRevision: 1,
+      sourceIdentity: `cloudflareTail:${crypto.randomUUID()}`, deduplicationKey: "historical",
+      evidence: { text: "preserved" }, decision: "matched",
+    });
+    expect((await outbox()).find(row => row.occurrence_id === outcome.occurrence?.id)).toMatchObject({ status: "pending" });
+    const response = await app.fetch(new Request(`${f.env.APP_ORIGIN}/webhooks/cloudflare/${f.tenantId}/${source.triggerId}`, {
+      method: "POST", body: "old relay payload",
+    }), f.env, {} as ExecutionContext);
+    expect(response.status).toBe(410);
+    const ordinary = await fire("still active");
+    await dispatchMcpEvents(f.env);
+    expect(deliveries.map(delivery => delivery.event.data.occurrenceId)).toEqual([ordinary.occurrenceId]);
+    expect((await outbox()).find(row => row.occurrence_id === outcome.occurrence?.id)).toMatchObject({ status: "cancelled", attempts: 0 });
+    expect((await f.db.pool.query("SELECT id FROM app.event_occurrences WHERE id=$1", [outcome.occurrence?.id])).rowCount).toBe(1);
+  });
+
+  it("shows old Tail sources as retired, rejects new ones, and permits removing the existing source", async () => {
+    const legacyId = crypto.randomUUID(), integrationId = crypto.randomUUID();
+    const legacy = { id: legacyId, kind: "webhook", enabled: true, config: { provider: "cloudflareTail", integrationId } };
+    await f.db.pool.query(`INSERT INTO app.events(tenant_id,id,trigger_id,kind,slug,position,config)
+      VALUES ($1,$2,$3,'webhook','legacy-tail',2,$4)`, [f.tenantId, legacyId, source.triggerId, legacy.config]);
+    const rest = (path: string, method = "GET", body?: unknown) => worker.fetch(new Request(f.env.APP_ORIGIN + path, {
+      method, headers: { Cookie: f.cookie, Origin: f.env.APP_ORIGIN, "Content-Type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    }), f.env, {} as ExecutionContext);
+    const path = `/api/v1/triggers/${source.triggerId}`;
+    const payload = { name: "fixture-trigger", eventId: source.definitionId };
+    expect((await (await rest(path)).json() as any).sources).toContainEqual(expect.objectContaining({
+      id: legacyId, enabled: false, config: legacy.config,
+    }));
+    expect((await rest("/api/v1/triggers", "POST", { ...payload, sources: [legacy] })).status).toBe(400);
+    expect((await rest(path, "PUT", { ...payload, sources: [legacy] })).status).toBe(200);
+    const removed = await rest(path, "PUT", { ...payload, sources: [{ kind: "manual", enabled: true, config: {} }] });
+    expect(removed.status).toBe(200);
+    expect((await removed.json() as any).sources).not.toContainEqual(expect.objectContaining({ id: legacyId }));
+  });
+
   it.each(["/api/v1/auth/logout", "/auth/logout"])("keeps existing MCP webhook deliveries active after browser sign-out via %s", async logoutPath => {
     const cookie2 = "factorize_session=" + encodeURIComponent(await signSession({
       ...f.auth, email: "owner@example.test", exp: Math.floor(Date.now() / 1000) + 3600, browserNonce: crypto.randomUUID(),

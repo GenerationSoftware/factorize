@@ -172,12 +172,8 @@ app.get("/auth/github/setup", async (c) => {
   catch (error) { if (error instanceof Error && error.message === "installation_conflict") return c.text("This GitHub installation is already connected to another tenant", 409); throw error; }
   return c.redirect("/integrations");
 });
-app.post("/webhooks/cloudflare/:tenantId/:triggerId", async (c) => {
-  const raw = await c.req.text();
-  if (new TextEncoder().encode(raw).byteLength > 262_144) return c.text("Payload too large", 413);
-  try { await new WebhookService(databaseFor(c.env), c.env, c.req.param("tenantId")).tail(c.req.param("triggerId"), raw, c.req.raw.headers); return c.body(null, 202); }
-  catch (error) { return c.text(error instanceof Error && error.message === "not_found" ? "Not found" : "Invalid signature", error instanceof Error && error.message === "not_found" ? 404 : 401); }
-});
+// Keep the old address as a tombstone so relays receive a permanent response.
+app.post("/webhooks/cloudflare/:tenantId/:triggerId", c => c.text("Cloudflare Tail is retired", 410));
 
 app.post("/webhooks/linear", async (c) => {
   if (!c.env.LINEAR_WEBHOOK_SIGNING_SECRET) return c.text("Webhook verification is not configured", 503);
