@@ -37,6 +37,7 @@ its input and enforces the operation's required scope.
 | `list_apps` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `list_cloudflare_tail_integrations` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `list_event_occurrences` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
+| `read_event_delivery_diagnostics` | Owner credential with `triggers:read` | Read safe outbound MCP webhook delivery diagnostics for one occurrence ID |
 | `read_event_occurrences` | `triggers:read` | An `occurrenceId`, or a `definitionId` and inclusive `since` with optional `cursor` and `limit` |
 | `list_events` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `list_exe_connections` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
@@ -80,6 +81,16 @@ wake without an ID, call it with the saved `definitionId` and a recent `since`
 time, and follow `nextCursor` with the same definition and time. Windowed reads
 use recorded time so recent arrivals with older source timestamps appear.
 Reads leave history intact.
+
+Use `read_event_delivery_diagnostics` with an exact `occurrenceId` to
+inspect outbound MCP webhook delivery. `no_delivery_records` means the
+occurrence exists but no delivery rows are recorded; a missing occurrence
+returns not found. Rows distinguish pending/sending, accepted, failed, and
+cancelled delivery. They show opaque subscription IDs, attempt counts, safe outcome codes, HTTP status,
+and timestamps, never payloads or callback details. Callback acceptance is
+not proof that a downstream task ran. This is separate from inbound webhook
+delivery tools and cannot retry an outbound message.
+
 
 `delete_event` permanently removes the Event, all attached Triggers and input
 configurations, and all stored occurrences.
