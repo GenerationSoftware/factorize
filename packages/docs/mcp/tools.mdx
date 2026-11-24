@@ -40,6 +40,7 @@ its input and enforces the operation's required scope.
 | `list_apps` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `list_cloudflare_tail_integrations` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `list_event_occurrences` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
+| `read_event_occurrences` | `triggers:read` | An `occurrenceId`, or a `definitionId` and inclusive `since` with optional `cursor` and `limit` |
 | `list_events` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `list_exe_connections` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `list_github_installations` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
@@ -71,6 +72,15 @@ Subscribe to `factorize://events/{eventId}/occurrences` using MCP resource
 subscription support. After a resource-updated notification, read the resource
 to retrieve durable data. `list_event_occurrences` lets a reconnecting client
 recover stored records.
+
+MCP Events clients can call `events/list` to discover webhook-capable
+definitions and `events/subscribe` to start delivery through their OAuth grant.
+Each notification includes the occurrence and definition IDs. Call
+`read_event_occurrences` with `occurrenceId` for the committed payload. For a
+wake without an ID, call it with the saved `definitionId` and a recent `since`
+time, and follow `nextCursor` with the same definition and time. Windowed reads
+use recorded time so recent arrivals with older source timestamps appear.
+Reads leave history intact.
 
 `delete_event` permanently removes the Event, all attached Triggers and input
 configurations, and all stored occurrences.

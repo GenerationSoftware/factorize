@@ -1,6 +1,6 @@
 import {beforeAll,afterAll,describe,it,expect,vi} from "vitest";
 import {loadingFixture} from "./helpers/loading-fixture";
-import {protectedApiFetch} from "../src/protected-api";
+import {mcpRequest} from "./helpers/mcp-request";
 import {encrypt} from "../src/crypto";
 import {skillUri,SKILLS_EXTENSION} from "../src/mcp-skills";
 import {builtinSkillDocuments,builtinSkillUri} from "../src/builtin-skills";
@@ -9,7 +9,6 @@ import {EventMatchRepository} from "../src/postgres/event-match-repository";
 import type {OAuthProps} from "../src/types";
 vi.mock("cloudflare:workers",()=>({WorkerEntrypoint:class{},WorkflowEntrypoint:class{},DurableObject:class{}}));
 vi.mock("@cloudflare/workers-oauth-provider",()=>({OAuthProvider:class{},AuthorizationError:class extends Error{},getOAuthApi:vi.fn()}));
-const meta={"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{name:"local-skill-client",version:"1"},"io.modelcontextprotocol/clientCapabilities":{}};
 
 describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("MCP Skills and Event resources",()=>{
  let f:Awaited<ReturnType<typeof loadingFixture>>,auth:OAuthProps,id:string;
@@ -20,8 +19,9 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("MCP Skills and Event resou
  });
  afterAll(async()=>{await f?.cleanup();});
  async function rpc(method:string,params:Record<string,unknown>={},identity=auth){
-  const response=await protectedApiFetch(new Request(f.env.APP_ORIGIN+"/mcp",{method:"POST",headers:{"Mcp-Method":method,...(method==="resources/read"?{"Mcp-Name":String(params.uri)}:method==="tools/call"?{"Mcp-Name":String(params.name)}:{}),Host:"factorize.test","Content-Type":"application/json",Accept:"application/json, text/event-stream"},body:JSON.stringify({jsonrpc:"2.0",id:1,method,params:{_meta:meta,...params}})}),f.env,identity,{} as any);
-  const text=await response.text();expect(response.status,text).toBe(200);return JSON.parse(text.startsWith("{")?text:text.split("\n").find(line=>line.startsWith("data: "))!.slice(6));
+  const {status,message}=await mcpRequest(f.env,auth)(method,params,identity);
+  expect(status,JSON.stringify(message)).toBe(200);
+  return message;
  }
  it("advertises standalone built-in Skills even without skills:read",async()=>{
   const discovery=await rpc("server/discover");expect(discovery.result.capabilities.extensions[SKILLS_EXTENSION]).toEqual({});

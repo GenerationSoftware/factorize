@@ -123,7 +123,55 @@ export const eventOccurrences = app.table("event_occurrences", {
   tenantId: uuid("tenant_id").notNull(), id: uuid("id").notNull(), definitionId: uuid("definition_id").notNull(), definitionRevision: integer("definition_revision").notNull(),
   occurredAt: timestamp("occurred_at", {withTimezone:true}).notNull().defaultNow(), payload: jsonb("payload").$type<Record<string,unknown>>().notNull(),
   producerIdentity: jsonb("producer_identity").$type<Record<string,unknown>>().notNull(), evidence: jsonb("evidence").notNull().default([]), sourceIdentity: text("source_identity").notNull(), idempotencyKey: text("idempotency_key").notNull(), createdAt: createdAt(),
-}, t => [primaryKey({columns:[t.tenantId,t.id]}),unique().on(t.tenantId,t.sourceIdentity,t.idempotencyKey),foreignKey({columns:[t.tenantId,t.definitionId,t.definitionRevision],foreignColumns:[eventDefinitionRevisions.tenantId,eventDefinitionRevisions.definitionId,eventDefinitionRevisions.revision]}).onDelete("cascade"),index("event_occurrences_by_definition").on(t.tenantId,t.definitionId,t.occurredAt,t.id)]);
+}, t => [primaryKey({columns:[t.tenantId,t.id]}),unique().on(t.tenantId,t.sourceIdentity,t.idempotencyKey),foreignKey({columns:[t.tenantId,t.definitionId,t.definitionRevision],foreignColumns:[eventDefinitionRevisions.tenantId,eventDefinitionRevisions.definitionId,eventDefinitionRevisions.revision]}).onDelete("cascade"),index("event_occurrences_by_definition").on(t.tenantId,t.definitionId,t.occurredAt,t.id),index("event_occurrences_recorded").on(t.tenantId,t.definitionId,t.createdAt,t.id)]);
+export const mcpEventSubscriptions = app.table("mcp_event_subscriptions", {
+  tenantId: uuid("tenant_id").notNull(),
+  id: text("id").notNull(),
+  userId: uuid("user_id").notNull(),
+  sessionVersion: integer("session_version").notNull(),
+  grantId: text("grant_id").notNull(),
+  clientId: text("client_id").notNull(),
+  definitionId: uuid("definition_id").notNull(),
+  arguments: jsonb("arguments").$type<Record<string, unknown>>().notNull(),
+  callbackUrl: text("callback_url").notNull(),
+  encryptedSecret: text("encrypted_secret").notNull(),
+  secretFingerprint: text("secret_fingerprint").notNull(),
+  verifiedAt: timestamp("verified_at", { withTimezone: true }).notNull(),
+  previousEncryptedSecret: text("previous_encrypted_secret"),
+  rotatedAt: timestamp("rotated_at", { withTimezone: true }),
+  generation: uuid("generation").notNull(),
+  status: text("status", { enum: ["active", "stopped"] }).notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+}, t => [
+  primaryKey({ columns: [t.tenantId, t.id] }),
+  foreignKey({ columns: [t.tenantId, t.definitionId], foreignColumns: [eventDefinitions.tenantId, eventDefinitions.id] }).onDelete("cascade"),
+  check("mcp_event_subscriptions_status_check", sql`${t.status} IN ('active','stopped')`),
+  index("mcp_event_subscriptions_active").on(t.tenantId, t.definitionId, t.expiresAt).where(sql`${t.status}='active'`),
+  index("mcp_event_subscriptions_verification").on(t.tenantId, t.userId, t.grantId, t.callbackUrl, t.secretFingerprint, t.verifiedAt.desc()),
+]);
+
+export const mcpEventDeliveries = app.table("mcp_event_deliveries", {
+  tenantId: uuid("tenant_id").notNull(),
+  subscriptionId: text("subscription_id").notNull(),
+  occurrenceId: uuid("occurrence_id").notNull(),
+  generation: uuid("generation").notNull(),
+  status: text("status", { enum: ["pending", "sending", "accepted", "failed", "cancelled"] }).notNull().default("pending"),
+  attempts: integer("attempts").notNull().default(0),
+  nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+  claimId: uuid("claim_id"),
+  httpStatus: integer("http_status"),
+  lastOutcome: text("last_outcome"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+}, t => [
+  primaryKey({ columns: [t.tenantId, t.subscriptionId, t.occurrenceId] }),
+  foreignKey({ columns: [t.tenantId, t.subscriptionId], foreignColumns: [mcpEventSubscriptions.tenantId, mcpEventSubscriptions.id] }).onDelete("cascade"),
+  foreignKey({ columns: [t.tenantId, t.occurrenceId], foreignColumns: [eventOccurrences.tenantId, eventOccurrences.id] }).onDelete("cascade"),
+  check("mcp_event_deliveries_status_check", sql`${t.status} IN ('pending','sending','accepted','failed','cancelled')`),
+  check("mcp_event_deliveries_attempts_check", sql`${t.attempts} >= 0`),
+  index("mcp_event_deliveries_due").on(t.nextAttemptAt, t.tenantId, t.subscriptionId, t.occurrenceId)
+    .where(sql`${t.status} IN ('pending','sending')`),
+  index("mcp_event_deliveries_occurrence").on(t.tenantId, t.occurrenceId),
+]);
 export const triggerMatches = app.table("trigger_matches", {
   tenantId: uuid("tenant_id").notNull(), id: uuid("id").notNull(), triggerId: uuid("trigger_id").notNull(), triggerRevision: integer("trigger_revision").notNull(), sourceIdentity: text("source_identity").notNull(), deduplicationKey: text("deduplication_key").notNull(), evidence: jsonb("evidence").notNull(), outcome: text("outcome").$type<"matched"|"pending"|"excluded"|"failed">().notNull(), pendingReason: text("pending_reason"), occurrenceId: uuid("occurrence_id"), createdAt: createdAt(), updatedAt: updatedAt(),
 }, t => [primaryKey({columns:[t.tenantId,t.id]}),unique().on(t.tenantId,t.triggerId,t.triggerRevision,t.sourceIdentity,t.deduplicationKey),foreignKey({columns:[t.tenantId,t.triggerId],foreignColumns:[triggers.tenantId,triggers.id]}).onDelete("cascade"),foreignKey({columns:[t.tenantId,t.occurrenceId],foreignColumns:[eventOccurrences.tenantId,eventOccurrences.id]}).onDelete("set null"),index("trigger_matches_recent").on(t.tenantId,t.triggerId,t.createdAt)]);
@@ -152,7 +200,7 @@ export const triggerSourceRelations = relations(triggerSources, ({ one }) => ({
 
 export const databaseSchema = {
   teamSettings, schemaMigrations, tenants, oauthConnections, oauthConsentPreviews, authUsers, authAccounts, authResetTokens, authSessions, oauthDeviceAuthorizations, members, accessTokens,
-  connections, agentIntegrations, agentIdentities, agentProxyResponses, integrationCollections, integrationRecords, integrationChanges, linearWorkspaces, githubInstallations, githubSetupStates, eventDefinitions, eventDefinitionRevisions, eventOccurrences, triggerMatches, triggers, skillLibraries, skillLibraryBackfill, skills, skillContentCache, triggerSources, webhookConditionsCutover,
+  connections, agentIntegrations, agentIdentities, agentProxyResponses, integrationCollections, integrationRecords, integrationChanges, linearWorkspaces, githubInstallations, githubSetupStates, eventDefinitions, eventDefinitionRevisions, eventOccurrences, mcpEventSubscriptions, mcpEventDeliveries, triggerMatches, triggers, skillLibraries, skillLibraryBackfill, skills, skillContentCache, triggerSources, webhookConditionsCutover,
   scheduleState, triggerEditDeliveries, triggerEvents, webhookDeliveries, webhookDeliveryEvents, pendingVerifications, tailFingerprints, wakeHints,
   tenantRelations, triggerRelations, triggerSourceRelations,
 };

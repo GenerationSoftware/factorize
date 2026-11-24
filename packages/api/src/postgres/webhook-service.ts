@@ -7,7 +7,7 @@ import type { Env } from "../types";
 import { adaptWebhook, type WebhookProvider, type WebhookEventConfig } from "../webhook-trigger";
 import { ConnectionRepository } from "./connection-repository";
 import type { Database } from "./database";
-import { EventMatchRepository } from "./event-match-repository";
+import { EventMatchRepository, wakeMcpDeliveries } from "./event-match-repository";
 
 export class WebhookService {
   private connections: ConnectionRepository;
@@ -43,7 +43,7 @@ export class WebhookService {
         await this.event(deliveryPk, candidate.trigger.id, provider, deliveryId, decision.decision === "error" ? "conditions_error" : "excluded", decision.decision === "error" ? "Webhook conditions failed; no occurrence was recorded." : "Webhook conditions did not match; no occurrence was recorded.");
         continue;
       }
-      const result = await new EventMatchRepository(this.database).match({
+      const result = await new EventMatchRepository(this.database, () => wakeMcpDeliveries(this.env)).match({
         tenantId: this.tenantId,
         triggerId: candidate.trigger.id,
         triggerRevision: candidate.triggerRevision,

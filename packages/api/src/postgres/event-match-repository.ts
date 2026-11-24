@@ -1,6 +1,15 @@
 import draft7 from "ajv/dist/refs/json-schema-draft-07.json";
 import { validate } from "jsonschema";
 import type { Database, DatabaseClient } from "./database";
+import { enqueueMcpDeliveries, lockEventOutbox } from "./mcp-event-outbox";
+
+export async function wakeMcpDeliveries(env: Pick<import("../types").Env, "SCHEDULER">) {
+  if (!env.SCHEDULER) return;
+  const alarm = env.SCHEDULER.get(env.SCHEDULER.idFromName("global"));
+  const response = await alarm.fetch("https://scheduler/mcp-events", { method: "POST" });
+  if (!response.ok) throw new Error("MCP event alarm wake failed");
+  await response.body?.cancel();
+}
 
 export type MatchDecision = "matched" | "pending" | "excluded" | "failed";
 export interface MatchInput {
@@ -44,17 +53,21 @@ export function validAgainstSchema(value: unknown, schema: object, path = "paylo
  * this method has returned.
  */
 export class EventMatchRepository {
-  constructor(private database: Database) {}
+  constructor(private database: Database, private wake?: () => Promise<void>) {}
 
   async match(input: MatchInput): Promise<MatchResult> {
     if (!input.tenantId || !input.triggerId || !input.sourceIdentity || !input.deduplicationKey) throw new Error("Tenant, trigger, source identity, and deduplication key are required");
     if (!Number.isSafeInteger(input.triggerRevision) || input.triggerRevision < 1) throw new Error("Trigger revision is invalid");
     if (!input.evidence || typeof input.evidence !== "object" || Array.isArray(input.evidence)) throw new Error("Normalized evidence must be an object");
     if (input.decision === "pending" && !input.pendingReason?.trim()) throw new Error("Pending matches need an inspectable reason");
-    return this.database.transaction(async client => this.matchInTransaction(client, input));
+    let enqueued = false;
+    const result = await this.database.transaction(client => this.matchInTransaction(client, input, () => { enqueued = true; }));
+    // The outbox is committed. A failed wake is recoverable by the alarm sweep.
+    if (enqueued) await this.wake?.().catch(() => {});
+    return result;
   }
 
-  private async matchInTransaction(client: DatabaseClient, input: MatchInput): Promise<MatchResult> {
+  private async matchInTransaction(client: DatabaseClient, input: MatchInput, onEnqueued: () => void): Promise<MatchResult> {
     const trigger = (await client.query<any>(`SELECT enabled,revision,event_definition_id
       FROM app.triggers WHERE tenant_id=$1 AND id=$2 FOR SHARE`, [input.tenantId, input.triggerId])).rows[0];
     if (!trigger) throw new Error("Trigger not found");
@@ -114,12 +127,14 @@ export class EventMatchRepository {
     const payload = evidence;
     validAgainstSchema(payload, definition.payload_schema);
     const occurrenceId = crypto.randomUUID(), occurredAt = input.occurredAt ?? now;
+    await lockEventOutbox(client, input.tenantId, trigger.event_definition_id);
     const occurrenceWrite = await client.query(`INSERT INTO app.event_occurrences
-      (tenant_id,id,definition_id,definition_revision,occurred_at,payload,producer_identity,evidence,source_identity,idempotency_key)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+      (tenant_id,id,definition_id,definition_revision,occurred_at,payload,producer_identity,evidence,source_identity,idempotency_key,created_at)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,clock_timestamp())
       ON CONFLICT(tenant_id,definition_id,source_identity,idempotency_key) DO NOTHING RETURNING id`,
     [input.tenantId, occurrenceId, trigger.event_definition_id, definition.current_revision, occurredAt, payload,
       { kind: "trigger", id: input.triggerId, revision: input.triggerRevision }, JSON.stringify([evidence]), input.sourceIdentity, input.deduplicationKey]);
+    if (occurrenceWrite.rowCount && await enqueueMcpDeliveries(client, input.tenantId, trigger.event_definition_id, occurrenceId)) onEnqueued();
     const occurrence = (await client.query<any>(`SELECT id,definition_id,definition_revision,occurred_at,payload
       FROM app.event_occurrences WHERE tenant_id=$1 AND definition_id=$2 AND source_identity=$3 AND idempotency_key=$4`,
     [input.tenantId, trigger.event_definition_id, input.sourceIdentity, input.deduplicationKey])).rows[0];

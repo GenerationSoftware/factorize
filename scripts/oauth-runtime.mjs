@@ -116,6 +116,11 @@ export async function checkOAuth({ read: send, stream, db, tenantId, userId, coo
       definitions: { orderId: { type: "string" } },
     },
   });
+  const discovery = await modernRpc("server/discover", {});
+  assert.deepEqual(discovery.capabilities.events, {});
+  const catalog = await modernRpc("events/list", {});
+  assert.ok(catalog.events.some(definition => definition.name === `factorize.event.${event.id}` &&
+    definition.title === "review.requested" && definition.delivery.includes("webhook")));
   const trigger = await tool("create_trigger", {
     name: "manual-review", eventId: event.id, sources: [{ kind: "manual", config: {} }],
   });
@@ -153,6 +158,8 @@ export async function checkOAuth({ read: send, stream, db, tenantId, userId, coo
     await events.return();
   }
   const missed = await fire("review-2", "order-43");
+  const recovered = await tool("read_event_occurrences", { occurrenceId: missed.occurrenceId });
+  assert.deepEqual(recovered.items[0].payload, { orderId: "order-43" });
   const catchup = await tool("list_event_occurrences", { eventId: event.id });
   assert.equal(catchup.items.length, 2);
   assert.deepEqual(catchup.items[0].payload, { orderId: "order-43" });

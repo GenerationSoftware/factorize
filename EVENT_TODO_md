@@ -1,0 +1,65 @@
+# MCP Events for ChatGPT Dots
+
+Use Factorize’s existing `/mcp` endpoint, durable event occurrences, and Worker alarm. An authenticated subscription starts webhook delivery for one Event definition. The first pilot summarizes events using a read tool that works with either an occurrence ID or a saved definition ID and time window.
+
+## 1. Add the MCP Events contract
+
+- [x] Advertise `capabilities.events` in MCP `2026-07-28` discovery and register `events/list`, `events/subscribe`, and `events/unsubscribe` on `/mcp`. Follow the request, response, routing header, and error conventions in the [OpenAI MCP Events guide](https://developers.openai.com/plugins/build/mcp-events).
+- [x] List the caller’s authorized Factorize Event definitions under stable protocol names derived from their definition IDs. Use the current display name and description for discovery. Advertise webhook delivery and a small payload schema for the occurrence reference and definition ID. Keep revision-specific payloads in the occurrence store.
+- [x] Reuse `triggers:read` and existing tenant authorization. Keep the current resource subscriptions, tools, and REST history available through their existing entry points.
+
+**Acceptance criteria**
+
+- A `server/discover` request advertises Events, and `events/list` returns the expected definition and webhook schema. Renaming a definition preserves its protocol name.
+- A caller without `triggers:read` cannot subscribe or discover tenant event definitions. Cross-tenant definition IDs cannot be used to subscribe.
+- Existing MCP resource subscriptions and REST occurrence history continue to pass their tests.
+
+## 2. Persist subscriptions and verify callbacks
+
+- [x] Add a subscription table with tenant and OAuth grant identity, the Event definition, canonical subscription arguments, callback URL, encrypted signing secret, status, and expiration. Make subscription identity deterministic so a refresh updates the existing subscription and returns its ID and `refreshBefore`.
+- [x] Before activation, send a signed verification challenge with a timeout and require the returned challenge to match. Require HTTPS, forbid redirects, and enforce public destination validation at connection time for verification and delivery. Validate that the chosen egress path preserves TLS hostname verification when connecting to the validated address.
+- [x] Make unsubscribe idempotent. Recheck current grant validity, owner membership, effective scope, subscription status, and expiration before each dispatch. Keep callback URLs, signing secrets, and payloads out of delivery logs.
+
+**Acceptance criteria**
+
+- A valid signed challenge activates the subscription. A wrong challenge or forbidden destination leaves it inactive.
+- A refresh keeps the same subscription ID and updates its expiry. A replacement signing secret is used for subsequent sends.
+- Unsubscribed, expired, or revoked subscriptions cannot start new sends, including sends queued before the change. An ordinary access-token refresh preserves the OAuth grant’s subscription.
+
+## 3. Dispatch durable deliveries through the existing alarm
+
+- [x] Add a delivery table keyed by subscription and occurrence, with status, attempt count, and next attempt time. In the `EventMatchRepository` transaction, insert deliveries for matching active subscriptions only when the occurrence is new. Define the subscribe-versus-insert boundary so new subscriptions receive new occurrences consistently.
+- [x] Reuse the Worker’s Durable Object alarm to dispatch after commit and sweep for due work if a wake is missed. Claim deliveries so overlapping dispatches do not normally send the same row. Keep interrupted claims recoverable.
+- [x] Send one compact JSON event per POST. Use the occurrence ID for both `eventId` and `webhook-id`, with the event name, occurrence timestamp, and data matching the advertised schema. Sign the message ID, signing timestamp, and exact serialized body with Standard Webhooks HMAC. Send `webhook-id`, `webhook-timestamp`, `webhook-signature`, and `X-MCP-Subscription-Id`. See the [OpenAI MCP Events guide](https://developers.openai.com/plugins/build/mcp-events) and [Standard Webhooks specification](https://github.com/standard-webhooks/standard-webhooks/blob/main/spec/standard-webhooks.md).
+- [x] Treat `2xx` as callback acceptance. Retry transient failures with bounded backoff and a fresh signing timestamp and signature. Treat `410` and `413` as terminal for the delivery. Record delivery status, attempts, and HTTP outcome for diagnosis.
+
+**Acceptance criteria**
+
+- A rolled-back occurrence produces no delivery. Repeating the same producer input creates one occurrence and one delivery per matching subscription. Other definitions and pre-subscription history produce no delivery.
+- A missed immediate wake leaves the row available to the alarm sweep. Retrying preserves the event ID even when the receiver could have accepted a prior attempt.
+- An independent receiver validates the signature against the exact body received. Each body is within OpenAI’s 256 KiB limit.
+
+## 4. Add one read-only recovery tool
+
+- [x] Add `read_event_occurrences` on `/mcp`. Accept either an exact `occurrenceId` or an Event definition ID with `since`, an optional cursor, and a bounded page size. Use the existing occurrence store and authorize both modes with the same tenant and scope checks as current occurrence reads.
+- [x] Return the stable occurrence ID, definition revision, timestamps, and payload. Order windowed reads by recorded time and a stable tie-breaker, and keep the cursor bound to the same definition and window. Use recorded time so late arrivals with older source timestamps are still discoverable.
+- [x] Set up the pilot Dot task with a saved Event definition ID. On a wake with an occurrence ID, fetch the exact record. If the wake provides no ID, read a recent overlapping window, page through it, and use occurrence IDs to recognize repeats where prior context is available.
+
+**Acceptance criteria**
+
+- Exact lookup returns the committed payload. Windowed lookup returns matching records across pages, including late arrivals, and excludes records outside the definition or time window.
+- The read-only tool works when both the event ID and payload are absent from the Dot’s wake. Reads do not advance or consume history. Overlapping runs may repeat a summary.
+
+## 5. Add local end-to-end coverage and run a mocked Dot smoke test
+
+- [x] Add one PostgreSQL-backed suite using the existing MCP request fixture. Exercise the real MCP handler, occurrence writes, and delivery dispatcher. Use an in-process receiver that independently verifies raw-body signatures, echoes challenges, and returns scripted responses. Fail unexpected outbound requests with no network fallback. Make retry rows due in the fixture or advance a controlled clock instead of sleeping through backoff.
+
+| Local scenario | Pass criteria |
+| --- | --- |
+| Subscribe, deliver, and read | Discover and list the event, complete a signed challenge, fire a manual trigger, verify the signed delivery, and fetch the committed payload by occurrence ID. Repeating the trigger with its original idempotency key adds no delivery. |
+| Recover from an empty wake | Discard the webhook body. Use only the saved definition ID and `since` time to read two matching occurrences across pages. Include a late-arriving record and exclude one from another definition. |
+| Retry a transient failure | Return `503`, then `200`. Verify one persisted delivery is retried with the same event ID and a valid signature for the new attempt. |
+| Refresh and stop | Refresh the same subscription, then unsubscribe with a queued delivery and confirm no send. Repeat the no-send check with a revoked grant and verify another tenant cannot read the occurrence. |
+
+- [x] Add small boundary checks for a failed challenge and a forbidden callback destination. Include the suite in the existing backend lane and run `npm test` on the documented validation runner after the final code change. See [Factorize validation and release instructions](docs/package-migration.md).
+- [x] Run the mocked Dot pilot with a saved Event definition ID. Cover a normal wake, a burst, and a wake where the mock discards the supplied payload. Verify the real MCP read call and expected summary. Record occurrence commit, callback acceptance, first tool read, and summary completion separately. See the [mock smoke record](docs/mcp-event-webhooks.md#mocked-dot-pilot).

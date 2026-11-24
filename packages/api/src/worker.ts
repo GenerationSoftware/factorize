@@ -1,3 +1,5 @@
+import { AlarmCoordinator as BaseAlarmCoordinator } from "./alarm-coordinator";
+import { wakeMcpDeliveries } from "./postgres/event-match-repository";
 import { gitHttpsFetch } from "./git-https";
 import { SkillLibrary } from "./skill-library";
 import { staticApp, securityHeaders } from "./static-app";
@@ -86,7 +88,11 @@ function providerOptions(env: Env): OAuthProviderOptions<Env> { return {
 }; }
 function provider(env: Env) { return new OAuthProvider<Env>(providerOptions(env)); }
 
-export { AlarmCoordinator } from "./alarm-coordinator";
+export class AlarmCoordinator extends BaseAlarmCoordinator {
+  protected override eventEnv(): Env {
+    return { ...this.env, OAUTH_PROVIDER: this.env.OAUTH_PROVIDER ?? getOAuthApi(providerOptions(this.env), this.env) };
+  }
+}
 const backend = { async fetch(request: Request, env: Env, ctx: ExecutionContext) {
   if (new URL(request.url).hostname === "git.factorize.sh") return gitHttpsFetch(request, env, ctx);
   if (new URL(request.url).pathname === "/oauth/x/callback") return request.method === "GET" ? xOAuthCallback(request, env) : new Response("Method not allowed", { status: 405, headers: { Allow: "GET" } });
@@ -152,6 +158,8 @@ const backend = { async fetch(request: Request, env: Env, ctx: ExecutionContext)
 
 export default {
   async scheduled(_event: ScheduledController, env: Env) {
+    // Ensure the alarm sweep starts even if a producer's immediate wake was missed.
+    await wakeMcpDeliveries(env).catch(() => {});
     // Retry missed deliveries and refresh managed remotes in oldest-checked order.
     const db = databaseFor(env);
     await db.pool.query(`DELETE FROM app.vm_permission_proofs WHERE (tenant_id,grant_id,proof_id) IN

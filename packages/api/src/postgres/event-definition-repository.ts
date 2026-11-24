@@ -1,5 +1,29 @@
 import type { Database, DatabaseClient } from "./database";
 
+interface RecordedOccurrence {
+  id: string;
+  definition_id: string;
+  definition_revision: number;
+  occurred_at: Date;
+  recorded_at: string;
+  payload: Record<string, unknown>;
+}
+
+function presentRecorded(row: RecordedOccurrence) {
+  return {
+    occurrenceId: row.id,
+    definitionId: row.definition_id,
+    definitionRevision: row.definition_revision,
+    occurredAt: row.occurred_at.toISOString(),
+    recordedAt: row.recorded_at,
+    payload: row.payload,
+  };
+}
+
+// Preserve PostgreSQL's fractional precision for cursor comparisons.
+const recordedFields = `id,definition_id,definition_revision,occurred_at,payload,
+  to_char(created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS recorded_at`;
+
 export interface EventDefinitionInput {
   name: string;
   description?: string;
@@ -29,6 +53,40 @@ export class EventDefinitionRepository {
       LEFT JOIN app.event_occurrences o ON o.tenant_id=d.tenant_id AND o.definition_id=d.id
       WHERE d.tenant_id=$1 GROUP BY d.tenant_id,d.id,d.name,d.description,d.current_revision,d.created_at,d.updated_at,r.revision,r.payload_schema ORDER BY d.name,d.id`, [this.tenantId]);
     return rows.rows.map(row => ({ id: row.id, name: row.name, description: row.description, revision: row.current_revision, payloadSchema: row.payload_schema, triggerCount: row.trigger_count, occurrenceCount: row.occurrence_count, createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString() }));
+  }
+
+  async mcpCatalog(cursor?: string) {
+    const limit = 100;
+    const rows = (await this.database.pool.query<{ id: string; name: string; description: string }>(
+      `SELECT id,name,description FROM app.event_definitions
+       WHERE tenant_id=$1 AND ($2::uuid IS NULL OR id>$2) ORDER BY id LIMIT $3`,
+      [this.tenantId, cursor ?? null, limit + 1],
+    )).rows;
+    const events = rows.slice(0, limit);
+    return { events, nextCursor: rows.length > limit ? events.at(-1)?.id : undefined };
+  }
+
+  async occurrence(id: string) {
+    const row = (await this.database.pool.query<RecordedOccurrence>(
+      `SELECT ${recordedFields} FROM app.event_occurrences WHERE tenant_id=$1 AND id=$2`, [this.tenantId, id],
+    )).rows[0];
+    return row && presentRecorded(row);
+  }
+
+  async recordedOccurrences(definitionId: string, since: string, limit: number, boundary?: [string, string]) {
+    const rows = (await this.database.pool.query<RecordedOccurrence>(
+      `SELECT ${recordedFields} FROM app.event_occurrences
+       WHERE tenant_id=$1 AND definition_id=$2 AND created_at>=$3
+         AND ($4::timestamptz IS NULL OR (created_at,id)>($4,$5::uuid))
+       ORDER BY created_at,id LIMIT $6`,
+      [this.tenantId, definitionId, since, boundary?.[0] ?? null, boundary?.[1] ?? null, limit + 1],
+    )).rows;
+    const items = rows.slice(0, limit).map(presentRecorded);
+    const last = items.at(-1);
+    return {
+      items,
+      nextCursor: rows.length > limit && last ? btoa(JSON.stringify([definitionId, since, last.recordedAt, last.occurrenceId])) : null,
+    };
   }
 
   async get(id: string) { return this.present(this.database.pool, id); }

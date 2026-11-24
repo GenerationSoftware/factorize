@@ -1,3 +1,6 @@
+import { lockMcpEventGrant } from "./postgres/mcp-event-outbox";
+import { eventPayloadSchema, eventProtocolName, type ReadEventOccurrencesInput, type subscribeEventInput, type unsubscribeEventInput } from "./mcp-event-contracts";
+import { subscribeMcpEvent, unsubscribeMcpEvent } from "./mcp-event-subscriptions";
 import { vmGrantInput, vmGrantList, vmGrantResult, vmRevokeResult } from "./vm-grant-contracts";
 import { VmGrantRepository, vmGrantActor, type VmGrant } from "./postgres/vm-grant-repository";
 import { provisionVmGrant } from "./vm-enrollment";
@@ -57,9 +60,9 @@ import { ProviderCatalog } from "./postgres/provider-catalog";
 import { ACCESS_SCOPES, AGENT_SCOPES, accessTokenDigest, issueAccessToken, normalizeScopes } from "./access-tokens";
 
 import { SkillRepository, SkillConflict } from "./postgres/skill-repository";
-import { EventMatchRepository } from "./postgres/event-match-repository";
+import { EventMatchRepository, wakeMcpDeliveries } from "./postgres/event-match-repository";
 import { EventDefinitionRepository, EventDefinitionConflict } from "./postgres/event-definition-repository";
-import { eventDefinitionInput, eventDefinitionUpdate, eventDefinitionResponse, eventDefinitionList, eventOccurrencePage } from "./event-contracts";
+import { parseOccurrenceCursor, eventDefinitionInput, eventDefinitionUpdate, eventDefinitionResponse, eventDefinitionList, eventOccurrencePage } from "./event-contracts";
 import { skillInput, skillUpdateInput, skillPage, skillResponse } from "./skills";
 import { createFlyAccountClient, FlyAccountError, flyConnectionInput } from "./fly-account-client";
 import { FlyConnectionRepository } from "./postgres/fly-connection-repository";
@@ -254,6 +257,44 @@ export class ApiService {
   async updateEvent(id: string, input: unknown) { await this.authorize("triggers:write"); const parsed = eventDefinitionUpdate.parse(input); try { const result = await this.eventDefinitions().update(id, parsed, parsed.expectedRevision); if (!result) throw new ServiceError(404, "not_found", "Event not found"); return publicValue(eventDefinitionResponse, result); } catch (error) { if (error instanceof EventDefinitionConflict) throw new ServiceError(409, "stale_event", "Event changed since it was loaded."); throw error; } }
   async deleteEvent(id: string) { await this.authorize("triggers:write"); if (!await this.eventDefinitions().delete(id)) throw new ServiceError(404, "not_found", "Event not found"); return { id, deleted: true as const }; }
   async listEventOccurrences(id: string, limit: number, cursor?: string) { await this.authorize("triggers:read"); const result = await this.eventDefinitions().occurrences(id, limit, cursor); if (!result) throw new ServiceError(404, "not_found", "Event not found"); return publicValue(eventOccurrencePage, result); }
+  async mcpEventCatalog(cursor?: string) {
+    await this.authorize("triggers:read");
+    const page = await this.eventDefinitions().mcpCatalog(cursor);
+    return {
+      events: page.events.map(event => ({
+        name: eventProtocolName(event.id),
+        title: event.name,
+        description: event.description,
+        delivery: ["webhook"],
+        inputSchema: { type: "object", properties: {}, additionalProperties: false },
+        payloadSchema: eventPayloadSchema,
+      })),
+      nextCursor: page.nextCursor,
+    };
+  }
+  async mcpSubscribeEvent(input: z.infer<typeof subscribeEventInput>) {
+    await this.authorize("triggers:read");
+    return subscribeMcpEvent(this.env, this.auth, input);
+  }
+  async mcpUnsubscribeEvent(input: z.infer<typeof unsubscribeEventInput>) {
+    await this.authorize("triggers:read");
+    return unsubscribeMcpEvent(this.env, this.auth, input);
+  }
+  async readEventOccurrences(input: ReadEventOccurrencesInput) {
+    await this.authorize("triggers:read");
+    const repository = this.eventDefinitions();
+    if ("occurrenceId" in input) {
+      const occurrence = await repository.occurrence(input.occurrenceId);
+      if (!occurrence) throw new ServiceError(404, "not_found", "Event occurrence not found.");
+      return { items: [occurrence], nextCursor: null };
+    }
+
+    const definitionId = input.definitionId.toLowerCase();
+    const cursor = input.cursor ? parseOccurrenceCursor(input.cursor, definitionId, input.since) : null;
+    if (input.cursor !== undefined && !cursor) throw new ServiceError(400, "invalid_request", "Cursor does not match the Event definition and since time.");
+    if (!await repository.get(definitionId)) throw new ServiceError(404, "not_found", "Event not found.");
+    return repository.recordedOccurrences(definitionId, input.since, input.limit, cursor ? [cursor[2], cursor[3]] : undefined);
+  }
   async mcpReadEvent(uri: string) {
     let parsed: URL; try { parsed = new URL(uri); } catch { throw new ServiceError(400, "invalid_resource", "Expected a Factorize Event resource URI."); }
     if (parsed.protocol !== "factorize:" || parsed.hostname !== "events" || !/^\/[0-9a-f-]{36}\/occurrences$/.test(parsed.pathname)) throw new ServiceError(400, "invalid_resource", "Expected a Factorize Event occurrence URI.");
@@ -308,7 +349,7 @@ export class ApiService {
     await this.authorize("triggers:write"); const trigger = await this.triggers().getTrigger(triggerId); if (!trigger) throw new ServiceError(404, "not_found", "Trigger not found");
     const source = trigger.sources.find(value => value.kind === "manual" && value.enabled); if (!source) throw new ServiceError(409, "operation_failed", "The manual Trigger source is disabled");
     const deduplicationKey = input.idempotencyKey ?? crypto.randomUUID();
-    const result = await new EventMatchRepository(databaseFor(this.env)).match({ tenantId: this.auth.tenantId, triggerId, triggerRevision: trigger.revision, sourceIdentity: `manual:${source.id}`, deduplicationKey, evidence: input.data ?? {}, decision: "matched" });
+    const result = await new EventMatchRepository(databaseFor(this.env), () => wakeMcpDeliveries(this.env)).match({ tenantId: this.auth.tenantId, triggerId, triggerRevision: trigger.revision, sourceIdentity: `manual:${source.id}`, deduplicationKey, evidence: input.data ?? {}, decision: "matched" });
     return { occurrenceId: result.occurrence?.id ?? null, duplicate: result.duplicate };
   }
   async listTriggerEventAvailability() { await this.authorize("triggers:read"); const [kinds, installations] = await Promise.all([this.connections().kinds(), new GitHubRepository(databaseFor(this.env),this.auth.tenantId).installations()]), states=installations.map((x:any)=>x.state); return installedEventAvailability(kinds.includes("linear"),kinds.includes("clickup"),states,kinds.filter(x=>x.startsWith("cloudflare-tail:")).length); }
@@ -668,7 +709,12 @@ export class ApiService {
     let cursor: string | undefined, found = false;
     do { const page = await this.env.OAUTH_PROVIDER.listUserGrants(this.auth.userId,{limit:100,cursor}); found ||= page.items.some(grant=>grant.id===grantId && (grant.metadata as any)?.tenantId===this.auth.tenantId); cursor=page.cursor; } while(cursor && !found);
     if(!found) throw new ServiceError(404,"not_found","Authorization not found");
-    await databaseFor(this.env).pool.query("INSERT INTO app.agent_identities(tenant_id,kind,subject,user_id,session_version,revoked_at) VALUES($1,'oauth',$2,$3,$4,now()) ON CONFLICT(tenant_id,kind,subject) DO UPDATE SET revoked_at=now()",[this.auth.tenantId,grantId,this.auth.userId,this.auth.sessionVersion]);
+    await databaseFor(this.env).transaction(async sql => {
+      await lockMcpEventGrant(sql, this.auth.tenantId, grantId);
+      await sql.query(`UPDATE app.mcp_event_subscriptions SET status='stopped',previous_encrypted_secret=NULL,rotated_at=NULL
+        WHERE tenant_id=$1 AND user_id=$2 AND grant_id=$3 AND status='active'`, [this.auth.tenantId, this.auth.userId, grantId]);
+      await sql.query("INSERT INTO app.agent_identities(tenant_id,kind,subject,user_id,session_version,revoked_at) VALUES($1,'oauth',$2,$3,$4,now()) ON CONFLICT(tenant_id,kind,subject) DO UPDATE SET revoked_at=now()",[this.auth.tenantId,grantId,this.auth.userId,this.auth.sessionVersion]);
+    });
     await this.env.OAUTH_PROVIDER.revokeGrant(grantId,this.auth.userId);
     return {revoked:1};
   }

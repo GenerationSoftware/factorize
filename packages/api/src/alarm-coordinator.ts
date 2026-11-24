@@ -5,9 +5,11 @@ import { databaseFor } from "./postgres/database";
 import { cleanupAgentResponses } from "./agent-api";
 import { maintainProxyOperations } from "./proxy-operations";
 import type { Env } from "./types";
+import { dispatchMcpEvents, mcpEventDispatchBatchSize } from "./mcp-event-subscriptions";
 
 /** Wakes provider and schedule Triggers and maintains bounded proxy records. */
 export class AlarmCoordinator extends DurableObject<Env> {
+  protected eventEnv(): Env { return this.env; }
   async fetch(request: Request): Promise<Response> {
     const path = new URL(request.url).pathname;
     if (request.method === "POST" && path === "/operation") {
@@ -20,20 +22,29 @@ export class AlarmCoordinator extends DurableObject<Env> {
       if (await this.ctx.storage.getAlarm() === null) await this.ctx.storage.setAlarm(Date.now() + 100);
       return Response.json({ scheduled: true });
     }
+    if (request.method === "POST" && path === "/mcp-events") {
+      await this.schedule(100);
+      return Response.json({ scheduled: true });
+    }
     if (request.method !== "POST" || path !== "/wake") return new Response("Not found", { status: 404 });
     await this.schedule(); return Response.json({ scheduled: true });
   }
   async alarm(): Promise<void> {
     const operation = await this.ctx.storage.get<{ tenantId: string; operationId: string }>("operation");
     if (operation) { await processProxyOperation(this.env, operation.tenantId, operation.operationId); return; }
+    let backlog = false;
     try {
-      await new AutomationScheduler(databaseFor(this.env), this.env).process();
-      await maintainProxyOperations(this.env);
-      await cleanupAgentResponses(this.env);
-    } finally { await this.schedule(); }
+      try {
+        await new AutomationScheduler(databaseFor(this.env), this.env).process();
+        await maintainProxyOperations(this.env);
+        await cleanupAgentResponses(this.env);
+      } finally {
+        backlog = await dispatchMcpEvents(this.eventEnv()) === mcpEventDispatchBatchSize;
+      }
+    } finally { await this.schedule(backlog ? 100 : 60_000); }
   }
-  private async schedule() {
-    const current = await this.ctx.storage.getAlarm(), desired = Date.now() + 60_000;
+  private async schedule(delay = 60_000) {
+    const current = await this.ctx.storage.getAlarm(), desired = Date.now() + delay;
     if (current === null || current > desired) await this.ctx.storage.setAlarm(desired);
   }
 }

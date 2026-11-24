@@ -1,3 +1,4 @@
+import { listEventsInput, readEventOccurrencesInput, subscribeEventInput, unsubscribeEventInput } from "./mcp-event-contracts";
 import { appRegistrationInput, appRegistrationUpdate } from "./apps-contracts";
 import { skillInput,skillUpdateInput } from "./skills";
 import {createPayloadInput,appendPayloadInput,finalizePayloadInput,attachmentInput} from "./proxy-payloads";
@@ -159,13 +160,26 @@ function createMcpServer(service: ApiService, subscriptions = true): McpServer {
         throw error;
       }
     };
+    const eventAction = async <T>(action: () => Promise<T>): Promise<T> => {
+      try { return await action(); }
+      catch (error) {
+        if (error instanceof ServiceError && (error.status === 401 || error.status === 403)) {
+          throw new ProtocolError(-32024, error.message);
+        }
+        if (error instanceof ProtocolError) throw error;
+        throw new ProtocolError(ProtocolErrorCode.InternalError, "Factorize could not complete this Events request.");
+      }
+    };
+    server.server.setRequestHandler("events/list", { params: listEventsInput }, params => eventAction(() => service.mcpEventCatalog(params.cursor)));
+    server.server.setRequestHandler("events/subscribe", { params: subscribeEventInput }, params => eventAction(() => service.mcpSubscribeEvent(params)));
+    server.server.setRequestHandler("events/unsubscribe", { params: unsubscribeEventInput }, params => eventAction(() => service.mcpUnsubscribeEvent(params)));
     server.server.setRequestHandler("skills/list",{params:z.object({cursor:z.guid().optional(),_meta:z.record(z.string(),z.unknown()).optional()})},params=>skillAction(()=>service.mcpListSkills(params.cursor)));
     server.server.setRequestHandler("skills/get",{params:z.object({uri:z.string(),_meta:z.record(z.string(),z.unknown()).optional()})},params=>skillAction(()=>service.mcpGetSkill(params.uri)));
     server.registerResource("factorize-workflow",new ResourceTemplate("skill://factorize/{version}/{name}/SKILL.md",{list:undefined}),{description:"Build-shipped Factorize workflow instructions"},uri=>skillAction(()=>service.mcpReadSkill(uri.href)));
     server.registerResource("team-skill",new ResourceTemplate("skill://teams/{teamId}/{+path}",{list:undefined}),{description:"Authorized team skill package files"},uri=>skillAction(()=>service.mcpReadSkill(uri.href)));
     server.registerResource("event-occurrences",new ResourceTemplate("factorize://events/{eventId}/occurrences",{list:undefined}),{mimeType:"application/json",description:"Durable occurrences of an authorized Factorize Event"},uri=>skillAction(()=>service.mcpReadEvent(uri.href)));
         server.registerResource("proxy-response",new ResourceTemplate("proxy://responses/{handle}",{list:undefined}),{mimeType:"application/json",description:"Bounded authorized retained response byte range; use query_api_response for filtering."},async uri=>({contents:[{uri:uri.href,mimeType:"application/json",text:JSON.stringify(await service.queryApiResponse({handle:uri.pathname.slice(1),mode:"bytes",limit:256}))}]}));
-        const tool = <T>(name: string, description: string, schema: any, action: (input: T,signal?:AbortSignal) => Promise<unknown>,rawContent=false) => server.registerTool(name, { description, inputSchema: schema }, async (input: T,context:{mcpReq:{signal:AbortSignal;_meta?:{progressToken?:string|number};notify:(value:any)=>Promise<void>}}) => {
+        const tool = <T>(name: string, description: string, schema: any, action: (input: T,signal?:AbortSignal) => Promise<unknown>,rawContent=false,readOnly=false) => server.registerTool(name, { description, inputSchema: schema, ...(readOnly ? { annotations: { readOnlyHint: true, openWorldHint: false } } : {}) }, async (input: T,context:{mcpReq:{signal:AbortSignal;_meta?:{progressToken?:string|number};notify:(value:any)=>Promise<void>}}) => {
       try { const requestSignal=mcpSignals.get(service);const token=context.mcpReq._meta?.progressToken;
         if(token!==undefined)await context.mcpReq.notify({method:"notifications/progress",params:{progressToken:token,progress:0,total:1,message:"Processing request"}}).catch(()=>{});
         const result=await action(input,requestSignal?AbortSignal.any([context.mcpReq.signal,requestSignal]):context.mcpReq.signal);if(token!==undefined)await context.mcpReq.notify({method:"notifications/progress",params:{progressToken:token,progress:1,total:1,message:"Result available; poll operation handles for upstream progress"}}).catch(()=>{});return rawContent?result as any:structured(result); }
@@ -198,6 +212,7 @@ function createMcpServer(service: ApiService, subscriptions = true): McpServer {
     tool("create_event", "Create a durable Event that one or more Triggers can publish.", eventDefinitionInput, (input:any) => service.createEvent(input));
     tool("update_event", "Create a new Event payload schema revision; existing occurrences retain their original revision.", eventDefinitionUpdate.extend({eventId:z.uuid()}), ({eventId,...input}:any) => service.updateEvent(eventId,input));
     tool("delete_event", "Permanently delete an Event, all its Triggers and input configurations, and its occurrence history.", z.object({eventId:z.uuid()}), ({eventId}:any) => service.deleteEvent(eventId));
+    tool("read_event_occurrences", "Read committed Event payloads by occurrenceId or by definitionId and an inclusive recorded-time since value. Follow nextCursor with the same definitionId and since. Reads do not consume history.", readEventOccurrencesInput, (input: z.infer<typeof readEventOccurrencesInput>) => service.readEventOccurrences(input), false, true);
     tool("list_event_occurrences", "Read durable Event occurrences in reverse order.", z.object({eventId:z.uuid(),...eventOccurrenceQuery.shape}), ({eventId,limit,cursor}:any) => service.listEventOccurrences(eventId,limit,cursor));
                                 tool("list_triggers", "List triggers and their parent Events", z.object({}), () => service.listTriggers());
     tool("list_skills", "List searchable team skill metadata. Shared edits affect every trigger using the skill; bodies are omitted.", z.object({ q: z.string().optional(), limit: z.number().int().min(1).max(100).default(30), cursor: z.string().optional() }), (input: any) => service.listSkills({ q: input.q ?? "", limit: input.limit, cursor: input.cursor }));
@@ -234,7 +249,19 @@ function mcpAppFor(hostname: string) {
     let app = mcpApps.get(hostname);
     if (!app) {
       const protocol = createMcpHonoApp({ host: hostname, allowedHosts: [hostname], allowedOrigins: [hostname] });
-      protocol.all("/mcp", c => listeners.get(c.req.raw)?.() ?? mcpHandler.fetch(c.req.raw, { parsedBody: (c as any).get("parsedBody") }));
+      protocol.all("/mcp", async c => {
+        const listener = listeners.get(c.req.raw);
+        if (listener) return listener();
+        const parsedBody = (c as any).get("parsedBody");
+        const response = await mcpHandler.fetch(c.req.raw, { parsedBody });
+        // The SDK's core discovery codec strips draft capabilities. Add the
+        // Events capability after the SDK validates and encodes discovery.
+        if (parsedBody?.method !== "server/discover" || !response.ok ||
+            !response.headers.get("Content-Type")?.startsWith("application/json")) return response;
+        const message = await response.json<{ result?: { capabilities?: Record<string, unknown> } }>();
+        if (message.result?.capabilities) message.result.capabilities.events = {};
+        return Response.json(message, { status: response.status, headers: response.headers });
+      });
       app = new Hono();
       app.use("*",async(c,next)=> { if(mcpBodies.has(c.req.raw)) (c as any).set("parsedBody",mcpBodies.get(c.req.raw)); await next(); });
       app.route("/",protocol);
