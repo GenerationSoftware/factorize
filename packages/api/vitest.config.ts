@@ -4,6 +4,8 @@ import { BalancedValidationSequencer } from "./validation-sequencer";
 
 export default defineConfig({
   test: {
+    // Let tests exercise the real OAuth provider with a stub Cloudflare binding.
+    server: { deps: { inline: ["@cloudflare/workers-oauth-provider"] } },
     // Isolated database fixtures spend part of their time waiting on PostgreSQL I/O.
     maxWorkers: Number(process.env.FACTORIZE_VITEST_WORKERS ?? Math.min(availableParallelism() + 1, 4)),
     hookTimeout: 30_000,

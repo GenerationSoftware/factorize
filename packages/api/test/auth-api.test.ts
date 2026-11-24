@@ -17,13 +17,13 @@ vi.mock("@cloudflare/workers-oauth-provider", () => ({
   AuthorizationError: class extends Error {},
   getOAuthApi: vi.fn(),
 }));
-const env = { APP_ORIGIN: "https://app.test", SESSION_SIGNING_SECRET: "test-only-secret", DATABASE: { pool: { query: vi.fn() } } } as unknown as Env;
+const env = { APP_ORIGIN: "https://app.test", SESSION_SIGNING_SECRET: "test-only-secret", DATABASE: { pool: { query: vi.fn(async () => ({ rows: [] })) } } } as unknown as Env;
 const ctx = {} as ExecutionContext;
 const identity = { tenantId: "tenant-a", userId: "user-a", email: "owner@test.com", sessionVersion: 4 };
 const member = { ...identity, role: "owner" as const };
 const auth: OAuthProps = { ...identity, scopes: ["team:read", "triggers:read", "integrations:read", "team:write", "triggers:write", "integrations:write", "triggers:read", "triggers:write", "triggers:write", "triggers:write"], authMethod: "session" };
 const openapi = parse(readFileSync(new URL("../../docs/openapi.yaml", import.meta.url), "utf8"));
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { vi.mocked(env.DATABASE!.pool.query).mockReset().mockResolvedValue({ rows: [] } as never); vi.restoreAllMocks(); });
 
 async function call(path: string, body?: unknown, headers: Record<string, string> = {}) {
   return worker.fetch(new Request(env.APP_ORIGIN + path, {
@@ -122,7 +122,7 @@ describe("public auth API and cookie security", () => {
   it("maps current authoritative identity and selected workspace without secrets", async () => {
     const cookie = await signSession({ ...identity, email: "stale@test.com", exp: Math.floor(Date.now() / 1000) + 100 }, env.SESSION_SIGNING_SECRET);
     vi.spyOn(IdentityRepository.prototype, "member").mockResolvedValue(member);
-    vi.mocked(env.DATABASE!.pool.query).mockResolvedValue({ rows: [{ name: "Workspace A", has_password: true }] } as never);
+    vi.mocked(env.DATABASE!.pool.query).mockResolvedValueOnce({ rows: [] } as never).mockResolvedValueOnce({ rows: [{ name: "Workspace A", has_password: true }] } as never);
     const response = await call("/api/v1/session", undefined, { Cookie: "factorize_session=" + cookie });
     expect(await contract(response, "/api/v1/session", "GET")).toMatchObject({ authenticated: true, user: { id: identity.userId, email: identity.email }, team: { id: identity.tenantId, name: "Workspace A", role: "owner" }, hasPassword: true, capabilities: expect.arrayContaining(["triggers:read", "triggers:write"]) });
     const query = vi.mocked(env.DATABASE!.pool.query).mock.calls.at(-1)!;
@@ -186,15 +186,16 @@ describe("public auth API and cookie security", () => {
   });
 
   it("revokes logout sessions and safely clears absent/expired sessions too", async () => {
-    vi.spyOn(IdentityRepository.prototype, "member").mockResolvedValue(member);
-    const revoke = vi.spyOn(IdentityRepository.prototype, "revoke").mockResolvedValue(true);
+    const revoke = vi.spyOn(IdentityRepository.prototype, "revoke");
+    vi.mocked(env.DATABASE!.pool.query).mockClear();
     const cookie = await signSession({ ...identity, exp: Math.floor(Date.now() / 1000) + 100 }, env.SESSION_SIGNING_SECRET);
     const response = await call("/api/v1/auth/logout", {}, { Cookie: "factorize_session=" + cookie });
     expect(response.status).toBe(200);
-    expect(revoke).toHaveBeenCalledWith(identity.userId);
+    expect(revoke).not.toHaveBeenCalled();
+    expect(env.DATABASE!.pool.query).toHaveBeenCalledWith(expect.stringContaining("INSERT INTO app.revoked_browser_sessions"), [expect.any(String), expect.any(Date)]);
     expect(response.headers.get("Set-Cookie")).toContain("Max-Age=0");
     expect((await call("/api/v1/auth/logout", {})).status).toBe(200);
-    expect(revoke).toHaveBeenCalledTimes(1);
+    expect(env.DATABASE!.pool.query).toHaveBeenCalledTimes(1);
   });
 
   it("rejects bearer credentials for browser identity and auth operations", async () => {

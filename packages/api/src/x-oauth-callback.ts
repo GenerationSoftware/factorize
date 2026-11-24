@@ -1,4 +1,5 @@
-import { requestCookie, readSession } from "./session";
+import { requestCookie } from "./session";
+import { readBrowserSession } from "./browser-session";
 import { databaseFor } from "./postgres/database";
 import { IdentityRepository } from "./postgres/identity-repository";
 import { XAccountMismatchError, XConnectionRepository } from "./postgres/x-connection-repository";
@@ -20,7 +21,7 @@ export async function xOAuthCallback(request: Request, env: Env): Promise<Respon
   const fail = (result: string) => {
     return new Response(null, { status: 303, headers: { Location: settings(env, result), ...clear } });
   };
-  const session = await readSession(requestCookie(request, "factorize_session"), env.SESSION_SIGNING_SECRET);
+  const session = await readBrowserSession(request, env);
   if (!session) return fail("session_required");
   const database = databaseFor(env), identities = new IdentityRepository(database, session.tenantId);
   const member = await identities.member(session.userId);

@@ -2,7 +2,8 @@ import { executeAuth } from "./auth-api";
 import { STATIC_CSP, staticApp } from "./static-app";
 import { Hono } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
-import { readSession, signSession, type Session } from "./session";
+import type { Session } from "./session";
+import { readBrowserSession } from "./browser-session";
 export { readSession, signSession, requestCookie, type Session } from "./session";
 import { equalHmac, hmac } from "./crypto";
 import { createAppJwt, githubHeaders, readSetupState, signSetupState } from "./github";
@@ -44,11 +45,10 @@ app.onError((error, c) => {
   return c.text("Internal Server Error", 500);
 });
 
-async function authed(c: any): Promise<Session | null> { return readSession(getCookie(c, "factorize_session"), c.env.SESSION_SIGNING_SECRET); }
 async function owner(c: any): Promise<Session | null> {
   const started = performance.now();
   try {
-    const session = await authed(c); if (!session) return null;
+    const session = await readBrowserSession(c.req.raw, c.env); if (!session) return null;
     const member = await new IdentityRepository(databaseFor(c.env), session.tenantId).member(session.userId);
     return member?.role === "owner" && member.sessionVersion === session.sessionVersion ? session : null;
   } finally { c.set("authorizationDuration", (c.get("authorizationDuration") ?? 0) + performance.now() - started); }
@@ -88,10 +88,12 @@ app.get("/auth/linear/callback", async (c) => {
 });
 
 app.post("/auth/logout", async (c) => {
-  const session = await owner(c);
-  if (session) await new IdentityRepository(databaseFor(c.env), session.tenantId).revoke(session.userId);
-  deleteCookie(c, "factorize_session", { path: "/" });
-  return c.redirect("/");
+  const response = await executeAuth("logout", c.req.raw, c.env);
+  if (!response.ok) return response;
+  const headers = new Headers(response.headers);
+  headers.set("Location", "/");
+  headers.delete("Content-Type");
+  return new Response(null, { status: 302, headers });
 });
 
 // Form compatibility uses the same continuation and session rules as the JSON API.
@@ -121,7 +123,7 @@ app.post("/auth/password-change", async (c) => {
 app.get("/auth/clickup", async (c) => {
   const session = await owner(c); if (!session) return c.redirect("/auth/login");
   if (!c.env.CLICKUP_CLIENT_ID) return c.text("ClickUp OAuth is not configured", 503);
-  const state = await signSession({ ...session, exp: Math.floor(Date.now() / 1000) + 600 }, c.env.SESSION_SIGNING_SECRET);
+  const state = await signSetupState({ tenantId: session.tenantId, userId: session.userId, nonce: crypto.randomUUID(), exp: Math.floor(Date.now() / 1000) + 600 }, c.env.SESSION_SIGNING_SECRET);
   setCookie(c, "clickup_oauth_state", state, { httpOnly: true, secure: new URL(c.env.APP_ORIGIN).protocol === "https:", sameSite: "Lax", path: "/auth/clickup", maxAge: 600 });
   const redirect = new URL("https://app.clickup.com/api");
   redirect.searchParams.set("client_id", c.env.CLICKUP_CLIENT_ID);

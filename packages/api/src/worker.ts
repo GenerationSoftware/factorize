@@ -6,7 +6,7 @@ import { wakeMcpDeliveries } from "./postgres/event-match-repository";
 import { staticApp, securityHeaders } from "./static-app";
 import { OAuthProvider, AuthorizationError, getOAuthApi, type AuthRequest, type OAuthProviderOptions } from "@cloudflare/workers-oauth-provider";
 import app from "./index";
-import { readSession, requestCookie } from "./session";
+import { readBrowserSession } from "./browser-session";
 import { isBrowserAuthOperation } from "./api-contract";
 import { ProtectedApiHandler, protectedApiFetch } from "./protected-api";
 import { startConnection, connectionFor } from "./oauth-continuation";
@@ -26,7 +26,7 @@ const scopes = [...ACCESS_SCOPES, "apps:manage"];
 // consent screens and metadata advertise only the canonical scopes above.
 const oauthScopes = [...AGENT_SCOPES];
 async function currentOwner(request: Request, env: Env) {
-  const session = await readSession(requestCookie(request, "factorize_session"), env.SESSION_SIGNING_SECRET);
+  const session = await readBrowserSession(request, env);
   if (!session) return null;
   const member = await new IdentityRepository(databaseFor(env), session.tenantId).member(session.userId);
   return member?.role === "owner" && member.sessionVersion === session.sessionVersion ? session : null;
@@ -135,9 +135,9 @@ const backend = { async fetch(request: Request, env: Env, ctx: ExecutionContext)
   }
   if (isBrowserAuthOperation(request.method, url.pathname)) return protectedApiFetch(request, apiEnv, null, ctx);
   if (url.pathname.startsWith("/api/v1") && !request.headers.has("Authorization")) {
-    // Signature and expiry here; the service performs the authoritative owner,
+    // Validate the browser cookie and its revocation here; the service performs the authoritative owner,
     // verified-email and session-version lookup once for this API request.
-    const session = await readSession(requestCookie(request, "factorize_session"), env.SESSION_SIGNING_SECRET);
+    const session = await readBrowserSession(request, env);
     if (!session) return Response.json({ error: { code: "invalid_token", message: "Unauthorized" } }, { status: 401 });
     return protectedApiFetch(request, apiEnv, { tenantId: session.tenantId, userId: session.userId, sessionVersion: session.sessionVersion, scopes, authMethod: "session" }, ctx);
   }
@@ -166,6 +166,8 @@ export default {
     const db = databaseFor(env);
     await clearExpiredGoogleSignIns(db.pool);
     await pruneTotp(db.pool);
+    await db.pool.query(`DELETE FROM app.revoked_browser_sessions WHERE digest IN
+      (SELECT digest FROM app.revoked_browser_sessions WHERE expires_at<now()-interval '1 day' ORDER BY expires_at LIMIT 5000)`);
     await db.pool.query(`DELETE FROM app.vm_permission_proofs WHERE (tenant_id,grant_id,proof_id) IN
       (SELECT tenant_id,grant_id,proof_id FROM app.vm_permission_proofs WHERE expires_at<now() ORDER BY expires_at LIMIT 5000)`);
     await db.pool.query(`UPDATE app.vm_permission_grants SET revoked_at=now(),updated_at=now(),updated_by='system:enrollment-timeout',
