@@ -1,3 +1,5 @@
+import { googleSignInCallback } from "./auth-api";
+import { clearExpiredGoogleSignIns, googleCallbackPath } from "./google-sign-in";
 import { AlarmCoordinator as BaseAlarmCoordinator } from "./alarm-coordinator";
 import { wakeMcpDeliveries } from "./postgres/event-match-repository";
 import { staticApp, securityHeaders } from "./static-app";
@@ -93,6 +95,7 @@ export class AlarmCoordinator extends BaseAlarmCoordinator {
 }
 const backend = { async fetch(request: Request, env: Env, ctx: ExecutionContext) {
   if (new URL(request.url).hostname === "git.factorize.sh") return new Response("Not found", { status: 404 });
+  if (new URL(request.url).pathname === googleCallbackPath) return googleSignInCallback(request, env);
   if (new URL(request.url).pathname === "/oauth/x/callback") return request.method === "GET" ? xOAuthCallback(request, env) : new Response("Method not allowed", { status: 405, headers: { Allow: "GET" } });
   const oidc = await oidcRequest(request, env);
   if (oidc) return oidc;
@@ -160,6 +163,7 @@ export default {
     await wakeMcpDeliveries(env).catch(() => {});
     // Retire expired VM proofs and incomplete enrollments.
     const db = databaseFor(env);
+    await clearExpiredGoogleSignIns(db.pool);
     await db.pool.query(`DELETE FROM app.vm_permission_proofs WHERE (tenant_id,grant_id,proof_id) IN
       (SELECT tenant_id,grant_id,proof_id FROM app.vm_permission_proofs WHERE expires_at<now() ORDER BY expires_at LIMIT 5000)`);
     await db.pool.query(`UPDATE app.vm_permission_grants SET revoked_at=now(),updated_at=now(),updated_by='system:enrollment-timeout',

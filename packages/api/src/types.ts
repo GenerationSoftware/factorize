@@ -6,6 +6,9 @@ export interface Env {
   ASSETS: Fetcher;
   APP_ORIGIN: string;
   MARKETING_ORIGIN?: string;
+  GOOGLE_SIGN_IN_START_LIMIT?: RateLimit;
+  GOOGLE_SIGN_IN_CLIENT_ID?: string;
+  GOOGLE_SIGN_IN_CLIENT_SECRET?: string;
   LINEAR_CLIENT_ID: string;
   LINEAR_CLIENT_SECRET: string;
   LINEAR_OAUTH_SCOPES?: string;

@@ -18,15 +18,24 @@ export const teamSettings = app.table("team_settings", {
   tenantId: uuid("tenant_id").primaryKey().references(() => tenants.id, { onDelete: "cascade" }),
   updatedAt: updatedAt(),
 });
-export const authUsers = app.table("auth_users", { id: uuid("id").primaryKey(), username:text("username").notNull().unique("auth_users_username_unique").default(sql`'user-' || replace(gen_random_uuid()::text,'-','')`), email: text("email").notNull().unique(), emailVerified: boolean("email_verified").notNull().default(false), createdAt: createdAt() }, t => [uniqueIndex("auth_users_email_normalized").on(sql`lower(${t.email})`)]);
+export const authUsers = app.table("auth_users", { id: uuid("id").primaryKey(), username:text("username").notNull().unique("auth_users_username_unique").default(sql`'user-' || replace(gen_random_uuid()::text,'-','')`), email: text("email").notNull().unique(), emailVerified: boolean("email_verified").notNull().default(false), googleRecoveryManaged: boolean("google_recovery_managed").notNull().default(false), googleRecoveryAddressConfirmed: boolean("google_recovery_address_confirmed").notNull().default(false), googleRecoveryCandidate: text("google_recovery_candidate"), googleRecoverySuspended: boolean("google_recovery_suspended").notNull().default(false), googleRecoveryObservedAt: integer("google_recovery_observed_at").notNull().default(0), googleRecoveryRevision: integer("google_recovery_revision").notNull().default(0), createdAt: createdAt() }, t => [uniqueIndex("auth_users_email_normalized").on(sql`lower(${t.email})`)]);
 export const authAccounts = app.table("auth_accounts", {
   id: uuid("id").primaryKey(), userId: uuid("user_id").notNull().references(() => authUsers.id, { onDelete: "cascade" }), provider: text("provider").notNull(), providerAccountId: text("provider_account_id").notNull(), passwordHash: text("password_hash"),
-}, t => [unique().on(t.provider, t.providerAccountId)]);
+}, t => [unique().on(t.provider, t.providerAccountId), uniqueIndex("auth_accounts_google_user_unique").on(t.userId).where(sql`${t.provider}='google'`)]);
 export const oauthConnections = app.table("oauth_connections", {
   id: uuid("id").primaryKey(), browserDigest: text("browser_digest").notNull(), deviceUserCode: text("device_user_code"), destination: text("destination").notNull(), clientName: text("client_name").notNull(),
   kind: text("kind").$type<"callback" | "device">().notNull(), expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   userId: uuid("user_id").references(() => authUsers.id, { onDelete: "cascade" }), readyVersion: integer("ready_version"), ready: boolean("ready").notNull().default(false), usedAt: timestamp("used_at", { withTimezone: true }),
 }, t => [index("oauth_connections_expires").on(t.expiresAt), check("oauth_connections_kind_check", sql`${t.kind} IN ('callback','device')`)]);
+export const googleSignInAttempts = app.table("google_sign_in_attempts", {
+  id: uuid("id").primaryKey(), browserDigest: text("browser_digest").notNull().unique(),
+  verifier: text("verifier"), nonce: text("nonce").notNull(), returnTo: text("return_to").notNull(),
+  connectionId: uuid("connection_id").references(() => oauthConnections.id, { onDelete: "cascade" }),
+  googleSubject: text("google_subject"), email: text("email"), existingUserId: uuid("existing_user_id").references(() => authUsers.id, { onDelete: "cascade" }),
+  emailConfirmed: boolean("email_confirmed").notNull().default(false), emailTokenDigest: text("email_token_digest"), emailSentAt: timestamp("email_sent_at", { withTimezone: true }),
+  passwordUserId: uuid("password_user_id").references(() => authUsers.id, { onDelete: "cascade" }), recoveryRevision: integer("recovery_revision"), providerObservedAt: integer("provider_observed_at").notNull().default(0), providerManagedEmail: boolean("provider_managed_email").notNull().default(false),
+  passwordAttempts: integer("password_attempts").notNull().default(0), expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+}, t => [index("google_sign_in_attempts_expiry").on(t.expiresAt)]);
 export const oauthConsentPreviews = app.table("oauth_consent_previews", { id: uuid("id").primaryKey(), expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(), usedAt: timestamp("used_at", { withTimezone: true }) }, t => [index("oauth_consent_previews_expires").on(t.expiresAt)]);
 export const authResetTokens = app.table("auth_reset_tokens", { connectionId: uuid("connection_id").references(() => oauthConnections.id, { onDelete: "set null" }), purpose: text("purpose").$type<"verify" | "reset">().notNull().default("reset"), digest: text("digest").primaryKey(), userId: uuid("user_id").notNull().references(() => authUsers.id, { onDelete: "cascade" }), expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(), usedAt: timestamp("used_at", { withTimezone: true }) }, t => [check("auth_reset_tokens_purpose_check", sql`${t.purpose} IN ('verify','reset')`), index("auth_reset_tokens_expiration").on(t.expiresAt,t.digest)]);
 export const authSessions = app.table("auth_sessions", { id: uuid("id").primaryKey(), userId: uuid("user_id").notNull().references(() => authUsers.id, { onDelete: "cascade" }), expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(), revokedAt: timestamp("revoked_at", { withTimezone: true }) }, t => [index("auth_sessions_expiration").on(t.expiresAt,t.id)]);
@@ -183,7 +192,7 @@ export const triggerSourceRelations = relations(triggerSources, ({ one }) => ({
 }));
 
 export const databaseSchema = {
-  teamSettings, schemaMigrations, tenants, oauthConnections, oauthConsentPreviews, authUsers, authAccounts, authResetTokens, authSessions, oauthDeviceAuthorizations, members, accessTokens,
+  teamSettings, schemaMigrations, tenants, oauthConnections, googleSignInAttempts, oauthConsentPreviews, authUsers, authAccounts, authResetTokens, authSessions, oauthDeviceAuthorizations, members, accessTokens,
   connections, agentIntegrations, agentIdentities, agentProxyResponses, integrationCollections, integrationRecords, integrationChanges, linearWorkspaces, githubInstallations, githubSetupStates, eventDefinitions, eventDefinitionRevisions, eventOccurrences, mcpEventSubscriptions, mcpEventDeliveries, triggerMatches, triggers, triggerSources, webhookConditionsCutover,
   scheduleState, triggerEditDeliveries, triggerEvents, webhookDeliveries, webhookDeliveryEvents, pendingVerifications, tailFingerprints, wakeHints,
   tenantRelations, triggerRelations, triggerSourceRelations,

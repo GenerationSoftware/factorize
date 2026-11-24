@@ -20,7 +20,7 @@ import {
 
 import { X_OAUTH_SCOPES } from "./x-oauth";
 import document from "./api-document.json";
-import { authInputs, authSuccess, continuationSuccess, connectionStartInput, connectionStartSuccess, connectionResumeInput, loginSuccess, sessionResponse, type AuthAction } from "./auth-api";
+import { authInputs, authSuccess, continuationSuccess, connectionStartInput, connectionStartSuccess, connectionResumeInput, loginSuccess, sessionResponse, googleAvailability, googleStartResult, googlePendingResult, googleUsernameResult, type AuthAction } from "./auth-api";
 import { flyConnectionInput, flyConnectionMetadata } from "./fly-account-client";
 import { eventDefinitionInput, eventDefinitionUpdate, eventDefinitionResponse, eventDefinitionList, eventOccurrenceQuery, eventOccurrencePage } from "./event-contracts";
 import { vmGrantInput, vmGrantList, vmGrantRef, vmGrantResult, vmRevokeResult } from "./vm-grant-contracts";
@@ -232,6 +232,15 @@ export const API_ROUTES: RouteContract[] = [
   {...authRoute("GET", "/api/v1/profile", "profile", "Read your profile; interactive owner browser session required", profileResponse),ownerSession:true},
   {...authRoute("PUT", "/api/v1/profile", "profile-update", "Change your globally unique username; interactive owner browser session required", profileResponse, profileInput),ownerSession:true},
   authRoute("GET", "/api/v1/session", "session", "Get current browser session", sessionResponse),
+  authRoute("GET", "/api/v1/auth/google", "google-available", "Check whether Google sign-in is configured", googleAvailability),
+  authRoute("POST", "/api/v1/auth/google/start", "google-start", "Start browser-bound Google sign-in", googleStartResult, authInputs.googleStart),
+  authRoute("GET", "/api/v1/auth/google/pending", "google-pending", "Read Google signup or linking steps for the current browser", googlePendingResult),
+  authRoute("POST", "/api/v1/auth/google/email/request", "google-email-request", "Send a verification link for a new Google signup", authSuccess),
+  authRoute("POST", "/api/v1/auth/google/email/verify", "google-email-verify", "Verify the signup email in the initiating browser", authSuccess, authInputs.verify),
+  authRoute("POST", "/api/v1/auth/google/username", "google-username", "Check username availability during Google signup", googleUsernameResult, authInputs.googleUsername),
+  authRoute("POST", "/api/v1/auth/google/password/complete", "google-password-complete", "Set the Factorize password with fresh Google proof and email confirmation", loginSuccess, authInputs.reset),
+  authRoute("POST", "/api/v1/auth/google/finish", "google-finish", "Choose a username or confirm your existing Factorize password", loginSuccess, authInputs.googleFinish),
+  {...authRoute("POST", "/api/v1/auth/password/set-request", "password-set-request", "Start fresh Google verification before setting or recovering a password", googleStartResult),ownerSession:true},
   authRoute("POST", "/api/v1/auth/login", "login", "Sign in", loginSuccess, authInputs.login),
   authRoute("POST", "/api/v1/auth/signup", "signup", "Request signup; existing accounts return the same accepted response", authSuccess, authInputs.signup, 202),
   authRoute("POST", "/api/v1/auth/email-verification/request", "verification-request", "Request email verification", authSuccess, authInputs.request),
