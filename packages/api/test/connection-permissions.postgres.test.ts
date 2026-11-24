@@ -65,3 +65,49 @@ it.skipIf(!url)("preserves blocked integrations through a connection permission 
     await f.cleanup();
   }
 });
+
+
+it.skipIf(!url)("renames only the selected connection and preserves policy before and after identity creation", async () => {
+  const f = await loadingFixture(url!);
+  try {
+    const integrationId = crypto.randomUUID(), scope = `integration:${integrationId}:1`;
+    const grantId = "rename-fixture";
+    const grants = [
+      { id: grantId, metadata: { tenantId: f.tenantId, initialIntegrationDenials: [integrationId] } },
+      { id: "sibling", metadata: { tenantId: f.tenantId } },
+      { id: "other-team", metadata: { tenantId: f.otherTenant } },
+    ].map(grant => ({ ...grant, clientId: "same-app", scope: ["proxy:use", scope], createdAt: Math.floor(Date.now() / 1000) }));
+    Object.assign(f.env, { OAUTH_PROVIDER: {
+      listUserGrants: async () => ({ items: grants }),
+      lookupClient: async () => ({ clientName: "Registered app" }),
+    } });
+    await f.db.pool.query(`INSERT INTO app.agent_integrations(tenant_id,id,kind,credential_id,name,available,policy)
+      VALUES ($1,$2,'github','123','GitHub',true,'baseline')`, [f.tenantId, integrationId]);
+    const request = (path: string, body?: object, auth = f.auth) => protectedApiFetch(new Request(f.env.APP_ORIGIN + path, {
+      method: body ? "PUT" : "GET", headers: { Cookie: f.cookie, Origin: f.env.APP_ORIGIN, "Content-Type": "application/json" },
+      body: body && JSON.stringify(body),
+    }), f.env, auth, {} as ExecutionContext);
+    const rename = (id: string, name: string, auth = f.auth) => request(`/api/v1/access/authorizations/${id}/name`, { name }, auth);
+    const clients = async () => (await request("/api/v1/access/authorized-clients")).json() as Promise<unknown[]>;
+
+    expect((await rename("other-team", "Out of scope")).status).toBe(404);
+    expect((await rename(grantId, "   ")).status).toBe(400);
+    expect((await rename(grantId, "Non-interactive", { ...f.auth, authMethod: "oauth" })).status).toBe(403);
+    const response = await rename(grantId, "  Release assistant  ");
+    expect(response.status, await response.clone().text()).toBe(200);
+    expect(await response.json()).toEqual({ name: "Release assistant" });
+    expect(await clients()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ grantId, clientName: "Release assistant", appName: "Registered app", scopes: ["proxy:use"], revision: 0, integrationOverrides: { [integrationId]: false } }),
+      expect.objectContaining({ grantId: "sibling", clientName: "Registered app" }),
+    ]));
+
+    const permissions = await request(`/api/v1/access/authorizations/${grantId}/permissions`, { scopes: ["team:read"], expectedRevision: 0 });
+    expect(permissions.status, await permissions.text()).toBe(200);
+    expect((await rename(grantId, "Updated name")).status).toBe(200);
+    expect(await clients()).toContainEqual(expect.objectContaining({
+      grantId, clientName: "Updated name", scopes: ["team:read"], revision: 1, integrationOverrides: { [integrationId]: false },
+    }));
+  } finally {
+    await f.cleanup();
+  }
+});

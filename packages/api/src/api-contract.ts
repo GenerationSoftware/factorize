@@ -6,7 +6,7 @@ import {queryApiResponseInput,queryApiResponseResult} from "./agent-api-contract
 import { apiReflection, apiPolicyList, apiPolicyInput, requestApiInput, requestApiResponse, readApiResponseInput, apiResponseChunk } from "./agent-api-contracts";
 import { queryOf } from "./query-params";
 import { consentPreviewInput, consentPreviewResponse, consentDecisionInput, consentDecisionResponse } from "./consent-api";
-import { exeConnection, integrationStatus, clientPermissionsUpdate, authorizedClient, accessToken, createdAccessToken, savedExe, savedAmp, savedTail, okResult, permissionPreset, permissionPresetInput, permissionPresetList } from "./settings-contracts";
+import { exeConnection, integrationStatus, clientPermissionsUpdate, clientNameInput, authorizedClient, accessToken, createdAccessToken, savedExe, savedAmp, savedTail, okResult, permissionPreset, permissionPresetInput, permissionPresetList } from "./settings-contracts";
 import { eventAvailabilityResponse, namedOption, providerOptions, githubInstallation, githubRepository, tailIntegration } from "./editor-contracts";
 import { triggerResponse, triggerUpdateInput } from "./trigger-contracts";
 import { z } from "zod";
@@ -547,6 +547,11 @@ export const API_ROUTES: RouteContract[] = [
     (service, { params }) => service.revokeAccessToken(params.tokenId),
     { ownerSession: true },
   ),
+  route("PUT", "/api/v1/access/authorizations/{grantId}/name", "triggers:write", {
+    summary: "Rename an authorized OAuth connection",
+    description: "Interactive owner session required. Changes only this connection’s display name, not the registered app name or permissions.",
+    responses: { "200": { description: "Connection renamed", content: { "application/json": { schema: jsonSchema(clientNameInput, "output") } } } },
+  }, (service, { params, body }) => service.renameAuthorizedClient(params.grantId, body), { ownerSession: true, body: clientNameInput }),
   route("PUT", "/api/v1/access/authorizations/{grantId}/permissions", "triggers:write", {
     summary: "Set an OAuth connection’s effective scopes and integration access",
     description: "Interactive owner session required. Removing permissions takes effect immediately. A scope not carried by the current token requires a fresh OAuth authorization and token.",

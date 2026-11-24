@@ -554,6 +554,22 @@ export class ApiService {
     await databaseFor(this.env).pool.query("UPDATE app.agent_identities SET display_name=$3 WHERE tenant_id=$1 AND id=$2", [this.auth.tenantId, identity.id, name]);
     return { name };
   }
+  async renameAuthorizedClient(grantId: string, input: unknown) {
+    await this.authorizeOwnerSession("triggers:write");
+    const { name } = clientNameInput.parse(input);
+    const client = (await this.listAuthorizedClients()).find(client => client.grantId === grantId);
+    if (!client) throw new ServiceError(404, "not_found", "Authorization not found.");
+    // If this connection has never used its token, materialize its identity
+    // with the same initial integration blocks as the request path.
+    const result = await databaseFor(this.env).pool.query(`
+      INSERT INTO app.agent_identities AS i(tenant_id,kind,subject,user_id,session_version,display_name,integration_overrides)
+      VALUES($1,'oauth',$2,$3,$4,$5,$6)
+      ON CONFLICT(tenant_id,kind,subject) DO UPDATE SET display_name=excluded.display_name
+      WHERE i.revoked_at IS NULL AND i.user_id=excluded.user_id
+      RETURNING display_name`, [this.auth.tenantId, grantId, this.auth.userId, this.auth.sessionVersion, name, JSON.stringify(client.integrationOverrides)]);
+    if (!result.rowCount) throw new ServiceError(404, "not_found", "Authorization not found.");
+    return { name };
+  }
   private async validatePermissionScopes(input: string[]) {
     const { integrations } = await listAgentPolicies(this.env, this.auth.tenantId);
     const allowed = new Set([...AGENT_SCOPES, ...integrations.filter(row => row.available && row.policy !== "disabled").map(row => row.requiredScope)]);
