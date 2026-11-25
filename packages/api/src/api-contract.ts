@@ -1,5 +1,5 @@
 import { eventOccurrenceSummaryPage, subscriptionOccurrenceSummaryPage, occurrenceSummaryQuery } from "./event-contracts";
-import { cloudflareCookieValue, cloudflareSelectInput, cloudflareStartInput, cloudflareStartResult, cloudflareStatus } from "./cloudflare-oauth";
+import { cloudflareStartResult, cloudflareStatus } from "./cloudflare-oauth";
 import { cloneInfo, gitCredential } from "./git-https-contracts";
 import { profileInput, profileResponse } from "./usernames";
 import {createPayloadInput,payloadReceipt,appendPayloadInput,finalizePayloadInput,attachmentInput} from "./proxy-payloads";
@@ -169,26 +169,19 @@ function authRoute(method: string, path: string, action: AuthAction, summary: st
 
 export const API_ROUTES: RouteContract[] = [
   route("GET", "/api/v1/integrations/cloudflare", "integrations:read", {
-    summary: "Read Cloudflare connections and pending account options",
+    summary: "Read Cloudflare connections",
     responses: { "200": { description: "Cloudflare OAuth metadata", content: { "application/json": { schema: jsonSchema(cloudflareStatus, "output") } } } },
-  }, (service, { request }) => service.cloudflareState(request!), { ownerSession: true }),
+  }, service => service.cloudflareState(), { ownerSession: true }),
   route("POST", "/api/v1/integrations/cloudflare/authorize", "integrations:write", {
-    summary: "Start Cloudflare account authorization",
+    summary: "Start authorization on Cloudflare",
     responses: { "200": { description: "Cloudflare authorization URL", content: { "application/json": { schema: jsonSchema(cloudflareStartResult, "output") } } } },
-  }, async (service, { body }) => {
-    const started = await service.startCloudflare(body.enableWrites);
+  }, async service => {
+    const started = await service.startCloudflare();
     return Response.json({ authorizationUrl: started.authorizationUrl }, { headers: { "Set-Cookie": started.cookie } });
-  }, { ownerSession: true, body: cloudflareStartInput, maxBodyBytes: 1024 }),
-  route("POST", "/api/v1/integrations/cloudflare/select", "integrations:write", {
-    summary: "Connect exactly one authorized Cloudflare account",
-    responses: { "200": { description: "Cloudflare account connected", content: { "application/json": { schema: jsonSchema(okResult, "output") } } } },
-  }, async (service, { request, body }) => {
-    const result = await service.selectCloudflare(request!, body.accountId);
-    return Response.json(result, { headers: { "Set-Cookie": cloudflareCookieValue("") } });
-  }, { ownerSession: true, body: cloudflareSelectInput, maxBodyBytes: 1024 }),
+  }, { ownerSession: true }),
   route("DELETE", "/api/v1/integrations/cloudflare/{connectionId}", "integrations:write", {
-    summary: "Disconnect a Cloudflare account inside this workspace",
-    responses: { "200": { description: "Cloudflare account disconnected", content: { "application/json": { schema: jsonSchema(okResult, "output") } } } },
+    summary: "Disconnect Cloudflare from this workspace",
+    responses: { "200": { description: "Cloudflare disconnected", content: { "application/json": { schema: jsonSchema(okResult, "output") } } } },
   }, (service, { params }) => service.disconnectCloudflare(params.connectionId), { ownerSession: true, parameters: z.object({ connectionId: z.uuid() }) }),
   route("GET", "/api/v1/x/connections", "integrations:read", {
     summary: "List X connections",

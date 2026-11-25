@@ -1,6 +1,6 @@
 import { readOccurrenceSummaries } from "./postgres/occurrence-summary-repository";
 import { eventOccurrenceSummaryPage, subscriptionOccurrenceSummaryPage, parseOccurrenceSummaryCursor } from "./event-contracts";
-import { cloudflareState, disconnectCloudflare, selectCloudflare, startCloudflare } from "./cloudflare-oauth";
+import { cloudflareState, disconnectCloudflare, startCloudflare } from "./cloudflare-oauth";
 import { initialIntegrationOverrides, lockOAuthPolicy } from "./oauth-reconnect";
 import { deleteMcpGrantSubscriptions, lockMcpEventGrant } from "./postgres/mcp-event-outbox";
 import { eventPayloadSchema, occurrenceEventName, occurrenceInputSchema, type ReadEventOccurrencesInput, type subscribeEventInput, type unsubscribeEventInput, type setProcessingAcknowledgmentsInput, type acknowledgeEventsInput } from "./mcp-event-contracts";
@@ -379,17 +379,13 @@ export class ApiService {
   private integrations() { return new IntegrationService(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY); }
   private providers() { return new ProviderCatalog(databaseFor(this.env), this.env, this.auth.tenantId); }
 
-  async cloudflareState(request: Request) {
+  async cloudflareState() {
     await this.authorizeOwnerSession("integrations:read");
-    return cloudflareState(this.env, this.auth, request);
+    return cloudflareState(this.env, this.auth);
   }
-  async startCloudflare(writes: boolean) {
+  async startCloudflare() {
     await this.authorizeOwnerSession("integrations:write");
-    return startCloudflare(this.env, this.auth, writes);
-  }
-  async selectCloudflare(request: Request, accountId: string) {
-    await this.authorizeOwnerSession("integrations:write");
-    return selectCloudflare(this.env, this.auth, request, accountId);
+    return startCloudflare(this.env, this.auth);
   }
   async disconnectCloudflare(id: string) {
     await this.authorizeOwnerSession("integrations:write");

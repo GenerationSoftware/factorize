@@ -8,7 +8,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Read Cloudflare connections and pending account options
+         * Read Cloudflare connections
          * @description Requires the integrations:read scope.
          *
          *     An interactive owner session is required; bearer tokens cannot call this operation.
@@ -32,34 +32,12 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Start Cloudflare account authorization
+         * Start authorization on Cloudflare
          * @description Requires the integrations:write scope.
          *
          *     An interactive owner session is required; bearer tokens cannot call this operation.
          */
         post: operations["post_api_v1_integrations_cloudflare_authorize"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/integrations/cloudflare/select": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Connect exactly one authorized Cloudflare account
-         * @description Requires the integrations:write scope.
-         *
-         *     An interactive owner session is required; bearer tokens cannot call this operation.
-         */
-        post: operations["post_api_v1_integrations_cloudflare_select"];
         delete?: never;
         options?: never;
         head?: never;
@@ -77,7 +55,7 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Disconnect a Cloudflare account inside this workspace
+         * Disconnect Cloudflare from this workspace
          * @description Requires the integrations:write scope.
          *
          *     An interactive owner session is required; bearer tokens cannot call this operation.
@@ -2864,18 +2842,12 @@ export interface operations {
                 content: {
                     "application/json": {
                         configured: boolean;
-                        writeAvailable: boolean;
-                        accounts: {
-                            id: string;
-                            name: string;
-                        }[];
                         connections: {
                             /** Format: uuid */
                             id: string;
-                            accountId: string;
                             name: string;
-                            writeEnabled: boolean;
                             connected: boolean;
+                            reconnectRequired: boolean;
                         }[];
                     };
                 };
@@ -2897,14 +2869,7 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": {
-                    /** @default false */
-                    enableWrites?: boolean;
-                };
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description Cloudflare authorization URL */
             200: {
@@ -2923,44 +2888,6 @@ export interface operations {
             403: components["responses"]["Error403"];
             404: components["responses"]["Error404"];
             409: components["responses"]["Error409"];
-            415: components["responses"]["Error415"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    post_api_v1_integrations_cloudflare_select: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    accountId: string;
-                };
-            };
-        };
-        responses: {
-            /** @description Cloudflare account connected */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        ok: boolean;
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            415: components["responses"]["Error415"];
             429: components["responses"]["Error429"];
             500: components["responses"]["Error500"];
             503: components["responses"]["Error503"];
@@ -2977,7 +2904,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Cloudflare account disconnected */
+            /** @description Cloudflare disconnected */
             200: {
                 headers: {
                     [name: string]: unknown;

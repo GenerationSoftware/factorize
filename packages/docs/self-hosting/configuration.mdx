@@ -86,45 +86,29 @@ Linear OAuth requires an authenticated owner, binds state to that user/workspace
 
 ## Configure Cloudflare REST OAuth
 
-Create a self-managed Cloudflare OAuth client with an authorization code grant,
-refresh tokens, and `client_secret_post`. Register exactly
-`<APP_ORIGIN>/oauth/cloudflare/callback`; the hosted callback is
-`https://app.factorize.sh/oauth/cloudflare/callback`. Verify the publisher
-domain and promote the application to public so customers outside your
-Cloudflare account can connect. Users never paste an API token.
+Register a Cloudflare OAuth client using the authorization code and refresh
+token grants, `client_secret_post`, and the exact callback
+`<APP_ORIGIN>/oauth/cloudflare/callback`. Verify the application domain and
+promote the client to public if users outside your account need to connect.
 
-Set `CLOUDFLARE_OAUTH_CLIENT_ID` and `CLOUDFLARE_OAUTH_CLIENT_SECRET` on the
-Worker. Set `CLOUDFLARE_OAUTH_READ_SCOPES` to the space-separated API scope
-keys registered for that client. Include a permission that lets the client
-list accounts (for example, `account-settings.read` for Account Settings > Read).
-Factorize verifies this by listing accounts during authorization. Choose other
-read permissions for the endpoints below and look up the exact API scope keys
-in Cloudflare's List OAuth Scopes API.
+Set `CLOUDFLARE_OAUTH_CLIENT_ID`, `CLOUDFLARE_OAUTH_CLIENT_SECRET`, and
+`CLOUDFLARE_OAUTH_DEFAULT_SCOPES` on the Worker. Defaults are a space-separated
+list of scope IDs registered on the Cloudflare client. If the new scope setting
+is absent, Factorize uses the existing `CLOUDFLARE_OAUTH_READ_SCOPES` setting.
+Factorize sends those defaults and the `offline_access` protocol scope.
+Cloudflare chooses the eligible accounts and lets users review requested
+permissions and decline or re-enable optional ones. To offer additional
+permissions, update both the Cloudflare client and the configured defaults;
+the consent screen does not add unrequested scopes.
 
-Allow the refresh-token grant on the Cloudflare client. Factorize automatically
-requests `offline_access` for persistent authorization; it is a protocol scope,
-not an API read or write grant, and does not belong in the scope lists. If
-Cloudflare does not issue a refresh token, the owner must reconnect at expiry.
-
-For optional DNS writes, register the Cloudflare DNS Write scope as optional,
-include its exact key in `CLOUDFLARE_OAUTH_WRITE_SCOPES`, and set
-`CLOUDFLARE_OAUTH_DNS_WRITE_SCOPE` to that key. Factorize requests only that
-mapped write scope, and only when the owner enables writes. Adding a key to the
-write list does not enable any other operation. Existing write connections
-made before this mapping was introduced must reconnect to enable writes again.
-Normal deployment applies migration 0108.
-
-In Factorize, an owner authorizes on Cloudflare and then selects one account.
-The standard `request_api` tool uses the Cloudflare v4 REST API on
-`api.cloudflare.com`. Read-only access is the default. Supported read routes
-include selected account and zone metadata, DNS records and DNSSEC, zone
-settings, route metadata, and Workers, KV, R2, D1, Queues and Pages inventory.
-Cloudflare may deny routes not covered by the granted permission groups.
-DNS record creation, modification, and deletion require both Factorize's
-explicit opt-in and a confirmed Cloudflare DNS Write grant. Credential
-management, administrative account operations, other mutations, and
-unrecognized routes are denied. Disconnecting removes Factorize's saved
-credentials; revoke the OAuth grant in Cloudflare for provider-side removal.
+After authorizing on Cloudflare, use `request_api` with paths relative to the
+Cloudflare v4 REST API (for example, `/zones`). Cloudflare enforces the scopes
+and accounts in the token. Factorize applies its usual connection access
+controls and keeps the credentials server-side. Earlier account-bound
+connections require a fresh authorization before using this proxy; stored
+connection rows are retained, and existing agent grants do not transfer.
+Disconnect removes Factorize's saved credentials; revoke the authorization on
+Cloudflare to remove it there too.
 
 Cloudflare Tail is retired. Old webhook endpoints return HTTP 410 and
 Factorize no longer delivers Tail events. Historical configuration and Event

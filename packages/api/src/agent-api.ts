@@ -1,4 +1,3 @@
-import { cloudflareCredential } from "./cloudflare-oauth";
 import { initialIntegrationOverrides } from "./oauth-reconnect";
 import { activeVmAuthorization } from "./vm-auth";
 import { connectionAccess, requiredIntegrationScope, type AgentIntegration, type ConnectionPolicy } from "./agent-integration-access";
@@ -110,7 +109,7 @@ export class AgentApiService {
       const path = row.kind === "linear" ? "/graphql" : row.kind === "x" ? "/2/users/me" : row.kind === "cloudflare" ? "/zones" : row.kind === "fly" ? "/v1/apps" : row.kind === "exe" ? "/exec" : "/";
       const method = row.kind === "linear" || row.kind === "exe" ? "POST" : "GET";
       const requestExample = {integration:row.id,method,path,...(row.kind === "linear" ? {headers:{"Content-Type":"application/json"},body:JSON.stringify({query:"query { viewer { id name } }"})} : row.kind === "exe" ? {headers:{"Content-Type":"text/plain"},body:"help"} : {})};
-      result.push({...publicIntegration(row), access, requestExample, instructions: "Call MCP request_api with this integration ID and requestExample; no shell, local VM, raw HTTP client or access token is needed. Read retained results with read_api_response. " + (row.kind === "cloudflare" ? "Use Cloudflare API v4 paths for the selected account. GET /zones lists its zones; Cloudflare permissions and Factorize policy both apply. DNS writes require separate opt-in." : row.kind === "x" ? "Use the HTTP request endpoint with an X API v2 path, such as /2/users/me. Only granted OAuth scopes and supported resources are available." : row.kind === "linear" ? "Use the HTTP request endpoint with path /graphql and a JSON GraphQL body." : row.kind === "exe" ? "Use the HTTP request endpoint with POST /exec and a text/plain exe.dev command body." : row.kind === "amp" ? "Use the HTTP request endpoint with a path relative to the configured Amp API base." : row.kind === "clickup" ? "Use the HTTP request endpoint with a path relative to /api/v2." : row.kind === "fly" ? "Use the HTTP request endpoint with a Fly Machines API path, such as /v1/apps." : row.kind === "model" ? "Use the HTTP request endpoint with an OpenAI-compatible path relative to /v1." : "Use the HTTP request endpoint with a relative API path and query. Access covers this integration, bounded by the upstream credential permissions.")});
+      result.push({...publicIntegration(row), access, requestExample, instructions: "Call MCP request_api with this integration ID and requestExample; no shell, local VM, raw HTTP client or access token is needed. Read retained results with read_api_response. " + (row.kind === "cloudflare" ? "Use paths relative to the Cloudflare v4 REST API. Cloudflare enforces the accounts and permissions authorized on its consent screen." : row.kind === "x" ? "Use the HTTP request endpoint with an X API v2 path, such as /2/users/me. Only granted OAuth scopes and supported resources are available." : row.kind === "linear" ? "Use the HTTP request endpoint with path /graphql and a JSON GraphQL body." : row.kind === "exe" ? "Use the HTTP request endpoint with POST /exec and a text/plain exe.dev command body." : row.kind === "amp" ? "Use the HTTP request endpoint with a path relative to the configured Amp API base." : row.kind === "clickup" ? "Use the HTTP request endpoint with a path relative to /api/v2." : row.kind === "fly" ? "Use the HTTP request endpoint with a Fly Machines API path, such as /v1/apps." : row.kind === "model" ? "Use the HTTP request endpoint with an OpenAI-compatible path relative to /v1." : "Use the HTTP request endpoint with a relative API path and query. Access covers this integration, bounded by the upstream credential permissions.")});
     }
     return {identity: {id: identity.id, kind: identity.kind}, scopes: normalizeScopes(identity.scopes).filter(scope => !identity.policy.disabled_scopes.includes(scope)), proxy: {
       requestUrl: this.env.APP_ORIGIN + "/api/v1/agent/requests",
@@ -122,36 +121,12 @@ export class AgentApiService {
   async forward(integration: string, path: string, request: Request) {
     const grant = await this.authorize(integration);
     if (grant.integration.kind === "x") return this.forwardX(grant.integration.credential_id, path, request);
-    if (grant.integration.kind === "cloudflare") {
-      let credential;
-      try { credential = await cloudflareCredential(this.env, this.auth.tenantId, grant.integration.credential_id, path, request.method); }
-      catch (error) {
-        if (error instanceof AgentApiError) throw error;
-        throw new AgentApiError(502, "credential_unavailable", "The Cloudflare authorization could not be checked.");
-      }
-      const current = await this.authorize(integration);
-      if (current.integration.epoch !== grant.integration.epoch) throw forbidden();
-      // Cloudflare has additional legacy authentication headers. Do not accept
-      // caller credentials, method overrides, or Cloudflare-specific controls.
-      const headers = new Headers();
-      for (const name of ["Accept", "Content-Type", "If-Match", "If-None-Match"]) {
-        const value = request.headers.get(name);
-        if (value) headers.set(name, value);
-      }
-      const outbound = new Request(request, { headers });
-      try {
-        const response = await forwardOutbound(outbound, credential);
-        if (response.ok) return new Response(response.body, { status: response.status, headers: {
-          "Content-Type": response.headers.get("Content-Type") ?? "application/json", "Cache-Control": "no-store",
-        } });
-        await response.body?.cancel();
-        return Response.json({ error: response.status === 401 ? "Cloudflare authorization expired. Reconnect in Integrations." :
-          "Cloudflare declined this request. Check the selected account and its Cloudflare permissions." }, { status: response.status });
-      } catch { throw new AgentApiError(502, "proxy_failed", "The upstream Cloudflare request failed."); }
-    }
     let credential;
     try { credential = await resolveAgentCredential(this.env, this.auth.tenantId, grant.integration.kind, grant.integration.credential_id, path); }
-    catch { throw new AgentApiError(502, "credential_unavailable", "The upstream credential could not be resolved."); }
+    catch (error) {
+      if (error instanceof AgentApiError) throw error;
+      throw new AgentApiError(502, "credential_unavailable", "The upstream credential could not be resolved.");
+    }
     if (!credential) throw new AgentApiError(502, "credential_unavailable", "The upstream credential is unavailable; ask the owner to repair it.");
     // Refresh may await a remote provider. Recheck authorization before sending.
     const current = await this.authorize(integration);
