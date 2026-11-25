@@ -31,3 +31,24 @@ export const eventSubscription = z.object({
   expiresAt: z.iso.datetime(),
 });
 export const eventSubscriptionList = z.array(eventSubscription);
+
+export const occurrenceSummaryQuery = z.object({
+  limit: z.coerce.number().int().min(1).max(50).default(10),
+  cursor: z.string().min(1).max(384).optional(),
+});
+const summarySource = z.enum(["manual", "schedule", "github", "linear", "cloudflare", "webhook", "unknown"]);
+const occurrenceSummary = z.object({ id: z.uuid(), occurredAt: z.iso.datetime(), source: summarySource });
+const subscriptionOccurrenceSummary = occurrenceSummary.extend({
+  delivery: z.enum(["pending", "sending", "accepted", "failed", "cancelled"]),
+  acknowledgment: z.enum(["off", "pending", "awaiting_ack", "processed", "waived", "exhausted", "cancelled"]),
+});
+export const eventOccurrenceSummaryPage = z.object({ items: z.array(occurrenceSummary), nextCursor: z.string().nullable() });
+export const subscriptionOccurrenceSummaryPage = z.object({ items: z.array(subscriptionOccurrenceSummary), nextCursor: z.string().nullable() });
+const summaryCursor = z.tuple([z.string(), z.iso.datetime(), z.uuid()]);
+export function parseOccurrenceSummaryCursor(cursor: string, collectionId: string): [string, string] | null {
+  try {
+    const [id, occurredAt, occurrenceId] = summaryCursor.parse(JSON.parse(atob(cursor)));
+    if (id === collectionId) return [occurredAt, occurrenceId];
+  } catch { /* Invalid or foreign cursor. */ }
+  return null;
+}

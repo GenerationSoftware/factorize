@@ -6995,6 +6995,226 @@ paths:
           schema:
             type: string
             pattern: ^sub_[a-f0-9]{64}$
+  /api/v1/event-subscriptions/{subscriptionId}/occurrences:
+    get:
+      summary: List matched occurrences for the signed-in owner's exact subscription
+      description: |-
+        Newest first. HTTP acceptance confirms receipt, not processing. Acknowledgment is independent. Webhook configuration and payloads are omitted.
+
+        Requires the triggers:read scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      responses:
+        "200":
+          description: Subscription occurrence summaries
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                        occurredAt:
+                          type: string
+                          format: date-time
+                          pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z))$
+                        source:
+                          type: string
+                          enum:
+                            - manual
+                            - schedule
+                            - github
+                            - linear
+                            - cloudflare
+                            - webhook
+                            - unknown
+                        delivery:
+                          type: string
+                          enum:
+                            - pending
+                            - sending
+                            - accepted
+                            - failed
+                            - cancelled
+                        acknowledgment:
+                          type: string
+                          enum:
+                            - off
+                            - pending
+                            - awaiting_ack
+                            - processed
+                            - waived
+                            - exhausted
+                            - cancelled
+                      required:
+                        - id
+                        - occurredAt
+                        - source
+                        - delivery
+                        - acknowledgment
+                      additionalProperties: false
+                  nextCursor:
+                    type:
+                      - string
+                      - "null"
+                required:
+                  - items
+                  - nextCursor
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+          description: Event subscription not found
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: get_api_v1_event_subscriptions_subscriptionId_occurrences
+      tags:
+        - event-subscriptions
+      security:
+        - cookieAuth: []
+      x-required-scope: triggers:read
+      x-owner-session-required: true
+      parameters:
+        - name: subscriptionId
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: ^sub_[a-f0-9]{64}$
+        - name: limit
+          in: query
+          required: false
+          schema:
+            default: 10
+            type: integer
+            minimum: 1
+            maximum: 50
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 384
+  /api/v1/events/{eventId}/occurrence-summaries:
+    get:
+      summary: List bounded, payload-free Event occurrence summaries
+      description: |-
+        Newest first, with occurrence IDs and safe source classifications. The full occurrence endpoint is unchanged.
+
+        Requires the triggers:read scope.
+
+        Accepts a scoped bearer token or interactive owner session.
+      responses:
+        "200":
+          description: Event occurrence summaries
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                        occurredAt:
+                          type: string
+                          format: date-time
+                          pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z))$
+                        source:
+                          type: string
+                          enum:
+                            - manual
+                            - schedule
+                            - github
+                            - linear
+                            - cloudflare
+                            - webhook
+                            - unknown
+                      required:
+                        - id
+                        - occurredAt
+                        - source
+                      additionalProperties: false
+                  nextCursor:
+                    type:
+                      - string
+                      - "null"
+                required:
+                  - items
+                  - nextCursor
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+          description: Event not found
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: get_api_v1_events_eventId_occurrence_summaries
+      tags:
+        - events
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      x-required-scope: triggers:read
+      x-owner-session-required: false
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+        - name: limit
+          in: query
+          required: false
+          schema:
+            default: 10
+            type: integer
+            minimum: 1
+            maximum: 50
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 384
   /api/v1/events:
     get:
       summary: List Events
