@@ -16,7 +16,14 @@ const oauthOrigin = "https://dash.cloudflare.com";
 const base64url = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
 const unavailable = () => new AgentApiError(503, "unavailable", "Cloudflare OAuth is not configured.");
 const reconnect = () => new AgentApiError(401, "reconnect_required", "Reconnect Cloudflare in Integrations.");
-const upstream = () => new AgentApiError(502, "cloudflare_unavailable", "Cloudflare did not complete the request. Try again if safe.");
+type TokenFailureCode = "token_unreachable" | "token_rejected" | "token_client_rejected" | "token_grant_rejected" | "token_invalid_response";
+type CallbackFailureCode = "configuration" | "attempt" | "storage" | TokenFailureCode;
+
+class TokenFailure extends AgentApiError {
+  constructor(readonly diagnostic: TokenFailureCode) {
+    super(502, "cloudflare_unavailable", "Cloudflare did not complete the request. Try again if safe.");
+  }
+}
 const invalidPath = () => new AgentApiError(400, "invalid_request", "Supply a path relative to the Cloudflare v4 API without credentials.");
 
 export const cloudflareStartResult = z.object({ authorizationUrl: z.url() });
@@ -64,19 +71,29 @@ export async function startCloudflare(env: Env, owner: Owner) {
 const tokenResult = z.object({ access_token: z.string().min(1).max(8192), refresh_token: z.string().min(1).max(8192).optional(),
   expires_in: z.number().finite().positive(), token_type: z.string().refine(value => value.toLowerCase() === "bearer") });
 async function exchange(env: Env, payload: Record<string, string>, previous?: Credentials): Promise<Credentials> {
-  const response = await fetch(oauthOrigin + "/oauth2/token", {
-    method: "POST", redirect: "error", signal: AbortSignal.timeout(10_000),
-    headers: { Accept: "application/json" }, body: new URLSearchParams({ ...payload,
-      client_id: env.CLOUDFLARE_OAUTH_CLIENT_ID!, client_secret: env.CLOUDFLARE_OAUTH_CLIENT_SECRET! }),
-  });
+  let response: Response;
+  try {
+    response = await fetch(oauthOrigin + "/oauth2/token", {
+      method: "POST", redirect: "error", signal: AbortSignal.timeout(10_000),
+      headers: { Accept: "application/json" }, body: new URLSearchParams({ ...payload,
+        client_id: env.CLOUDFLARE_OAUTH_CLIENT_ID!, client_secret: env.CLOUDFLARE_OAUTH_CLIENT_SECRET! }),
+    });
+  } catch {
+    throw new TokenFailure("token_unreachable");
+  }
   const body = await response.json().catch(() => null);
   if (!response.ok) {
-    const code = z.object({ error: z.string() }).safeParse(body);
-    if (previous && code.success && ["invalid_grant", "invalid_token"].includes(code.data.error)) throw reconnect();
-    throw upstream();
+    const result = z.object({ error: z.string() }).safeParse(body);
+    const code = result.success ? result.data.error : undefined;
+    if (code === "invalid_grant" || code === "invalid_token") {
+      if (previous) throw reconnect();
+      throw new TokenFailure("token_grant_rejected");
+    }
+    if (code === "invalid_client" || code === "unauthorized_client") throw new TokenFailure("token_client_rejected");
+    throw new TokenFailure("token_rejected");
   }
   const result = tokenResult.safeParse(body);
-  if (!result.success) throw upstream();
+  if (!result.success) throw new TokenFailure("token_invalid_response");
   // Cloudflare owns grant scope. Refresh the existing grant without requesting
   // any additional scope, and never synthesize or store local permissions.
   return { access: result.data.access_token, refresh: result.data.refresh_token ?? previous?.refresh,
@@ -84,13 +101,16 @@ async function exchange(env: Env, payload: Record<string, string>, previous?: Cr
 }
 
 export async function cloudflareOAuthCallback(request: Request, env: Env) {
-  const result = (status: string, keepCookie = false) => new Response(null, { status: 303, headers: {
-    Location: env.APP_ORIGIN + "/integrations?cloudflare=" + status, "Cache-Control": "no-store", "Referrer-Policy": "no-referrer",
+  const result = (status: "connected" | "expired" | "denied" | "failed", keepCookie = false, failure?: CallbackFailureCode) => new Response(null, { status: 303, headers: {
+    Location: env.APP_ORIGIN + "/integrations?" + new URLSearchParams({ cloudflare: status, ...(failure ? { cloudflare_error: failure } : {}) }).toString(), "Cache-Control": "no-store", "Referrer-Policy": "no-referrer",
     ...(keepCookie ? {} : { "Set-Cookie": cookie("") }),
   } });
   if (request.method !== "GET") return new Response(null, { status: 405, headers: { Allow: "GET" } });
+  let stage: CallbackFailureCode = "configuration";
   try {
-    if (request.headers.has("Authorization") || !cloudflareSettings(env).configured) return result("failed");
+    if (request.headers.has("Authorization")) return result("failed");
+    if (!cloudflareSettings(env).configured) return result("failed", false, stage);
+    stage = "attempt";
     const url = new URL(request.url), state = url.searchParams.get("state"), code = url.searchParams.get("code");
     const owner = await readBrowserSession(request, env);
     if (!owner || !z.uuid().safeParse(state).success || requestCookie(request, cookieName) !== state) return result("expired", true);
@@ -109,6 +129,7 @@ export async function cloudflareOAuthCallback(request: Request, env: Env) {
     if (!code || code.length > 4096 || url.searchParams.has("error")) return result("denied");
     const credentials = await exchange(env, { grant_type: "authorization_code", code,
       redirect_uri: env.APP_ORIGIN + cloudflareCallback, code_verifier: await decrypt(attempt.verifier, env.CREDENTIAL_ENCRYPTION_KEY) });
+    stage = "storage";
     const encrypted = await seal(credentials, env);
     if (!await readBrowserSession(request, env)) return result("expired");
     const saved = await db.transaction(async sql => {
@@ -132,8 +153,9 @@ export async function cloudflareOAuthCallback(request: Request, env: Env) {
       return true;
     });
     return saved ? result("connected") : result("expired", true);
-  } catch {
-    return result("failed");
+  } catch (error) {
+    // Return fixed codes only. Neither provider data nor exception text belongs in the redirect.
+    return result("failed", false, error instanceof TokenFailure ? error.diagnostic : stage);
   }
 }
 

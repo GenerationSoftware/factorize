@@ -118,3 +118,77 @@ it.skipIf(!database)("redirects and saves fresh Cloudflare consent, refreshes an
     await f.cleanup();
   }
 });
+
+it.skipIf(!database)("returns only fixed callback diagnostics through the Worker", async () => {
+  const f = await loadingFixture(database!);
+  try {
+    Object.assign(f.env, config);
+    const privateText = "fixture-do-not-expose";
+    const password = config.CLOUDFLARE_OAUTH_CLIENT_SECRET;
+    const token = "fixture-private-access";
+    const refresh = "fixture-private-refresh";
+    const code = "fixture-private-code";
+    const api = (method: string, path: string, cookie = f.cookie) => worker.fetch(new Request(f.env.APP_ORIGIN + path,
+      { method, headers: { Cookie: cookie, Origin: f.env.APP_ORIGIN } }), f.env, {} as ExecutionContext);
+    const start = async () => {
+      const response = await api("POST", url + "/authorize");
+      expect(response.status).toBe(200);
+      const cookie = f.cookie + "; " + response.headers.get("Set-Cookie")!.split(";")[0];
+      const { authorizationUrl } = await response.json() as { authorizationUrl: string };
+      const state = new URL(authorizationUrl).searchParams.get("state")!;
+      return { cookie, state };
+    };
+    const expectFailure = async (attempt: Awaited<ReturnType<typeof start>>, diagnostic: string) => {
+      const query = new URLSearchParams({ code, state: attempt.state, upstream_details: privateText });
+      const response = await api("GET", "/oauth/cloudflare/callback?" + query, attempt.cookie);
+      expect(response.status).toBe(303);
+      const location = response.headers.get("Location");
+      expect(location).toBe(f.env.APP_ORIGIN + "/integrations?cloudflare=failed&cloudflare_error=" + diagnostic);
+      expect(response.headers.get("Referrer-Policy")).toBe("no-referrer");
+      const headerValues: string[] = [];
+      response.headers.forEach(value => headerValues.push(value));
+      const visible = JSON.stringify(headerValues) + await response.text();
+      for (const value of [privateText,password,token,refresh,code,attempt.state,f.cookie, f.userId, f.tenantId])
+        expect(visible).not.toContain(value);
+    };
+
+    const provider = vi.fn();
+    vi.stubGlobal("fetch", provider);
+    const noConfig = await start();
+    delete f.env.CLOUDFLARE_OAUTH_CLIENT_SECRET;
+    await expectFailure(noConfig, "configuration");
+    f.env.CLOUDFLARE_OAUTH_CLIENT_SECRET = password;
+    const corrupted = await start();
+    await f.db.pool.query("UPDATE app.cloudflare_oauth_attempts SET verifier=$2 WHERE tenant_id=$1", [f.tenantId,privateText]);
+    await expectFailure(corrupted, "attempt");
+    expect(provider).not.toHaveBeenCalled();
+
+    type Case = { error?: string; status: number; diagnostic: string };
+    for (const failure of [
+      { error: "invalid_client", status: 401, diagnostic: "token_client_rejected" },
+      { error: "unauthorized_client", status: 400, diagnostic: "token_client_rejected" },
+      { error: "invalid_grant", status: 400, diagnostic: "token_grant_rejected" },
+      { error: privateText, status: 400, diagnostic: "token_rejected" },
+      { status: 502, diagnostic: "token_rejected" },
+      { status: 200, diagnostic: "token_invalid_response" },
+    ] satisfies Case[]) {
+      const upstream = failure.error
+        ? Response.json({ error: failure.error, error_description: privateText, access_token: token }, { status: failure.status })
+        : new Response(privateText, { status: failure.status });
+      provider.mockResolvedValueOnce(upstream);
+      await expectFailure(await start(), failure.diagnostic);
+    }
+
+    provider.mockRejectedValueOnce(new Error(privateText));
+    await expectFailure(await start(), "token_unreachable");
+
+    const store = await start();
+    provider.mockResolvedValueOnce(Response.json({ access_token: token, refresh_token: refresh, expires_in: 300, token_type: "bearer" }));
+    await f.db.pool.query("ALTER TABLE app.cloudflare_connections ADD CHECK (encrypted_credentials IS NULL)");
+    await expectFailure(store, "storage");
+    expect((await f.db.pool.query("SELECT id FROM app.cloudflare_connections WHERE tenant_id=$1", [f.tenantId])).rowCount).toBe(0);
+  } finally {
+    vi.unstubAllGlobals();
+    await f.cleanup();
+  }
+});
