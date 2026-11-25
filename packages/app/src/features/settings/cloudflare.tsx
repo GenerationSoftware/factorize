@@ -10,9 +10,24 @@ const paths = {
 } as const;
 const key = ["settings", "cloudflare-rest"];
 
+function cloudflareFailure(code: string | null) {
+  switch (code) {
+    case "configuration": return "Cloudflare OAuth is not configured for this deployment. Ask the Factorize administrator to check the client settings.";
+    case "attempt": return "Factorize could not verify the Cloudflare connection attempt. Start a new connection.";
+    case "token_unreachable": return "Factorize could not reach Cloudflare to complete authorization. Try again.";
+    case "token_client_rejected": return "Cloudflare rejected the OAuth client. Ask the Factorize administrator to check its credentials and token authentication method.";
+    case "token_grant_rejected": return "Cloudflare rejected the authorization grant. Start a new connection from Factorize.";
+    case "token_rejected": return "Cloudflare declined the token request. Start a new connection or ask the Factorize administrator to check the OAuth app.";
+    case "token_invalid_response": return "Cloudflare returned an unexpected token response. Ask the Factorize administrator to check the OAuth app.";
+    case "storage": return "Cloudflare authorized the connection, but Factorize could not save it. Try again.";
+    default: return "Cloudflare did not complete authorization. Start a new connection when ready.";
+  }
+}
+
 export function useCloudflareIntegration() {
   const cache = useQueryClient();
-  const result = new URLSearchParams(window.location.search).get("cloudflare");
+  const callback = new URLSearchParams(window.location.search);
+  const result = callback.get("cloudflare");
   const status = useQuery({ queryKey: key, retry: false, queryFn: async ({ signal }) => {
     const { data, error } = await api.GET(paths.status, { signal });
     if (!data || error) throw new Error(messageOf(error));
@@ -31,7 +46,8 @@ export function useCloudflareIntegration() {
   const count = connections.filter(row => row.connected).length;
   const start = () => { if (!authorize.isPending) authorize.mutate(); };
   const feedback = <>
-    {(result === "failed" || result === "expired" || result === "denied") && <p role="alert">Cloudflare did not complete authorization. Start a new connection when ready.</p>}
+    {result === "failed" && <p role="alert">{cloudflareFailure(callback.get("cloudflare_error"))}</p>}
+    {(result === "expired" || result === "denied") && <p role="alert">{cloudflareFailure(null)}</p>}
     {status.error && <p role="alert">{status.error.message}</p>}
     {authorize.error && <p role="alert">{authorize.error.message}</p>}
     {disconnect.error && <p role="alert">{disconnect.error.message}</p>}

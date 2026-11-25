@@ -26,3 +26,16 @@ test("connects directly on Cloudflare and returns connected without a Factorize 
   await expect(page.getByLabel("Authorized Cloudflare account")).toHaveCount(0);
   expect(calls).toEqual([null]);
 });
+
+test("shows a fixed Cloudflare failure explanation without reflecting callback input", async ({ page, origin }) => {
+  await page.route("**/api/v1/session", route => route.fulfill({ json: {
+    authenticated: true, user: { id: "owner", email: "owner@example.test" },
+    team: { id: "workspace", name: "Workspace", role: "owner" }, capabilities: [],
+  } }));
+  await page.route("**/api/v1/integrations/cloudflare", route => route.fulfill({ json: { configured: true, connections: [] } }));
+  await page.goto(origin + "/integrations?cloudflare=failed&cloudflare_error=token_client_rejected");
+  await expect(page.getByText("Cloudflare rejected the OAuth client.", { exact: false })).toBeVisible();
+  await page.goto(origin + "/integrations?cloudflare=failed&cloudflare_error=untrusted-provider-fixture");
+  await expect(page.getByText("Cloudflare did not complete authorization.", { exact: false })).toBeVisible();
+  await expect(page.getByText("untrusted-provider-fixture", { exact: false })).toHaveCount(0);
+});
