@@ -12,7 +12,7 @@ const key = ["settings", "cloudflare-rest"];
 
 function cloudflareFailure(code: string | null) {
   switch (code) {
-    case "configuration": return "Cloudflare OAuth is not configured for this deployment. Ask the Factorize administrator to check the client settings.";
+    case "configuration": return "Cloudflare OAuth client credentials are missing. Ask the Factorize administrator to check the client ID and secret.";
     case "attempt": return "Factorize could not verify the Cloudflare connection attempt. Start a new connection.";
     case "token_unreachable": return "Factorize could not reach Cloudflare to complete authorization. Try again.";
     case "token_client_rejected": return "Cloudflare rejected the OAuth client. Ask the Factorize administrator to check its credentials and token authentication method.";

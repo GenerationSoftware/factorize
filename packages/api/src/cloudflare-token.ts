@@ -16,13 +16,22 @@ export class TokenFailure extends AgentApiError {
 
 const tokenResult = z.object({ access_token: z.string().min(1).max(8192), refresh_token: z.string().min(1).max(8192).optional(),
   expires_in: z.number().finite().positive(), token_type: z.string().refine(value => value.toLowerCase() === "bearer") });
+export function cloudflareClientCredentials(env: Env) {
+  const clientId = env.CLOUDFLARE_OAUTH_CLIENT_ID, clientSecret = env.CLOUDFLARE_OAUTH_CLIENT_SECRET;
+  return clientId?.trim() && clientSecret?.trim() ? { client_id: clientId, client_secret: clientSecret } : null;
+}
+
+export const cloudflareMissingClient = () => new AgentApiError(503, "unavailable",
+  "Set the Cloudflare OAuth client ID and client secret before authorizing a connection.");
+
 export async function exchangeCloudflareToken(env: Env, payload: Record<string, string>, previous?: Credentials): Promise<Credentials> {
+  const client = cloudflareClientCredentials(env);
+  if (!client) throw cloudflareMissingClient();
   let response: Response;
   try {
     response = await fetch(tokenEndpoint, {
       method: "POST", redirect: "manual", signal: AbortSignal.timeout(10_000),
-      headers: { Accept: "application/json" }, body: new URLSearchParams({ ...payload,
-        client_id: env.CLOUDFLARE_OAUTH_CLIENT_ID!, client_secret: env.CLOUDFLARE_OAUTH_CLIENT_SECRET! }),
+      headers: { Accept: "application/json" }, body: new URLSearchParams({ ...payload, ...client }),
     });
   } catch {
     throw new TokenFailure("token_unreachable");

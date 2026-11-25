@@ -652,7 +652,10 @@ Set `CLOUDFLARE_OAUTH_CLIENT_ID`, `CLOUDFLARE_OAUTH_CLIENT_SECRET`, and
 `CLOUDFLARE_OAUTH_DEFAULT_SCOPES` on the Worker. Defaults are a space-separated
 list of scope IDs registered on the Cloudflare client. If the new scope setting
 is absent, Factorize uses the existing `CLOUDFLARE_OAUTH_READ_SCOPES` setting.
-Factorize sends those defaults and the `offline_access` protocol scope.
+Factorize normalizes whitespace, removes duplicates, and sends those defaults
+and the `offline_access` protocol scope. Cloudflare validates the requested IDs.
+Changing or removing defaults only affects new connection attempts, not saved
+grants. Code exchange and refresh still require the OAuth client credentials.
 Cloudflare chooses the eligible accounts and lets users review requested
 permissions and decline or re-enable optional ones. To offer additional
 permissions, update both the Cloudflare client and the configured defaults;
