@@ -13,11 +13,12 @@ export type OutboundCredential = {
 const hop = new Set(["connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailer", "transfer-encoding", "upgrade"]);
 const privateHeaders = new Set(["host", "authorization", "cookie", "content-length", "expect", "forwarded", "x-factorize-event-id"]);
 
-function filteredHeaders(input: Headers, request: boolean): Headers {
+function filteredHeaders(input: Headers, request: boolean, allow?: readonly string[]): Headers {
   const result = new Headers();
   const connectionTokens = new Set((input.get("connection") ?? "").toLowerCase().split(",").map(s => s.trim()));
   input.forEach((value, key) => {
     const name = key.toLowerCase();
+    if (allow && !allow.includes(name)) return;
     if ((!request && /(?:authorization|cookie|api[-_]?key|token|secret)/i.test(name)) || hop.has(name) || connectionTokens.has(name) || (request && (privateHeaders.has(name) || name.startsWith("x-forwarded-") || name.startsWith("sec-") || name.startsWith("cf-") || name === "origin" || name === "referer")) || (!request && (name === "set-cookie" || name === "authorization" || name === "proxy-authorization"))) return;
     result.set(key, value);
   });
@@ -47,10 +48,7 @@ export async function forwardOutbound(request: Request, selected: OutboundCreden
   const separator = selected.path.indexOf("?");
   target.pathname = separator < 0 ? selected.path : selected.path.slice(0, separator);
   target.search = separator < 0 ? "" : selected.path.slice(separator);
-  const headers = filteredHeaders(request.headers, true);
-  if (selected.requestHeaders) {
-    for (const name of [...headers.keys()]) if (!selected.requestHeaders.includes(name)) headers.delete(name);
-  }
+  const headers = filteredHeaders(request.headers, true, selected.requestHeaders);
   if(selected.authorization!=="none")headers.set("Authorization", selected.authorization === "github-git-basic" ? `Basic ${btoa(`x-access-token:${selected.credential}`)}` : selected.authorization === "raw" ? selected.credential : `Bearer ${selected.credential}`);
   headers.set("Accept-Encoding", "identity");
   headers.set("User-Agent", "Factorize-API-Proxy");
