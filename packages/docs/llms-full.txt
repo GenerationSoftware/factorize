@@ -651,14 +651,25 @@ domain and promote the application to public so customers outside your
 Cloudflare account can connect. Users never paste an API token.
 
 Set `CLOUDFLARE_OAUTH_CLIENT_ID` and `CLOUDFLARE_OAUTH_CLIENT_SECRET` on the
-Worker. Set `CLOUDFLARE_OAUTH_READ_SCOPES` to space-separated, registered
-Cloudflare read scopes, including `account.read`. Choose the read permission
-groups needed for the endpoints below, and verify OAuth scope keys against
-Cloudflare's List OAuth Scopes API rather than inferring them from their display
-names. Optionally configure `CLOUDFLARE_OAUTH_WRITE_SCOPES=dns.write` and
-register DNS Write as an optional scope on the Cloudflare client. Never set
-Cloudflare's write scopes as required for read-only connections. Normal
-deployment applies migration 0108.
+Worker. Set `CLOUDFLARE_OAUTH_READ_SCOPES` to the space-separated API scope
+keys registered for that client. Include a permission that lets the client
+list accounts (for example, `account-settings.read` for Account Settings > Read).
+Factorize verifies this by listing accounts during authorization. Choose other
+read permissions for the endpoints below and look up the exact API scope keys
+in Cloudflare's List OAuth Scopes API.
+
+Allow the refresh-token grant on the Cloudflare client. Factorize automatically
+requests `offline_access` for persistent authorization; it is a protocol scope,
+not an API read or write grant, and does not belong in the scope lists. If
+Cloudflare does not issue a refresh token, the owner must reconnect at expiry.
+
+For optional DNS writes, register the Cloudflare DNS Write scope as optional,
+include its exact key in `CLOUDFLARE_OAUTH_WRITE_SCOPES`, and set
+`CLOUDFLARE_OAUTH_DNS_WRITE_SCOPE` to that key. Factorize requests only that
+mapped write scope, and only when the owner enables writes. Adding a key to the
+write list does not enable any other operation. Existing write connections
+made before this mapping was introduced must reconnect to enable writes again.
+Normal deployment applies migration 0108.
 
 In Factorize, an owner authorizes on Cloudflare and then selects one account.
 The standard `request_api` tool uses the Cloudflare v4 REST API on

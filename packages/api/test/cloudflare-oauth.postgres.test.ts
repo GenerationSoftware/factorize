@@ -1,10 +1,12 @@
 import { expect, it, vi } from "vitest";
-import { cloudflareOAuthCallback, cloudflareTarget } from "../src/cloudflare-oauth";
-import { protectedApiFetch } from "../src/protected-api";
+import { cloudflareSettings, cloudflareTarget } from "../src/cloudflare-oauth";
+import worker from "../src/worker";
+import { decrypt } from "../src/crypto";
+import type { Env } from "../src/types";
 import { loadingFixture } from "./helpers/loading-fixture";
 import { mcpRequest } from "./helpers/mcp-request";
 
-vi.mock("cloudflare:workers", () => ({ WorkerEntrypoint: class {}, DurableObject: class {} }));
+vi.mock("cloudflare:workers", () => ({ WorkerEntrypoint: class {}, WorkflowEntrypoint: class {}, DurableObject: class {} }));
 vi.mock("@cloudflare/workers-oauth-provider", () => ({ OAuthProvider: class {}, AuthorizationError: class extends Error {}, getOAuthApi: vi.fn() }));
 
 const database = process.env.AUTH_TEST_DATABASE_URL;
@@ -12,7 +14,18 @@ const primary = "a".repeat(32), secondary = "b".repeat(32);
 const zone = "c".repeat(32), foreignZone = "d".repeat(32);
 const url = "/api/v1/integrations/cloudflare";
 const headers = (owner: string) => ({ Cookie: owner, Origin: "https://factorize.test", "Content-Type": "application/json" });
-const listScopes = ["account.read", "zone.read", "dns.read"];
+const listScopes = ["account-settings.read", "zone.read", "dns-records.read"];
+const dnsWriteScope = "dns-records.write", unusedWrite = "workers-scripts.write";
+const config = { CLOUDFLARE_OAUTH_CLIENT_ID: "fixture-public-client", CLOUDFLARE_OAUTH_CLIENT_SECRET: "fixture-secret",
+  CLOUDFLARE_OAUTH_READ_SCOPES: listScopes.join(" "), CLOUDFLARE_OAUTH_WRITE_SCOPES: dnsWriteScope + " " + unusedWrite };
+it("accepts configured read identifiers without assuming a provider privilege literal", () => {
+  expect(cloudflareSettings(config as Env)).toMatchObject({ configured: true, read: listScopes, dnsWriteScope: undefined });
+  expect(cloudflareSettings({ ...config, CLOUDFLARE_OAUTH_DNS_WRITE_SCOPE: dnsWriteScope } as Env).dnsWriteScope).toBe(dnsWriteScope);
+  expect(cloudflareSettings({ ...config, CLOUDFLARE_OAUTH_DNS_WRITE_SCOPE: "unregistered.write" } as Env).dnsWriteScope).toBeUndefined();
+  for (const scopes of ["", "openid", "other.write", "scope?.read", "read,read"]) {
+    expect(cloudflareSettings({ ...config, CLOUDFLARE_OAUTH_READ_SCOPES: scopes } as Env).configured).toBe(false);
+  }
+});
 const secret = "fixture-confidential-client-secret", accessToken = "fixture-private-cloudflare-access", refreshToken = "fixture-private-refresh";
 const envelope = (result: unknown) => Response.json({ success: true, result });
 
@@ -30,9 +43,9 @@ it("routes only recognized Cloudflare resources and write shapes", () => {
 it.skipIf(!database)("connects through Cloudflare OAuth and enforces account, zone, and explicit write consent through request_api", async () => {
   const f = await loadingFixture(database!);
   try {
-    Object.assign(f.env, { CLOUDFLARE_OAUTH_CLIENT_ID: "fixture-public-client", CLOUDFLARE_OAUTH_CLIENT_SECRET: secret,
-      CLOUDFLARE_OAUTH_READ_SCOPES: listScopes.join(" "), CLOUDFLARE_OAUTH_WRITE_SCOPES: "dns.write" });
-    let grantWrite = false;
+    Object.assign(f.env, config, { CLOUDFLARE_OAUTH_CLIENT_SECRET: secret, CLOUDFLARE_OAUTH_DNS_WRITE_SCOPE: dnsWriteScope });
+    let grantWrite = false, enumerateAccounts = true;
+    const refreshedAccess = "fixture-private-refreshed-access";
     const calls: { url: string; method: string; authorization: string | null }[] = [];
     const fetcher = vi.fn(async (url: URL | string, init?: RequestInit) => {
       const target = new URL(url);
@@ -43,14 +56,20 @@ it.skipIf(!database)("connects through Cloudflare OAuth and enforces account, zo
         expect(target.pathname).toBe("/oauth2/token");
         const body = init?.body as URLSearchParams;
         expect(body.get("client_secret")).toBe(secret);
-        if (body.get("grant_type") === "authorization_code") expect(body.get("code_verifier")).toHaveLength(43);
-        if (body.get("grant_type") === "refresh_token") expect(body.get("refresh_token")).toBe(refreshToken);
-        return Response.json({ access_token: accessToken, refresh_token: refreshToken, expires_in: 3600,
-          token_type: "Bearer", scope: [...listScopes, ...(grantWrite ? ["dns.write"] : [])].join(" ") });
+        const refreshing = body.get("grant_type") === "refresh_token";
+        if (refreshing) expect(body.get("refresh_token")).toBe(refreshToken);
+        else {
+          expect(body.get("grant_type")).toBe("authorization_code");
+          expect(body.get("code_verifier")).toHaveLength(43);
+          expect(body.get("redirect_uri")).toBe(f.env.APP_ORIGIN + "/oauth/cloudflare/callback");
+        }
+        return Response.json({ access_token: refreshing ? refreshedAccess : accessToken,
+          ...(refreshing ? {} : { refresh_token: refreshToken }), expires_in: 3600, token_type: "bearer",
+          scope: [...listScopes, ...(grantWrite ? [dnsWriteScope] : []), "offline_access", unusedWrite, "unexpected.read"].join(" ") });
       }
       expect(target.origin).toBe("https://api.cloudflare.com");
-      expect(h.get("Authorization")).toBe("Bearer " + accessToken);
-      if (target.pathname === "/client/v4/accounts") return envelope([{ id: primary, name: "Primary account" }, { id: secondary, name: "Secondary account" }]);
+      expect([accessToken, refreshedAccess].map(token => "Bearer " + token)).toContain(h.get("Authorization"));
+      if (target.pathname === "/client/v4/accounts") return !enumerateAccounts ? new Response(null, { status: 403 }) : envelope([{ id: primary, name: "Primary account" }, { id: secondary, name: "Secondary account" }]);
       if (target.pathname === "/client/v4/zones") {
         expect(target.searchParams.get("account.id")).toBe(primary);
         return envelope([{ id: zone, name: "example.test", account: { id: primary } }]);
@@ -62,7 +81,7 @@ it.skipIf(!database)("connects through Cloudflare OAuth and enforces account, zo
     });
     vi.stubGlobal("fetch", fetcher);
     const api = (method: string, path: string, body?: unknown, cookie = f.cookie) =>
-      protectedApiFetch(new Request(f.env.APP_ORIGIN + path, { method, headers: headers(cookie), body: body ? JSON.stringify(body) : undefined }), f.env, f.auth, {} as ExecutionContext);
+      worker.fetch(new Request(f.env.APP_ORIGIN + path, { method, headers: headers(cookie), body: body ? JSON.stringify(body) : undefined }), f.env, {} as ExecutionContext);
     const activate = async (writes: boolean) => {
       const start = await api("POST", url + "/authorize", { enableWrites: writes });
       expect(start.status, await start.clone().text()).toBe(200);
@@ -70,12 +89,14 @@ it.skipIf(!database)("connects through Cloudflare OAuth and enforces account, zo
       const { authorizationUrl } = await start.json() as {authorizationUrl:string};
       const external = new URL(authorizationUrl);
       expect(external.origin).toBe("https://dash.cloudflare.com");
-      expect(external.searchParams.get("scope")?.includes("dns.write")).toBe(writes);
+      expect(external.searchParams.get("scope")?.split(" "))
+        .toEqual([...listScopes, ...(writes ? [dnsWriteScope] : []), "offline_access"]);
       const returned = new URL(f.env.APP_ORIGIN + "/oauth/cloudflare/callback");
       returned.search = new URLSearchParams({ code: "authorized-fixture", state: external.searchParams.get("state")! }).toString();
-      const oauth = await cloudflareOAuthCallback(new Request(returned, { headers: { Cookie: f.cookie + "; " + browser } }), f.env);
+      const oauth = await worker.fetch(new Request(returned, { headers: { Cookie: f.cookie + "; " + browser } }), f.env, {} as ExecutionContext);
       expect(oauth.status).toBe(303);
-      expect(oauth.headers.get("Location")).toBe(f.env.APP_ORIGIN + "/integrations?cloudflare=select");
+      expect(oauth.headers.get("Location")).toBe(f.env.APP_ORIGIN + "/integrations?cloudflare=" + (enumerateAccounts ? "select" : "failed"));
+      if (!enumerateAccounts) return null;
       const available = await api("GET", url, undefined, f.cookie + "; " + browser);
       const serialized = await available.text();
       for (const value of [secret, refreshToken, accessToken]) expect(serialized).not.toContain(value);
@@ -88,7 +109,11 @@ it.skipIf(!database)("connects through Cloudflare OAuth and enforces account, zo
     // Even if an upstream token returns a write scope, a read-only Factorize
     // authorization cannot use it. Successful write requires new owner consent.
     grantWrite = true;
-    const readOnly = await activate(false);
+    enumerateAccounts = false;
+    expect(await activate(false)).toBeNull();
+    expect((await (await api("GET", url)).json() as {connections: unknown[]}).connections).toEqual([]);
+    enumerateAccounts = true;
+    const readOnly = (await activate(false))!;
     expect(readOnly.writeEnabled).toBe(false);
     const integration = async () => (await f.db.pool.query<{id:string;epoch:number}>("SELECT id,epoch FROM app.agent_integrations WHERE tenant_id=$1 AND kind='cloudflare'", [f.tenantId])).rows[0];
     const rpc = async (name: string, input: Record<string, unknown>) => {
@@ -104,9 +129,9 @@ it.skipIf(!database)("connects through Cloudflare OAuth and enforces account, zo
     expect((await rpc("request_api", { method: "GET", path: "/zones/" + foreignZone + "/dns_records" })).message.result.isError).toBe(true);
     expect(calls.some(c => c.url.endsWith(foreignZone + "/dns_records"))).toBe(false);
     grantWrite = false;
-    expect((await activate(true)).writeEnabled).toBe(false);
+    expect((await activate(true))!.writeEnabled).toBe(false);
     grantWrite = true;
-    const writable = await activate(true);
+    const writable = (await activate(true))!;
     expect(writable.writeEnabled).toBe(true);
 
     // Advance the provider credential clock so the same connection refreshes.
@@ -114,7 +139,16 @@ it.skipIf(!database)("connects through Cloudflare OAuth and enforces account, zo
     const wrote = await rpc("request_api", { method: "POST", path: "/zones/" + zone + "/dns_records", body,
       headers: { "Content-Type": "application/json", "X-Auth-Key": "fixture-must-not-forward" } });
     expect(wrote.message.result.structuredContent.status).toBe(200);
-    expect(calls.filter(c => c.url.endsWith("/oauth2/token"))).toHaveLength(4);
+    expect(calls.filter(c => c.url.endsWith("/oauth2/token"))).toHaveLength(5);
+    expect(calls.at(-1)?.authorization).toBe("Bearer " + refreshedAccess);
+    const saved = (await f.db.pool.query<{encrypted_credentials: string}>(
+      "SELECT encrypted_credentials FROM app.cloudflare_connections WHERE id=$1", [writable.id])).rows[0];
+    const persisted = JSON.parse(await decrypt(saved.encrypted_credentials, f.env.CREDENTIAL_ENCRYPTION_KEY));
+    expect(persisted.scopes).toEqual([...listScopes, dnsWriteScope]);
+    expect(persisted.dnsWriteScope).toBe(dnsWriteScope);
+    f.env.CLOUDFLARE_OAUTH_DNS_WRITE_SCOPE = unusedWrite;
+    expect((await rpc("request_api", { method: "POST", path: "/zones/" + zone + "/dns_records", body })).message.result.isError).toBe(true);
+    expect((await rpc("request_api", { method: "GET", path: "/zones" })).message.result.structuredContent.status).toBe(200);
     vi.restoreAllMocks();
     expect((await api("DELETE", url + "/" + writable.id)).status).toBe(200);
     const disabled = await f.db.pool.query("SELECT encrypted_credentials FROM app.cloudflare_connections WHERE id=$1", [writable.id]);
