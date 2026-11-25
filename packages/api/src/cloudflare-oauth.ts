@@ -5,6 +5,7 @@ import { IdentityRepository } from "./postgres/identity-repository";
 import { databaseFor, type DatabaseClient } from "./postgres/database";
 import { decrypt, encrypt } from "./crypto";
 import { AgentApiError } from "./agent-api-error";
+import { credentialsSchema, exchangeCloudflareToken, reconnect, TokenFailure, type Credentials, type TokenFailureCode } from "./cloudflare-token";
 import type { OutboundCredential } from "./outbound-forwarder";
 import type { Env, OAuthProps } from "./types";
 
@@ -15,22 +16,12 @@ const apiBase = "/client/v4";
 const oauthOrigin = "https://dash.cloudflare.com";
 const base64url = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
 const unavailable = () => new AgentApiError(503, "unavailable", "Cloudflare OAuth is not configured.");
-const reconnect = () => new AgentApiError(401, "reconnect_required", "Reconnect Cloudflare in Integrations.");
-type TokenFailureCode = "token_unreachable" | "token_rejected" | "token_client_rejected" | "token_grant_rejected" | "token_invalid_response";
 type CallbackFailureCode = "configuration" | "attempt" | "storage" | TokenFailureCode;
-
-class TokenFailure extends AgentApiError {
-  constructor(readonly diagnostic: TokenFailureCode) {
-    super(502, "cloudflare_unavailable", "Cloudflare did not complete the request. Try again if safe.");
-  }
-}
 const invalidPath = () => new AgentApiError(400, "invalid_request", "Supply a path relative to the Cloudflare v4 API without credentials.");
 
 export const cloudflareStartResult = z.object({ authorizationUrl: z.url() });
 const metadata = z.object({ id: z.uuid(), name: z.string(), connected: z.boolean(), reconnectRequired: z.boolean() });
 export const cloudflareStatus = z.object({ configured: z.boolean(), connections: z.array(metadata) });
-const credentialsSchema = z.object({ access: z.string().min(1).max(8192), refresh: z.string().min(1).max(8192).optional(), expiration: z.number() });
-type Credentials = z.infer<typeof credentialsSchema>;
 type Owner = Pick<OAuthProps, "tenantId" | "userId" | "sessionVersion">;
 
 export function cloudflareSettings(env: Env) {
@@ -68,38 +59,6 @@ export async function startCloudflare(env: Env, owner: Owner) {
   return { authorizationUrl: target.href, cookie: cookie(state) };
 }
 
-const tokenResult = z.object({ access_token: z.string().min(1).max(8192), refresh_token: z.string().min(1).max(8192).optional(),
-  expires_in: z.number().finite().positive(), token_type: z.string().refine(value => value.toLowerCase() === "bearer") });
-async function exchange(env: Env, payload: Record<string, string>, previous?: Credentials): Promise<Credentials> {
-  let response: Response;
-  try {
-    response = await fetch(oauthOrigin + "/oauth2/token", {
-      method: "POST", redirect: "error", signal: AbortSignal.timeout(10_000),
-      headers: { Accept: "application/json" }, body: new URLSearchParams({ ...payload,
-        client_id: env.CLOUDFLARE_OAUTH_CLIENT_ID!, client_secret: env.CLOUDFLARE_OAUTH_CLIENT_SECRET! }),
-    });
-  } catch {
-    throw new TokenFailure("token_unreachable");
-  }
-  const body = await response.json().catch(() => null);
-  if (!response.ok) {
-    const result = z.object({ error: z.string() }).safeParse(body);
-    const code = result.success ? result.data.error : undefined;
-    if (code === "invalid_grant" || code === "invalid_token") {
-      if (previous) throw reconnect();
-      throw new TokenFailure("token_grant_rejected");
-    }
-    if (code === "invalid_client" || code === "unauthorized_client") throw new TokenFailure("token_client_rejected");
-    throw new TokenFailure("token_rejected");
-  }
-  const result = tokenResult.safeParse(body);
-  if (!result.success) throw new TokenFailure("token_invalid_response");
-  // Cloudflare owns grant scope. Refresh the existing grant without requesting
-  // any additional scope, and never synthesize or store local permissions.
-  return { access: result.data.access_token, refresh: result.data.refresh_token ?? previous?.refresh,
-    expiration: Date.now() + result.data.expires_in * 1000 };
-}
-
 export async function cloudflareOAuthCallback(request: Request, env: Env) {
   const result = (status: "connected" | "expired" | "denied" | "failed", keepCookie = false, failure?: CallbackFailureCode) => new Response(null, { status: 303, headers: {
     Location: env.APP_ORIGIN + "/integrations?" + new URLSearchParams({ cloudflare: status, ...(failure ? { cloudflare_error: failure } : {}) }).toString(), "Cache-Control": "no-store", "Referrer-Policy": "no-referrer",
@@ -127,7 +86,7 @@ export async function cloudflareOAuthCallback(request: Request, env: Env) {
     });
     if (!attempt) return result("expired", true);
     if (!code || code.length > 4096 || url.searchParams.has("error")) return result("denied");
-    const credentials = await exchange(env, { grant_type: "authorization_code", code,
+    const credentials = await exchangeCloudflareToken(env, { grant_type: "authorization_code", code,
       redirect_uri: env.APP_ORIGIN + cloudflareCallback, code_verifier: await decrypt(attempt.verifier, env.CREDENTIAL_ENCRYPTION_KEY) });
     stage = "storage";
     const encrypted = await seal(credentials, env);
@@ -204,7 +163,7 @@ export async function cloudflareCredential(env: Env, tenant: string, id: string,
     let current = credentialsSchema.parse(JSON.parse(await decrypt(row.encrypted_credentials, env.CREDENTIAL_ENCRYPTION_KEY)));
     if (current.expiration <= Date.now() + 30_000) {
       if (!current.refresh) throw reconnect();
-      current = await exchange(env, { grant_type: "refresh_token", refresh_token: current.refresh }, current);
+      current = await exchangeCloudflareToken(env, { grant_type: "refresh_token", refresh_token: current.refresh }, current);
       await sql.query("UPDATE app.cloudflare_connections SET encrypted_credentials=$3 WHERE tenant_id=$1 AND id=$2",
         [tenant, id, await seal(current, env)]);
     }

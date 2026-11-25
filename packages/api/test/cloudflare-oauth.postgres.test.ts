@@ -44,7 +44,7 @@ it.skipIf(!database)("redirects and saves fresh Cloudflare consent, refreshes an
       const target = new URL(value);
       if (target.origin === "https://dash.cloudflare.com") {
         expect(target.pathname).toBe("/oauth2/token");
-        expect(init?.redirect).toBe("error");
+        expect(init?.redirect).toBe("manual");
         const body = init?.body as URLSearchParams;
         expect(body.get("client_secret")).toBe(config.CLOUDFLARE_OAUTH_CLIENT_SECRET);
         expect(body.has("scope")).toBe(false);
