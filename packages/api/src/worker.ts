@@ -4,6 +4,7 @@ import { pruneTotp } from "./totp";
 import { googleSignInCallback } from "./auth-api";
 import { clearExpiredGoogleSignIns, googleCallbackPath } from "./google-sign-in";
 import { AlarmCoordinator as BaseAlarmCoordinator } from "./alarm-coordinator";
+import { pruneRevokedMcpSubscriptions } from "./postgres/mcp-event-outbox";
 import { wakeMcpDeliveries } from "./postgres/event-match-repository";
 import { staticApp, securityHeaders } from "./static-app";
 import { OAuthProvider, AuthorizationError, getOAuthApi, type AuthRequest, type OAuthProviderOptions } from "@cloudflare/workers-oauth-provider";
@@ -175,8 +176,9 @@ export default {
   async scheduled(_event: ScheduledController, env: Env) {
     // Ensure the alarm sweep starts even if a producer's immediate wake was missed.
     await wakeMcpDeliveries(env).catch(() => {});
-    // Retire expired VM proofs and incomplete enrollments.
     const db = databaseFor(env);
+    await pruneRevokedMcpSubscriptions(db);
+    // Retire expired VM proofs and incomplete enrollments.
     await clearExpiredGoogleSignIns(db.pool);
     await pruneCloudflareOAuth(db.pool);
     await pruneTotp(db.pool);

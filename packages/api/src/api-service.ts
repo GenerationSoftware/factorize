@@ -1,6 +1,6 @@
 import { cloudflareState, disconnectCloudflare, selectCloudflare, startCloudflare } from "./cloudflare-oauth";
 import { initialIntegrationOverrides, lockOAuthPolicy } from "./oauth-reconnect";
-import { lockMcpEventGrant } from "./postgres/mcp-event-outbox";
+import { deleteMcpGrantSubscriptions, lockMcpEventGrant } from "./postgres/mcp-event-outbox";
 import { eventPayloadSchema, occurrenceEventName, occurrenceInputSchema, type ReadEventOccurrencesInput, type subscribeEventInput, type unsubscribeEventInput, type setProcessingAcknowledgmentsInput, type acknowledgeEventsInput } from "./mcp-event-contracts";
 import { subscribeMcpEvent, unsubscribeMcpEvent, getProcessingAcknowledgments, setProcessingAcknowledgments, acknowledgeEvents, replayUnacknowledgedEvents } from "./mcp-event-subscriptions";
 import { vmGrantInput, vmGrantList, vmGrantResult, vmRevokeResult } from "./vm-grant-contracts";
@@ -752,8 +752,7 @@ export class ApiService {
     await databaseFor(this.env).transaction(async sql => {
       await lockOAuthPolicy(sql, this.auth);
       await lockMcpEventGrant(sql, this.auth.tenantId, grantId);
-      await sql.query(`UPDATE app.mcp_event_subscriptions SET status='stopped',previous_encrypted_secret=NULL,rotated_at=NULL
-        WHERE tenant_id=$1 AND user_id=$2 AND grant_id=$3 AND status='active'`, [this.auth.tenantId, this.auth.userId, grantId]);
+      await deleteMcpGrantSubscriptions(sql, { tenant_id: this.auth.tenantId, user_id: this.auth.userId, grant_id: grantId });
       await sql.query("INSERT INTO app.agent_identities(tenant_id,kind,subject,user_id,session_version,revoked_at) VALUES($1,'oauth',$2,$3,$4,now()) ON CONFLICT(tenant_id,kind,subject) DO UPDATE SET revoked_at=now()",[this.auth.tenantId,grantId,this.auth.userId,this.auth.sessionVersion]);
     });
     await this.env.OAUTH_PROVIDER.revokeGrant(grantId,this.auth.userId);

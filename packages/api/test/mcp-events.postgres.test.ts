@@ -199,7 +199,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("MCP event webhook lifecycl
     expect(revocation.status).toBe(200);
     expect(await revocation.json()).toEqual({ revoked: 1 });
     expect(grantActive).toBe(false);
-    expect((await f.db.pool.query("SELECT status FROM app.mcp_event_subscriptions WHERE id=$1", [subscriptionId])).rows).toEqual([{ status: "stopped" }]);
+    expect((await f.db.pool.query("SELECT status FROM app.mcp_event_subscriptions WHERE id=$1", [subscriptionId])).rows).toEqual([]);
     const afterRevoke = await tool("fire_trigger", { triggerId: source.triggerId, idempotencyKey: "after-explicit-revoke", data: {} }, f.auth);
     expect(afterRevoke.isError).not.toBe(true);
     await dispatchMcpEvents(f.env);
@@ -709,6 +709,82 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("MCP event webhook lifecycl
     const other = { ...f.auth, tenantId: f.otherTenant };
     expect((await read({ occurrenceId: rotated.occurrenceId }, other)).isError).toBe(true);
     expect((await request("tools/call", { name: "read_event_occurrences", arguments: { occurrenceId: rotated.occurrenceId } }, { ...auth, scopes: [] })).status).toBe(403);
+  });
+
+
+  it("deletes only subscriptions on the exact grant revoked through owner settings", async () => {
+    const otherGrant = { ...auth, oauthGrantId: "grant-same-client" };
+    const grants = [auth, otherGrant];
+    f.env.OAUTH_PROVIDER!.listUserGrants = async () => ({ items: grants.map(g => ({
+      id: g.oauthGrantId!, clientId: g.oauthClientId!, metadata: { tenantId: f.tenantId }, scope: g.scopes,
+    })) }) as any;
+    f.env.OAUTH_PROVIDER!.revokeGrant = async (id, userId) => {
+      expect([id,userId]).toEqual([auth.oauthGrantId,f.userId]);
+      // A stale provider listing must not allow the explicit revoke to be undone.
+    };
+    const active = (await subscribe()).message.result.id;
+    const stopped = (await subscribe(otherReceiver)).message.result.id;
+    const occurrence = await fire("before-revocation");
+    await request("events/unsubscribe", { name, arguments: {}, delivery: { url: otherReceiver } });
+    const other = (await request("events/subscribe", { name, arguments: {}, delivery: {
+      mode: "webhook", url: receiver, secret: secret(key),
+    } }, otherGrant)).message.result.id;
+    const unaffected = await fire("before-revocation-same-client");
+    const foreign = await f.seedEventTrigger(f.otherTenant);
+    await f.db.pool.query(`INSERT INTO app.mcp_event_subscriptions
+      (tenant_id,id,user_id,session_version,grant_id,client_id,definition_id,arguments,callback_url,
+       encrypted_secret,secret_fingerprint,verified_at,generation,status,expires_at)
+      SELECT $1,id,user_id,session_version,grant_id,client_id,$2,arguments,callback_url,
+       encrypted_secret,secret_fingerprint,verified_at,generation,status,expires_at
+      FROM app.mcp_event_subscriptions WHERE tenant_id=$3 AND id=$4`,
+    [f.otherTenant, foreign.definitionId, f.tenantId, active]);
+    const revoke = await worker.fetch(new Request(
+      `${f.env.APP_ORIGIN}/api/v1/access/authorizations/${auth.oauthGrantId}`,
+      { method: "DELETE", headers: { Cookie: f.cookie, Origin: f.env.APP_ORIGIN } },
+    ), f.env, {} as ExecutionContext);
+    expect(revoke.status).toBe(200);
+    expect(await revoke.json()).toEqual({ revoked: 1 });
+    expect((await f.db.pool.query("SELECT id FROM app.mcp_event_subscriptions WHERE tenant_id=$1", [f.tenantId])).rows).toEqual([{ id: other }]);
+    expect((await f.db.pool.query("SELECT id FROM app.mcp_event_subscriptions WHERE tenant_id=$1", [f.otherTenant])).rows).toEqual([{ id: active }]);
+    expect((await f.db.pool.query("SELECT subscription_id,occurrence_id FROM app.mcp_event_deliveries")).rows)
+      .toEqual([{ subscription_id: other, occurrence_id: unaffected.occurrenceId }]);
+    expect((await subscribe()).message.result?.id).toBeUndefined();
+    await dispatchMcpEvents(f.env);
+    expect(deliveries.map(event => event.subscriptionId)).toEqual([other]);
+    expect([active, stopped]).not.toContain(other);
+    expect((await f.request(`/api/v1/events/${source.definitionId}`)).status).toBe(200);
+    const history = await (await f.request(`/api/v1/events/${source.definitionId}/occurrences`)).json() as { items: Array<{ id: string }> };
+    expect(history.items.map(item => item.id)).toEqual(expect.arrayContaining([occurrence.occurrenceId,unaffected.occurrenceId]));
+  });
+
+  it("reconciles historical tombstones but preserves unconfirmed subscriptions during provider failures", async () => {
+    const retired = { ...auth, oauthGrantId: "grant-tombstoned" };
+    const list = vi.fn(async () => ({ items: [auth, retired].map(g => ({
+      id: g.oauthGrantId!, clientId: g.oauthClientId!, metadata: { tenantId: f.tenantId }, scope: g.scopes,
+    })) }));
+    f.env.OAUTH_PROVIDER!.listUserGrants = list as any;
+    const stopped = (await subscribe()).message.result.id;
+    await unsubscribe();
+    const stillActive = (await subscribe(otherReceiver)).message.result.id;
+    const legacy = (await request("events/subscribe", { name, arguments: {}, delivery: {
+      mode: "webhook", url: receiver, secret: secret(key),
+    } }, retired)).message.result.id;
+    await fire("before-reconciliation");
+    await f.db.pool.query(`INSERT INTO app.agent_identities(tenant_id,kind,subject,user_id,session_version,revoked_at)
+      VALUES($1,'oauth',$2,$3,$4,now())`, [f.tenantId,retired.oauthGrantId,f.userId,auth.sessionVersion]);
+    await f.db.pool.query("UPDATE app.mcp_event_subscriptions SET status='stopped' WHERE tenant_id=$1 AND id=$2", [f.tenantId,legacy]);
+    // A completed-but-empty provider listing and a delivery diagnostic are not deletion proof.
+    list.mockResolvedValue({items: []});
+    await dispatchMcpEvents(f.env);
+    list.mockRejectedValue(new Error("transient provider timeout"));
+    const calls = list.mock.calls.length;
+    for (let i = 0; i < 2; i++) await worker.scheduled({} as ScheduledController, f.env);
+    expect(list).toHaveBeenCalledTimes(calls);
+    expect((await f.db.pool.query("SELECT id,status FROM app.mcp_event_subscriptions ORDER BY status")).rows)
+      .toEqual([{id:stillActive,status:"active"},{id:stopped,status:"stopped"}]);
+    expect((await f.db.pool.query("SELECT 1 FROM app.mcp_event_deliveries WHERE subscription_id=$1", [legacy])).rowCount).toBe(0);
+    expect((await f.db.pool.query("SELECT 1 FROM app.event_occurrences WHERE tenant_id=$1", [f.tenantId])).rowCount).toBe(1);
+    expect((await f.db.pool.query("SELECT 1 FROM app.agent_identities WHERE tenant_id=$1 AND subject=$2 AND revoked_at IS NOT NULL", [f.tenantId,retired.oauthGrantId])).rowCount).toBe(1);
   });
 
   it("rejects failed verification, forbidden destinations, unauthorized calls and cross-tenant names", async () => {
