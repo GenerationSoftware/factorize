@@ -164,6 +164,8 @@ export const mcpEventSubscriptions = app.table("mcp_event_subscriptions", {
   ackEpoch: uuid("ack_epoch"),
   ackTimeoutSeconds: integer("ack_timeout_seconds").notNull().default(300),
   cooldownUntil: timestamp("cooldown_until", { withTimezone: true }),
+  lastCooldownStartedAt: timestamp("last_cooldown_started_at", { withTimezone: true }),
+  lastCooldownEndsAt: timestamp("last_cooldown_ends_at", { withTimezone: true }),
   callbackUrl: text("callback_url").notNull(),
   encryptedSecret: text("encrypted_secret").notNull(),
   secretFingerprint: text("secret_fingerprint").notNull(),

@@ -247,9 +247,15 @@ export async function acknowledgeEvents(env: Env, auth: OAuthProps, input: z.inf
     let cooldownUntil = row.cooldown_until;
     if (changed.size && input.cooldown_seconds) {
       const { rows: [updated] } = await sql.query<{ cooldown_until: Date }>(
-        `UPDATE app.mcp_event_subscriptions
-         SET cooldown_until=GREATEST(cooldown_until,clock_timestamp()+make_interval(secs=>$3))
-         WHERE tenant_id=$1 AND id=$2 RETURNING cooldown_until`,
+        `WITH cooldown AS (SELECT clock_timestamp() AS starts_at),
+         candidate AS (SELECT starts_at,starts_at+make_interval(secs=>$3) AS ends_at FROM cooldown)
+         UPDATE app.mcp_event_subscriptions AS s
+         SET cooldown_until=GREATEST(s.cooldown_until,c.ends_at),
+             last_cooldown_started_at=CASE WHEN s.cooldown_until IS NULL OR c.ends_at>s.cooldown_until
+               THEN c.starts_at ELSE s.last_cooldown_started_at END,
+             last_cooldown_ends_at=CASE WHEN s.cooldown_until IS NULL OR c.ends_at>s.cooldown_until
+               THEN c.ends_at ELSE s.last_cooldown_ends_at END
+         FROM candidate c WHERE s.tenant_id=$1 AND s.id=$2 RETURNING s.cooldown_until`,
         [row.tenant_id, row.id, input.cooldown_seconds],
       );
       cooldownUntil = updated.cooldown_until;

@@ -28,6 +28,8 @@ export const eventSubscription = z.object({
   grantId: z.string(),
   status: z.enum(["active", "expired", "stopped"]),
   acknowledgmentMode: z.enum(["required", "off"]),
+  lastCooldownStartedAt: z.iso.datetime().nullable().describe("Start of the last effective cooldown, when recorded."),
+  lastCooldownEndsAt: z.iso.datetime().nullable().describe("Scheduled end of the last effective cooldown, if known. Retained after expiry or cancellation; not an indication of an active cooldown."),
   expiresAt: z.iso.datetime(),
 });
 export const eventSubscriptionList = z.array(eventSubscription);

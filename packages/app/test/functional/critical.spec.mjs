@@ -10,10 +10,15 @@ test("navigates Events, subscriptions and exact client connections through acces
   const requiredId = "sub_" + "a".repeat(64);
   const expiredId = "sub_" + "b".repeat(64);
   const otherId = "sub_" + "c".repeat(64);
-  const base = { eventId: definitionId, eventName: definition.name, expiresAt: timestamp, status: "active" };
-  const required = { ...base, id: requiredId, grantId: "primary", acknowledgmentMode: "required" };
-  const expired = { ...base, id: expiredId, grantId: "secondary", status: "expired", acknowledgmentMode: "off" };
+  const cooldownStart = "2020-01-01T00:00:00.000Z";
+  const cooldownEnd = "2020-01-01T00:02:00.000Z";
+  const legacyCooldownEnd = "2020-01-02T00:02:00.000Z";
+  const base = { eventId: definitionId, eventName: definition.name, expiresAt: timestamp, status: "active", lastCooldownStartedAt: null, lastCooldownEndsAt: null };
+  const required = { ...base, id: requiredId, grantId: "primary", acknowledgmentMode: "required", lastCooldownStartedAt: cooldownStart, lastCooldownEndsAt: cooldownEnd };
+  const expired = { ...base, id: expiredId, grantId: "secondary", status: "expired", acknowledgmentMode: "off", lastCooldownEndsAt: legacyCooldownEnd };
   const other = { ...base, id: otherId, eventId: otherEventId, eventName: "orders.shipped", grantId: "secondary", acknowledgmentMode: "off" };
+  await page.route(`**/api/v1/event-subscriptions/${expiredId}`, route => route.fulfill({ json: expired }));
+  await page.route(`**/api/v1/event-subscriptions/${expiredId}/occurrences?*`, route => route.fulfill({ json: { items: [], nextCursor: null } }));
   let deleted = false;
   await page.route("**/api/v1/access/authorized-clients", route => route.fulfill({ json: [
     { grantId: "primary", clientName: "Order assistant", clientId: "same-app", appName: "Registered app", expiresAt: null, authorizationDate: timestamp },
@@ -92,13 +97,19 @@ test("navigates Events, subscriptions and exact client connections through acces
   expect(historyRequests.event).toEqual([null, "event-page-two"]);
   expect(fullPayloadRequests).toEqual([]);
   const subscriptions = page.getByRole("table", { name: "Event subscriptions" });
-  await expect(subscriptions.getByRole("columnheader")).toHaveText(["Client", "Event", "Status", "Acknowledgment mode", "Expires"]);
+  await expect(subscriptions.getByRole("columnheader")).toHaveText(["Client", "Event", "Status", "Acknowledgment mode", "Expires", "Cooldown ends"]);
   await expect(subscriptions.getByRole("row")).toHaveCount(3);
   await expect(subscriptions.getByRole("cell", { name: "Required" })).toBeVisible();
   await expect(subscriptions.getByRole("cell", { name: "Expired" })).toBeVisible();
+  const endTime = subscriptions.locator(`time[datetime="${cooldownEnd}"]`);
+  await expect(endTime).toHaveCount(1);
+  await expect(subscriptions.locator(`time[datetime="${legacyCooldownEnd}"]`)).toHaveCount(1);
   await subscriptions.getByRole("link", { name: /aaaaaaaa/ }).click();
   await expect(page).toHaveURL(origin + "/events/subscriptions/" + requiredId);
   await expect(page.getByText(requiredId, { exact: true })).toBeVisible();
+  await expect(page.getByText("Last cooldown started", { exact: true })).toBeVisible();
+  await expect(page.locator(`time[datetime="${cooldownStart}"]`)).toBeVisible();
+  await expect(endTime).toBeVisible();
   const subscriptionOccurrences = page.getByRole("table", { name: "Subscription occurrences", exact: true });
   const subscriptionPagination = page.getByRole("navigation", { name: "Subscription occurrences pagination", exact: true });
   await expect(subscriptionOccurrences.getByRole("columnheader")).toHaveText(["Timestamp", "Source", "Occurrence ID", "Delivery", "Acknowledgment"]);
@@ -116,10 +127,19 @@ test("navigates Events, subscriptions and exact client connections through acces
 
   await nav.getByRole("link", { name: "Subscriptions" }).click();
   await expect(subscriptions.getByRole("row")).toHaveCount(4);
+  await expect(subscriptions.getByRole("columnheader", { name: "Cooldown ends" })).toBeVisible();
+  await expect(endTime).toBeVisible();
+  await expect(subscriptions.getByRole("cell", { name: "Not recorded" })).toBeVisible();
+  await subscriptions.getByRole("link", { name: /bbbbbbbb/ }).click();
+  await expect(page.getByText("Last cooldown started", { exact: true })).toBeVisible();
+  await expect(page.getByText("Not recorded", { exact: true })).toBeVisible();
+  await expect(subscriptions.locator(`time[datetime="${legacyCooldownEnd}"]`)).toBeVisible();
+  await nav.getByRole("link", { name: "Subscriptions" }).click();
   await subscriptions.getByRole("link", { name: "Order assistant" }).click();
   await expect(page).toHaveURL(origin + "/clients/primary");
-  await expect(subscriptions.getByRole("columnheader")).toHaveText(["Event", "Status", "Acknowledgment mode", "Expires"]);
+  await expect(subscriptions.getByRole("columnheader")).toHaveText(["Event", "Status", "Acknowledgment mode", "Expires", "Cooldown ends"]);
   await expect(subscriptions.getByRole("row")).toHaveCount(2);
+  await expect(endTime).toBeVisible();
   await expect(subscriptions.getByRole("cell", { name: "Required" })).toBeVisible();
   await expect(subscriptions.getByRole("cell", { name: "Expired" })).toHaveCount(0);
 

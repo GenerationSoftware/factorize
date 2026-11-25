@@ -107,7 +107,17 @@ export function SubscriptionPage() {
     {subscription.error && <p role="alert">{subscription.error.message}</p>}
     {subscription.data === null && <p>Event subscription not found.</p>}
     {subscription.data && <>
-      <dl className="mb-5 text-sm"><dt className="font-semibold">Subscription ID</dt><dd className="break-all font-mono">{subscription.data.id}</dd></dl>
+      <dl className="mb-5 space-y-2 text-sm">
+        <div>
+          <dt className="font-semibold">Subscription ID</dt>
+          <dd className="break-all font-mono">{subscription.data.id}</dd>
+        </div>
+        <div>
+          <dt className="font-semibold">Last cooldown started</dt>
+          <dd>{subscription.data.lastCooldownStartedAt
+            ? <SubscriptionTime value={subscription.data.lastCooldownStartedAt} /> : "Not recorded"}</dd>
+        </div>
+      </dl>
       <SubscriptionsTable detail rows={[subscription.data]} />
       <div className="mt-8"><OccurrenceTable key={subscriptionId} subscriptionId={subscriptionId} /></div>
     </>}
