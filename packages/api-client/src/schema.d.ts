@@ -1778,6 +1778,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/event-subscriptions/{subscriptionId}/occurrences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List matched occurrences for the signed-in owner's exact subscription
+         * @description Newest first. HTTP acceptance confirms receipt, not processing. Acknowledgment is independent. Webhook configuration and payloads are omitted.
+         *
+         *     Requires the triggers:read scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        get: operations["get_api_v1_event_subscriptions_subscriptionId_occurrences"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/events/{eventId}/occurrence-summaries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List bounded, payload-free Event occurrence summaries
+         * @description Newest first, with occurrence IDs and safe source classifications. The full occurrence endpoint is unchanged.
+         *
+         *     Requires the triggers:read scope.
+         *
+         *     Accepts a scoped bearer token or interactive owner session.
+         */
+        get: operations["get_api_v1_events_eventId_occurrence_summaries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/events": {
         parameters: {
             query?: never;
@@ -6409,6 +6457,98 @@ export interface operations {
             401: components["responses"]["Error401"];
             403: components["responses"]["Error403"];
             /** @description Event subscription not found */
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    get_api_v1_event_subscriptions_subscriptionId_occurrences: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                subscriptionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Subscription occurrence summaries */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: {
+                            /** Format: uuid */
+                            id: string;
+                            /** Format: date-time */
+                            occurredAt: string;
+                            /** @enum {string} */
+                            source: "manual" | "schedule" | "github" | "linear" | "cloudflare" | "webhook" | "unknown";
+                            /** @enum {string} */
+                            delivery: "pending" | "sending" | "accepted" | "failed" | "cancelled";
+                            /** @enum {string} */
+                            acknowledgment: "off" | "pending" | "awaiting_ack" | "processed" | "waived" | "exhausted" | "cancelled";
+                        }[];
+                        nextCursor: string | null;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            /** @description Event subscription not found */
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    get_api_v1_events_eventId_occurrence_summaries: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                eventId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Event occurrence summaries */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: {
+                            /** Format: uuid */
+                            id: string;
+                            /** Format: date-time */
+                            occurredAt: string;
+                            /** @enum {string} */
+                            source: "manual" | "schedule" | "github" | "linear" | "cloudflare" | "webhook" | "unknown";
+                        }[];
+                        nextCursor: string | null;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            /** @description Event not found */
             404: components["responses"]["Error404"];
             409: components["responses"]["Error409"];
             429: components["responses"]["Error429"];

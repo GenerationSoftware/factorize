@@ -1,3 +1,4 @@
+import { eventOccurrenceSummaryPage, subscriptionOccurrenceSummaryPage, occurrenceSummaryQuery } from "./event-contracts";
 import { cloudflareCookieValue, cloudflareSelectInput, cloudflareStartInput, cloudflareStartResult, cloudflareStatus } from "./cloudflare-oauth";
 import { cloneInfo, gitCredential } from "./git-https-contracts";
 import { profileInput, profileResponse } from "./usernames";
@@ -699,6 +700,24 @@ export const API_ROUTES: RouteContract[] = [
     responses: { "200": { description: "Event subscription", content: { "application/json": { schema: jsonSchema(eventSubscription, "output") } } }, "404": { description: "Event subscription not found" } },
   }, (service, { params }) => service.getDashboardEventSubscription(params.subscriptionId),
   { ownerSession: true, parameters: z.object({ subscriptionId: eventSubscriptionId }) }),
+  route("GET", "/api/v1/event-subscriptions/{subscriptionId}/occurrences", "triggers:read", {
+    summary: "List matched occurrences for the signed-in owner's exact subscription",
+    description: "Newest first. HTTP acceptance confirms receipt, not processing. Acknowledgment is independent. Webhook configuration and payloads are omitted.",
+    responses: {
+      "200": { description: "Subscription occurrence summaries", content: { "application/json": { schema: jsonSchema(subscriptionOccurrenceSummaryPage, "output") } } },
+      "404": { description: "Event subscription not found" },
+    },
+  }, (service, { params, query }) => service.listSubscriptionOccurrences(params.subscriptionId, query.limit, query.cursor),
+  { ownerSession: true, parameters: z.object({ subscriptionId: eventSubscriptionId }), query: occurrenceSummaryQuery }),
+  route("GET", "/api/v1/events/{eventId}/occurrence-summaries", "triggers:read", {
+    summary: "List bounded, payload-free Event occurrence summaries",
+    description: "Newest first, with occurrence IDs and safe source classifications. The full occurrence endpoint is unchanged.",
+    responses: {
+      "200": { description: "Event occurrence summaries", content: { "application/json": { schema: jsonSchema(eventOccurrenceSummaryPage, "output") } } },
+      "404": { description: "Event not found" },
+    },
+  }, (service, { params, query }) => service.listEventOccurrenceSummaries(params.eventId, query.limit, query.cursor),
+  { parameters: z.object({ eventId: z.uuid() }), query: occurrenceSummaryQuery }),
   route("GET", "/api/v1/events", "triggers:read", { summary: "List Events", responses: { "200": { description: "Events and current revisions", content: { "application/json": { schema: jsonSchema(eventDefinitionList, "output") } } } } }, service => service.listEvents()),
   route("POST", "/api/v1/events", "triggers:write", { summary: "Create an Event", responses: { "201": { description: "Created Event", content: { "application/json": { schema: jsonSchema(eventDefinitionResponse, "output") } } } } }, (service, { body }) => service.createEvent(body), { body: eventDefinitionInput }),
   route("GET", "/api/v1/events/{eventId}", "triggers:read", { summary: "Get an Event", responses: { "200": { description: "Event", content: { "application/json": { schema: jsonSchema(eventDefinitionResponse, "output") } } } } }, (service, { params }) => service.getEvent(params.eventId), { parameters: z.object({ eventId: z.uuid() }) }),

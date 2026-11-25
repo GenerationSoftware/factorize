@@ -31,7 +31,30 @@ test("navigates Events, subscriptions and exact client connections through acces
     const remaining = { ...definition, id: otherEventId, name: "orders.shipped", description: "" };
     return route.fulfill({ json: deleted ? [remaining] : [definition, remaining] });
   });
-  await page.route(`**/api/v1/events/${definitionId}/occurrences*`, route => route.fulfill({ json: { items: [{ id: occurrenceId, revision: 1, occurredAt: "2026-01-02T03:04:05.000Z", payload: { orderId: "order-42" }, producer: { kind: "trigger" }, createdAt: "2026-01-02T03:04:05.000Z" }], nextCursor: null } }));
+  const historyRequests = { event: [], subscription: [] };
+  const occurrences = Array.from({ length: 12 }, (_, index) => ({
+    id: index === 0 ? occurrenceId : 'd0000000-0000-4000-8000-' + String(index).padStart(12, '0'),
+    occurredAt: "2026-01-02T03:04:05.000000Z",
+    source: index === 0 ? "manual" : "schedule",
+  }));
+  const serveHistory = kind => route => {
+    const query = new URL(route.request().url()).searchParams;
+    expect(query.get("limit")).toBe("10");
+    const cursor = query.get("cursor");
+    historyRequests[kind].push(cursor);
+    const rows = cursor ? occurrences.slice(10) : occurrences.slice(0, 10);
+    return route.fulfill({ json: { items: rows.map((row, index) => kind === "event" ? row : {
+      ...row, delivery: index === 0 ? "accepted" : "pending",
+      acknowledgment: index === 0 ? "awaiting_ack" : index === 1 ? "off" : "pending",
+    }), nextCursor: cursor ? null : kind + "-page-two" } });
+  };
+  await page.route("**/api/v1/events/" + definitionId + "/occurrence-summaries*", serveHistory("event"));
+  await page.route("**/api/v1/event-subscriptions/" + requiredId + "/occurrences*", serveHistory("subscription"));
+  const fullPayloadRequests = [];
+  await page.route("**/api/v1/events/" + definitionId + "/occurrences*", route => {
+    fullPayloadRequests.push(route.request().url());
+    return route.fulfill({ status: 500 });
+  });
 
   await page.goto(origin + "/events");
   const nav = page.getByRole("navigation", { name: "Event navigation" });
@@ -50,10 +73,24 @@ test("navigates Events, subscriptions and exact client connections through acces
   await expect(page).toHaveURL(origin + "/events/" + definitionId);
   await expect(page.getByRole("heading", { name: "orders.created", exact: true })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "Dashboard navigation" }).getByRole("link", { name: "Events" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Payload schema" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Payload schema" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: /^Edit\b/ })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Delete", exact: true })).toBeVisible();
-  await expect(page.getByText('"orderId": "order-42"')).toBeVisible();
+  const eventOccurrences = page.getByRole("table", { name: "Event occurrences", exact: true });
+  const eventPagination = page.getByRole("navigation", { name: "Event occurrences pagination", exact: true });
+  await expect(eventOccurrences.getByRole("columnheader")).toHaveText(["Timestamp", "Source", "Occurrence ID"]);
+  await expect(eventOccurrences.getByRole("row")).toHaveCount(11);
+  await expect(eventOccurrences.getByRole("cell", { name: "Manual trigger" })).toBeVisible();
+  await expect(eventOccurrences.getByText(occurrenceId, { exact: true })).toBeVisible();
+  await expect(eventPagination.getByRole("button", { name: "Previous page" })).toBeDisabled();
+  await eventPagination.getByRole("button", { name: "Next page" }).click();
+  await expect(eventOccurrences.getByRole("row")).toHaveCount(3);
+  await expect(eventPagination.getByText("Page 2")).toBeVisible();
+  await expect(eventPagination.getByRole("button", { name: "Next page" })).toBeDisabled();
+  await eventPagination.getByRole("button", { name: "Previous page" }).click();
+  await expect(eventOccurrences.getByRole("row")).toHaveCount(11);
+  expect(historyRequests.event).toEqual([null, "event-page-two"]);
+  expect(fullPayloadRequests).toEqual([]);
   const subscriptions = page.getByRole("table", { name: "Event subscriptions" });
   await expect(subscriptions.getByRole("columnheader")).toHaveText(["Client", "Event", "Status", "Acknowledgment mode", "Expires"]);
   await expect(subscriptions.getByRole("row")).toHaveCount(3);
@@ -62,6 +99,20 @@ test("navigates Events, subscriptions and exact client connections through acces
   await subscriptions.getByRole("link", { name: /aaaaaaaa/ }).click();
   await expect(page).toHaveURL(origin + "/events/subscriptions/" + requiredId);
   await expect(page.getByText(requiredId, { exact: true })).toBeVisible();
+  const subscriptionOccurrences = page.getByRole("table", { name: "Subscription occurrences", exact: true });
+  const subscriptionPagination = page.getByRole("navigation", { name: "Subscription occurrences pagination", exact: true });
+  await expect(subscriptionOccurrences.getByRole("columnheader")).toHaveText(["Timestamp", "Source", "Occurrence ID", "Delivery", "Acknowledgment"]);
+  await expect(subscriptionOccurrences.getByRole("row")).toHaveCount(11);
+  await expect(subscriptionOccurrences.getByRole("cell", { name: "HTTP accepted" })).toBeVisible();
+  await expect(subscriptionOccurrences.getByRole("cell", { name: "Awaiting acknowledgment" })).toBeVisible();
+  await expect(subscriptionOccurrences.getByRole("cell", { name: "Off", exact: true })).toBeVisible();
+  await subscriptionPagination.getByRole("button", { name: "Next page" }).click();
+  await expect(subscriptionOccurrences.getByRole("row")).toHaveCount(3);
+  await expect(subscriptionPagination.getByRole("button", { name: "Next page" })).toBeDisabled();
+  await subscriptionPagination.getByRole("button", { name: "Previous page" }).click();
+  await expect(subscriptionOccurrences.getByRole("row")).toHaveCount(11);
+  expect(historyRequests.subscription).toEqual([null, "subscription-page-two"]);
+  expect(fullPayloadRequests).toEqual([]);
 
   await nav.getByRole("link", { name: "Subscriptions" }).click();
   await expect(subscriptions.getByRole("row")).toHaveCount(4);

@@ -1,14 +1,14 @@
 import type { ReactNode } from "react";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, type paths } from "factorize-api-client";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { api } from "factorize-api-client";
 import { Button, Page, PageHeader, Table, tableCellClasses, tableHeadClasses, tableRowClasses } from "../../shared/ui";
+import { OccurrenceTable } from "./occurrence-table";
 import { eventsQuery, subscriptionsQuery } from "./queries";
 import { EventSubscriptions, SubscriptionsTable, SubscriptionTime } from "./subscriptions-table";
 
 const linkClass = "rounded-lg px-3 py-2 hover:bg-stone-100 dark:hover:bg-slate-800";
 const activeClass = "bg-factorize-50 text-factorize-700 dark:bg-factorize-500/10 dark:text-factorize-500";
-type OccurrencePage = paths["/api/v1/events/{eventId}/occurrences"]["get"]["responses"][200]["content"]["application/json"];
 function EventsLayout({ title, description, children, subscriptions }: { title: string; description?: string; children: ReactNode; subscriptions?: boolean }) {
   return <Page><div className="grid min-w-0 gap-8 md:grid-cols-[13rem_minmax(0,1fr)] md:gap-10">
     <nav aria-label="Event navigation" className="flex flex-wrap gap-2 border-b border-stone-200 pb-4 text-sm font-semibold dark:border-slate-800 md:flex-col md:border-b-0">
@@ -49,17 +49,6 @@ export function EventPage() {
   const navigate = useNavigate();
   const events = useQuery({ ...eventsQuery, select: rows => rows.find(row => row.id === eventId) });
   const event = events.data;
-  const occurrences = useInfiniteQuery({
-    queryKey: ["events", eventId, "occurrences"], enabled: !!event, initialPageParam: undefined as string | undefined,
-    getNextPageParam: (last: OccurrencePage) => last.nextCursor ?? undefined,
-    queryFn: async ({ signal, pageParam }): Promise<OccurrencePage> => {
-      const { data, error } = await api.GET("/api/v1/events/{eventId}/occurrences", {
-        params: { path: { eventId }, query: { limit: 50, cursor: pageParam } }, signal,
-      });
-      if (!data || error) throw new Error(error?.error?.message ?? "Could not load occurrences");
-      return data;
-    },
-  });
   const remove = useMutation({
     mutationFn: async () => {
       const { error } = await api.DELETE("/api/v1/events/{eventId}", { params: { path: { eventId } } });
@@ -70,11 +59,10 @@ export function EventPage() {
         cache.invalidateQueries({ queryKey: eventsQuery.queryKey }),
         cache.invalidateQueries({ queryKey: subscriptionsQuery.queryKey }),
       ]);
-      cache.removeQueries({ queryKey: ["events", eventId, "occurrences"] });
+      cache.removeQueries({ queryKey: ["events", eventId, "occurrence-summaries"] });
       await navigate({ to: "/events" });
     },
   });
-  const history = occurrences.data?.pages.flatMap(page => page.items);
   return <EventsLayout title={event?.name ?? "Event"} description={event?.description || undefined}>
     {events.isPending && <p role="status">Loading Event…</p>}
     {events.error && <p role="alert">{events.error.message}</p>}
@@ -88,18 +76,8 @@ export function EventPage() {
         <div><dt className="font-semibold">Created</dt><dd><SubscriptionTime value={event.createdAt} /></dd></div>
         <div><dt className="font-semibold">Updated</dt><dd><SubscriptionTime value={event.updatedAt} /></dd></div>
       </dl>
-      <section><h2>Payload schema</h2><pre className="mt-3 overflow-auto rounded border p-3 text-xs">{JSON.stringify(event.payloadSchema, null, 2)}</pre></section>
       <section><h2 className="mb-3">Subscriptions</h2><EventSubscriptions eventId={eventId} /></section>
-      <section><h2>Occurrence history</h2>
-        {occurrences.isPending && <p role="status">Loading occurrences…</p>}
-        {occurrences.error && <p role="alert">{occurrences.error.message}</p>}
-        {history?.length === 0 && <p>No occurrences yet.</p>}
-        {!!history?.length && <ol className="mt-3 space-y-3">{history.map(item => <li key={item.id} className="rounded border p-3">
-          <time className="text-xs text-slate-500" dateTime={item.occurredAt}>{item.occurredAt}</time>
-          <pre className="mt-2 overflow-auto text-xs">{JSON.stringify(item.payload, null, 2)}</pre>
-        </li>)}</ol>}
-        {occurrences.hasNextPage && <Button className="mt-3" disabled={occurrences.isFetchingNextPage} onClick={() => void occurrences.fetchNextPage()}>Load more occurrences</Button>}
-      </section>
+      <OccurrenceTable key={eventId} eventId={eventId} />
       <Button disabled={remove.isPending} onClick={() => {
         if (window.confirm(`Delete ${event.name}, its Triggers, subscriptions, and all occurrence history?`)) remove.mutate();
       }}>Delete</Button>
@@ -131,6 +109,7 @@ export function SubscriptionPage() {
     {subscription.data && <>
       <dl className="mb-5 text-sm"><dt className="font-semibold">Subscription ID</dt><dd className="break-all font-mono">{subscription.data.id}</dd></dl>
       <SubscriptionsTable detail rows={[subscription.data]} />
+      <div className="mt-8"><OccurrenceTable key={subscriptionId} subscriptionId={subscriptionId} /></div>
     </>}
   </EventsLayout>;
 }

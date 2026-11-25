@@ -1,3 +1,5 @@
+import { readOccurrenceSummaries } from "./postgres/occurrence-summary-repository";
+import { eventOccurrenceSummaryPage, subscriptionOccurrenceSummaryPage, parseOccurrenceSummaryCursor } from "./event-contracts";
 import { cloudflareState, disconnectCloudflare, selectCloudflare, startCloudflare } from "./cloudflare-oauth";
 import { initialIntegrationOverrides, lockOAuthPolicy } from "./oauth-reconnect";
 import { deleteMcpGrantSubscriptions, lockMcpEventGrant } from "./postgres/mcp-event-outbox";
@@ -225,6 +227,27 @@ export class ApiService {
   async createEvent(input: unknown) { await this.authorize("triggers:write"); return publicValue(eventDefinitionResponse, await this.eventDefinitions().create(eventDefinitionInput.parse(input))); }
   async updateEvent(id: string, input: unknown) { await this.authorize("triggers:write"); const parsed = eventDefinitionUpdate.parse(input); try { const result = await this.eventDefinitions().update(id, parsed, parsed.expectedRevision); if (!result) throw new ServiceError(404, "not_found", "Event not found"); return publicValue(eventDefinitionResponse, result); } catch (error) { if (error instanceof EventDefinitionConflict) throw new ServiceError(409, "stale_event", "Event changed since it was loaded."); throw error; } }
   async deleteEvent(id: string) { await this.authorize("triggers:write"); if (!await this.eventDefinitions().delete(id)) throw new ServiceError(404, "not_found", "Event not found"); return { id, deleted: true as const }; }
+  private occurrenceSummaryBoundary(id: string, cursor?: string) {
+    if (cursor === undefined) return undefined;
+    const boundary = parseOccurrenceSummaryCursor(cursor, id);
+    if (!boundary) throw new ServiceError(400, "invalid_request", "Cursor does not match this occurrence history.");
+    return boundary;
+  }
+  async listEventOccurrenceSummaries(id: string, limit: number, cursor?: string) {
+    await this.authorize("triggers:read");
+    id = id.toLowerCase();
+    const result = await readOccurrenceSummaries(databaseFor(this.env), this.auth.tenantId,
+      { kind: "event", id }, limit, this.occurrenceSummaryBoundary(id, cursor));
+    if (!result) throw new ServiceError(404, "not_found", "Event not found");
+    return publicValue(eventOccurrenceSummaryPage, result);
+  }
+  async listSubscriptionOccurrences(id: string, limit: number, cursor?: string) {
+    await this.authorizeOwnerSession("triggers:read");
+    const result = await readOccurrenceSummaries(databaseFor(this.env), this.auth.tenantId,
+      { kind: "subscription", id, userId: this.auth.userId }, limit, this.occurrenceSummaryBoundary(id, cursor));
+    if (!result) throw new ServiceError(404, "not_found", "Event subscription not found");
+    return publicValue(subscriptionOccurrenceSummaryPage, result);
+  }
   async listEventOccurrences(id: string, limit: number, cursor?: string) { await this.authorize("triggers:read"); const result = await this.eventDefinitions().occurrences(id, limit, cursor); if (!result) throw new ServiceError(404, "not_found", "Event not found"); return publicValue(eventOccurrencePage, result); }
   async mcpEventCatalog() {
     await this.authorize("triggers:read");
