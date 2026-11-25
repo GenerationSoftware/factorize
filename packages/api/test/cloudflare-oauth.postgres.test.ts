@@ -93,7 +93,7 @@ it.skipIf(!database)("redirects and saves fresh Cloudflare consent, refreshes an
     const listed = await (await api("GET", url)).text();
     for (const value of [config.CLOUDFLARE_OAUTH_CLIENT_SECRET,"first-fixture","refresh-fixture"]) expect(listed).not.toContain(value);
     expect(JSON.parse(listed).connections).toHaveLength(2);
-    expect((await call(fresh,"GET","/accounts/one/widgets",{},false)).message.result.isError).toBe(true);
+    expect((await call(fresh,"GET","/accounts/one/widgets",{},false)).status).toBe(403);
     expect(provider).toHaveBeenCalledTimes(1);
     const write = (await call(fresh,"PUT","/accounts/one/widgets?page=2",{ body:"{}", headers:{
       "Content-Type":"application/json","X-Auth-Key":"caller-fixture","X-HTTP-Method-Override":"DELETE",
