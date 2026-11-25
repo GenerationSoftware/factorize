@@ -330,6 +330,8 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("MCP event webhook lifecycl
     const active = (await subscribe()).message.result.id as string;
     const expired = (await subscribe(otherReceiver)).message.result.id as string;
     await configure(active, true);
+    const legacyEnd = new Date("2020-01-01T00:00:00.000Z").toISOString();
+    await f.db.pool.query("UPDATE app.mcp_event_subscriptions SET last_cooldown_ends_at=$3 WHERE tenant_id=$1 AND id=$2", [f.tenantId, expired, legacyEnd]);
     await f.db.pool.query("UPDATE app.mcp_event_subscriptions SET expires_at=now()-interval '1 hour' WHERE tenant_id=$1 AND id=$2", [f.tenantId, expired]);
 
     const secondUser = crypto.randomUUID();
@@ -343,9 +345,9 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("MCP event webhook lifecycl
     ]) {
       await f.db.pool.query(`INSERT INTO app.mcp_event_subscriptions
         (tenant_id,id,user_id,session_version,grant_id,client_id,definition_id,arguments,callback_url,
-         encrypted_secret,secret_fingerprint,verified_at,generation,status,expires_at)
+         encrypted_secret,secret_fingerprint,verified_at,generation,status,expires_at,last_cooldown_started_at,last_cooldown_ends_at)
         SELECT $1,$2,$3,session_version,grant_id,client_id,$4,arguments,callback_url,encrypted_secret,
-         secret_fingerprint,verified_at,generation,status,expires_at
+         secret_fingerprint,verified_at,generation,status,expires_at,now(),now()+interval '1 minute'
         FROM app.mcp_event_subscriptions WHERE tenant_id=$5 AND id=$6`, [tenantId, id, userId, definitionId, f.tenantId, active]);
     }
     const cookieFor = async (tenantId: string, userId: string, sessionVersion: number) => "factorize_session=" + await signSession({
@@ -358,8 +360,8 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("MCP event webhook lifecycl
     const expected = { eventId: source.definitionId, eventName: "fixture-event", grantId: "grant-1", expiresAt: expect.any(String) };
     expect(rows).toHaveLength(2);
     expect(rows).toEqual(expect.arrayContaining([
-      { ...expected, id: active, status: "active", acknowledgmentMode: "required" },
-      { ...expected, id: expired, status: "expired", acknowledgmentMode: "off" },
+      { ...expected, id: active, status: "active", acknowledgmentMode: "required", lastCooldownStartedAt: null, lastCooldownEndsAt: null },
+      { ...expected, id: expired, status: "expired", acknowledgmentMode: "off", lastCooldownStartedAt: null, lastCooldownEndsAt: legacyEnd },
     ]));
     expect(await (await f.request(list + "/" + active)).json()).toEqual(rows.find(row => row.id === active));
     expect((await f.request(list, "")).status).toBe(401);
@@ -370,6 +372,49 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("MCP event webhook lifecycl
     expect((await f.request(list + "/malformed")).status).toBe(400);
     expect((await unsubscribe()).message.result).toBeDefined();
     expect(await (await f.request(list + "/" + active)).json()).toMatchObject({ status: "stopped" });
+  });
+
+  it("records only effective cooldowns and keeps the last scheduled interval when the active pause clears", async () => {
+    const id = (await subscribe()).message.result.id;
+    const get = async () => {
+      const response = await f.request("/api/v1/event-subscriptions/" + id);
+      expect(response.status).toBe(200);
+      return await response.json() as { lastCooldownStartedAt: string | null; lastCooldownEndsAt: string | null };
+    };
+    const emptyHistory = { lastCooldownStartedAt: null, lastCooldownEndsAt: null };
+    expect(await get()).toMatchObject(emptyHistory);
+    await configure(id, true);
+    const occurrences: string[] = [];
+    for (const key of ["no-pause", "first-pause", "no-extension", "extension"]) {
+      occurrences.push((await fire(key)).occurrenceId);
+    }
+    await dispatchMcpEvents(f.env);
+    const [noPause, firstPause, noExtension, extension] = occurrences;
+    expect((await ack(id, [noPause])).structuredContent).toMatchObject({ acknowledged: [noPause], cooldownUntil: null });
+    expect(await get()).toMatchObject(emptyHistory);
+
+    const firstEnd = (await ack(id, [firstPause], 60)).structuredContent.cooldownUntil;
+    const first = await get();
+    expect(first).toMatchObject({ lastCooldownStartedAt: expect.any(String), lastCooldownEndsAt: firstEnd });
+    expect(Date.parse(firstEnd) - Date.parse(first.lastCooldownStartedAt!)).toBe(60_000);
+
+    expect((await ack(id, [firstPause], 90)).structuredContent).toMatchObject({
+      alreadyAcknowledged: [firstPause], cooldownUntil: firstEnd,
+    });
+    expect((await ack(id, [noExtension], 1)).structuredContent).toMatchObject({
+      acknowledged: [noExtension], cooldownUntil: firstEnd,
+    });
+    expect(await get()).toEqual(first);
+
+    const newEnd = (await ack(id, [extension], 90)).structuredContent.cooldownUntil;
+    const latest = await get();
+    expect(latest).toMatchObject({ lastCooldownStartedAt: expect.any(String), lastCooldownEndsAt: newEnd });
+    expect(Date.parse(newEnd)).toBeGreaterThan(Date.parse(firstEnd));
+    expect(Date.parse(newEnd) - Date.parse(latest.lastCooldownStartedAt!)).toBe(90_000);
+    expect((await configure(id, false)).structuredContent.cooldownUntil).toBeNull();
+    expect(await get()).toMatchObject({ lastCooldownStartedAt: latest.lastCooldownStartedAt, lastCooldownEndsAt: newEnd });
+    await unsubscribe();
+    expect(await get()).toMatchObject({ lastCooldownStartedAt: latest.lastCooldownStartedAt, lastCooldownEndsAt: newEnd, status: "stopped" });
   });
 
   it("acknowledges exact durable work and recovers only the unresolved original occurrence", async () => {
@@ -399,6 +444,9 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("MCP event webhook lifecycl
     expect(Math.abs(Number(storage.setAlarm.mock.calls[0][0]) - Date.parse(cooldown))).toBeLessThan(50);
     await f.db.pool.query("UPDATE app.mcp_event_subscriptions SET cooldown_until=now()-interval '1 second' WHERE id=$1", [id]);
 
+    expect(await (await f.request("/api/v1/event-subscriptions/" + id)).json()).toMatchObject({
+      lastCooldownStartedAt: expect.any(String), lastCooldownEndsAt: cooldown,
+    });
     const originalCount = deliveries.length;
     await alarm.alarm(); // No new event arrived to wake the scheduler.
     const recovered = deliveries.slice(originalCount);

@@ -28,7 +28,7 @@ export function SubscriptionsTable({ rows, showClient = true, detail = false }: 
     {showClient && clients.error && <p role="alert">Connection names could not be loaded.</p>}
     <Table aria-label="Event subscriptions">
       <thead className={tableHeadClasses}><tr>
-        {[...(showClient ? ["Client"] : []), "Event", "Status", "Acknowledgment mode", "Expires"].map(label =>
+        {[...(showClient ? ["Client"] : []), "Event", "Status", "Acknowledgment mode", "Expires", "Cooldown ends"].map(label =>
           <th key={label} scope="col" className={tableCellClasses}>{label}</th>)}
       </tr></thead>
       <tbody>{rows.map(row => <tr key={row.id} className={tableRowClasses}>
@@ -43,6 +43,8 @@ export function SubscriptionsTable({ rows, showClient = true, detail = false }: 
         <td className={tableCellClasses}>{subscriptionStatus[row.status]}</td>
         <td className={tableCellClasses}>{row.acknowledgmentMode === "required" ? "Required" : "Off"}</td>
         <td className={`${tableCellClasses} whitespace-nowrap`}><SubscriptionTime value={row.expiresAt} /></td>
+        <td className={`${tableCellClasses} whitespace-nowrap`}>{row.lastCooldownEndsAt
+          ? <SubscriptionTime value={row.lastCooldownEndsAt} /> : "Not recorded"}</td>
       </tr>)}</tbody>
     </Table>
   </>;

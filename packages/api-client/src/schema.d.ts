@@ -6333,6 +6333,10 @@ export interface operations {
                         status: "active" | "expired" | "stopped";
                         /** @enum {string} */
                         acknowledgmentMode: "required" | "off";
+                        /** @description Start of the last effective cooldown, when recorded. */
+                        lastCooldownStartedAt: string | null;
+                        /** @description Scheduled end of the last effective cooldown, if known. Retained after expiry or cancellation; not an indication of an active cooldown. */
+                        lastCooldownEndsAt: string | null;
                         /** Format: date-time */
                         expiresAt: string;
                     }[];
@@ -6375,6 +6379,10 @@ export interface operations {
                         status: "active" | "expired" | "stopped";
                         /** @enum {string} */
                         acknowledgmentMode: "required" | "off";
+                        /** @description Start of the last effective cooldown, when recorded. */
+                        lastCooldownStartedAt: string | null;
+                        /** @description Scheduled end of the last effective cooldown, if known. Retained after expiry or cancellation; not an indication of an active cooldown. */
+                        lastCooldownEndsAt: string | null;
                         /** Format: date-time */
                         expiresAt: string;
                     };
