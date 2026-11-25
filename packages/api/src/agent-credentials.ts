@@ -1,3 +1,4 @@
+import { cloudflareCredential } from "./cloudflare-oauth";
 import type { Env } from "./types";
 import { databaseFor } from "./postgres/database";
 import { CredentialRepository } from "./postgres/credential-repository";
@@ -10,6 +11,7 @@ import { isPublicHttpsOrigin } from "./public-address";
 
 /** Only call after shared identity/grant authorization. No caller origin or secret. */
 export async function resolveAgentCredential(env: Env, tenantId: string, kind: string, credentialId: string, relativePath: string): Promise<OutboundCredential | null> {
+  if (kind === "cloudflare") return cloudflareCredential(env, tenantId, credentialId, relativePath);
   const database = databaseFor(env);
   if (kind === "fly") {
     if (credentialId !== "fly") return null;

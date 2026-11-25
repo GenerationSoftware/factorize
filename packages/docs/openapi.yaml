@@ -372,7 +372,7 @@ components:
 paths:
   /api/v1/integrations/cloudflare:
     get:
-      summary: Read Cloudflare connections and pending account options
+      summary: Read Cloudflare connections
       responses:
         "200":
           description: Cloudflare OAuth metadata
@@ -383,24 +383,6 @@ paths:
                 properties:
                   configured:
                     type: boolean
-                  writeAvailable:
-                    type: boolean
-                  accounts:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        id:
-                          type: string
-                          pattern: ^[0-9a-f]{32}$
-                        name:
-                          type: string
-                          minLength: 1
-                          maxLength: 250
-                      required:
-                        - id
-                        - name
-                      additionalProperties: false
                   connections:
                     type: array
                     items:
@@ -410,26 +392,20 @@ paths:
                           type: string
                           format: uuid
                           pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
-                        accountId:
-                          type: string
-                          pattern: ^[0-9a-f]{32}$
                         name:
                           type: string
-                        writeEnabled:
-                          type: boolean
                         connected:
+                          type: boolean
+                        reconnectRequired:
                           type: boolean
                       required:
                         - id
-                        - accountId
                         - name
-                        - writeEnabled
                         - connected
+                        - reconnectRequired
                       additionalProperties: false
                 required:
                   - configured
-                  - writeAvailable
-                  - accounts
                   - connections
                 additionalProperties: false
         "400":
@@ -461,7 +437,7 @@ paths:
       x-owner-session-required: true
   /api/v1/integrations/cloudflare/authorize:
     post:
-      summary: Start Cloudflare account authorization
+      summary: Start authorization on Cloudflare
       responses:
         "200":
           description: Cloudflare authorization URL
@@ -486,8 +462,6 @@ paths:
           $ref: "#/components/responses/Error404"
         "409":
           $ref: "#/components/responses/Error409"
-        "415":
-          $ref: "#/components/responses/Error415"
         "429":
           $ref: "#/components/responses/Error429"
         "500":
@@ -505,81 +479,12 @@ paths:
         - cookieAuth: []
       x-required-scope: integrations:write
       x-owner-session-required: true
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                enableWrites:
-                  default: false
-                  type: boolean
-              additionalProperties: false
-  /api/v1/integrations/cloudflare/select:
-    post:
-      summary: Connect exactly one authorized Cloudflare account
-      responses:
-        "200":
-          description: Cloudflare account connected
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  ok:
-                    type: boolean
-                required:
-                  - ok
-                additionalProperties: false
-        "400":
-          $ref: "#/components/responses/Error400"
-        "401":
-          $ref: "#/components/responses/Error401"
-        "403":
-          $ref: "#/components/responses/Error403"
-        "404":
-          $ref: "#/components/responses/Error404"
-        "409":
-          $ref: "#/components/responses/Error409"
-        "415":
-          $ref: "#/components/responses/Error415"
-        "429":
-          $ref: "#/components/responses/Error429"
-        "500":
-          $ref: "#/components/responses/Error500"
-        "503":
-          $ref: "#/components/responses/Error503"
-      description: |-
-        Requires the integrations:write scope.
-
-        An interactive owner session is required; bearer tokens cannot call this operation.
-      operationId: post_api_v1_integrations_cloudflare_select
-      tags:
-        - integrations
-      security:
-        - cookieAuth: []
-      x-required-scope: integrations:write
-      x-owner-session-required: true
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                accountId:
-                  type: string
-                  pattern: ^[0-9a-f]{32}$
-              required:
-                - accountId
-              additionalProperties: false
   /api/v1/integrations/cloudflare/{connectionId}:
     delete:
-      summary: Disconnect a Cloudflare account inside this workspace
+      summary: Disconnect Cloudflare from this workspace
       responses:
         "200":
-          description: Cloudflare account disconnected
+          description: Cloudflare disconnected
           content:
             application/json:
               schema:

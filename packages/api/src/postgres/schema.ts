@@ -47,15 +47,14 @@ export const members = app.table("members", {
 }, t => [primaryKey({ columns: [t.tenantId, t.userId] }), check("members_role_check", sql`${t.role} in ('owner','member')`), check("members_session_version_check", sql`${t.sessionVersion} > 0`)]);
 export const cloudflareConnections = app.table("cloudflare_connections", {
   tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
-  id: uuid("id").notNull(), accountId: text("account_id").notNull(), name: text("account_name").notNull(),
-  writeEnabled: boolean("write_enabled").notNull(), encryptedCredentials: text("encrypted_credentials"),
-}, t => [primaryKey({ columns: [t.tenantId, t.id] }), unique().on(t.tenantId, t.accountId)]);
+  id: uuid("id").notNull(), accountId: text("account_id"), name: text("account_name").notNull(),
+  encryptedCredentials: text("encrypted_credentials"),
+}, t => [primaryKey({ columns: [t.tenantId, t.id] }), unique().on(t.tenantId, t.accountId), uniqueIndex("cloudflare_broker_connection").on(t.tenantId).where(sql`${t.accountId} IS NULL`)]);
 export const cloudflareOauthAttempts = app.table("cloudflare_oauth_attempts", {
   tenantId: uuid("tenant_id").primaryKey().references(() => tenants.id, { onDelete: "cascade" }),
   userId: uuid("user_id").notNull().references(() => authUsers.id, { onDelete: "cascade" }),
   sessionVersion: integer("session_version").notNull(), state: uuid("state").notNull().unique(),
-  verifier: text("verifier"), scopes: text("scopes").array().notNull(), writeRequested: boolean("write_requested").notNull(),
-  encryptedPending: text("encrypted_pending"), expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  verifier: text("verifier"), expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
 }, t => [index("cloudflare_oauth_expiry").on(t.expiresAt)]);
 export const authTotp = app.table("auth_totp", {
   userId: uuid("user_id").primaryKey().references(() => authUsers.id, { onDelete: "cascade" }), encryptedSecret: text("encrypted_secret").notNull(),

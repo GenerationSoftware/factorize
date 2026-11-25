@@ -5,6 +5,8 @@ export type OutboundCredential = {
   origin: string; path: string; credential: string;
   authorization?: "bearer" | "github-git-basic" | "raw" | "none";
   headers?: Record<string, string>;
+  /** Opt-in egress allowlist for integrations with alternative auth headers. */
+  requestHeaders?: readonly string[];
   /** Set only from an owner-configured model endpoint. */
   allowInsecureHttp?:boolean;
 };
@@ -46,6 +48,9 @@ export async function forwardOutbound(request: Request, selected: OutboundCreden
   target.pathname = separator < 0 ? selected.path : selected.path.slice(0, separator);
   target.search = separator < 0 ? "" : selected.path.slice(separator);
   const headers = filteredHeaders(request.headers, true);
+  if (selected.requestHeaders) {
+    for (const name of [...headers.keys()]) if (!selected.requestHeaders.includes(name)) headers.delete(name);
+  }
   if(selected.authorization!=="none")headers.set("Authorization", selected.authorization === "github-git-basic" ? `Basic ${btoa(`x-access-token:${selected.credential}`)}` : selected.authorization === "raw" ? selected.credential : `Bearer ${selected.credential}`);
   headers.set("Accept-Encoding", "identity");
   headers.set("User-Agent", "Factorize-API-Proxy");
