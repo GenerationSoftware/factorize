@@ -5,7 +5,7 @@ import { IdentityRepository } from "./postgres/identity-repository";
 import { databaseFor, type DatabaseClient } from "./postgres/database";
 import { decrypt, encrypt } from "./crypto";
 import { AgentApiError } from "./agent-api-error";
-import { credentialsSchema, exchangeCloudflareToken, reconnect, TokenFailure, type Credentials, type TokenFailureCode } from "./cloudflare-token";
+import { cloudflareClientCredentials, cloudflareMissingClient, credentialsSchema, exchangeCloudflareToken, reconnect, TokenFailure, type Credentials, type TokenFailureCode } from "./cloudflare-token";
 import type { OutboundCredential } from "./outbound-forwarder";
 import type { Env, OAuthProps } from "./types";
 
@@ -15,7 +15,6 @@ const origin = "https://api.cloudflare.com";
 const apiBase = "/client/v4";
 const oauthOrigin = "https://dash.cloudflare.com";
 const base64url = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
-const unavailable = () => new AgentApiError(503, "unavailable", "Cloudflare OAuth is not configured.");
 type CallbackFailureCode = "configuration" | "attempt" | "storage" | TokenFailureCode;
 const invalidPath = () => new AgentApiError(400, "invalid_request", "Supply a path relative to the Cloudflare v4 API without credentials.");
 
@@ -24,12 +23,17 @@ const metadata = z.object({ id: z.uuid(), name: z.string(), connected: z.boolean
 export const cloudflareStatus = z.object({ configured: z.boolean(), connections: z.array(metadata) });
 type Owner = Pick<OAuthProps, "tenantId" | "userId" | "sessionVersion">;
 
-export function cloudflareSettings(env: Env) {
+function cloudflareDefaultScopes(env: Env) {
   const defaults = env.CLOUDFLARE_OAUTH_DEFAULT_SCOPES ?? env.CLOUDFLARE_OAUTH_READ_SCOPES;
-  const scopes = [...new Set(defaults?.trim().split(/\s+/).filter(Boolean) ?? [])];
-  const configured = !!(env.CLOUDFLARE_OAUTH_CLIENT_ID?.trim() && env.CLOUDFLARE_OAUTH_CLIENT_SECRET
-    && scopes.length > 0 && scopes.length <= 40 && scopes.every(scope => /^[a-z0-9][a-z0-9_.-]{0,127}$/.test(scope)));
-  return { configured, scopes: [...new Set([...scopes, "offline_access"])] };
+  return [...new Set(defaults?.trim().split(/\s+/).filter(Boolean) ?? [])];
+}
+
+export function cloudflareSettings(env: Env) {
+  const defaults = cloudflareDefaultScopes(env);
+  // Only the provider can validate the scope IDs. Defaults are used solely to
+  // build new authorization requests, never to check an existing grant.
+  return { configured: !!cloudflareClientCredentials(env) && defaults.length > 0,
+    scopes: [...new Set([...defaults, "offline_access"])] };
 }
 
 const cookie = (state: string) =>
@@ -39,8 +43,10 @@ const lock = (sql: DatabaseClient, tenant: string) =>
 const seal = (value: Credentials, env: Env) => encrypt(JSON.stringify(value), env.CREDENTIAL_ENCRYPTION_KEY);
 
 export async function startCloudflare(env: Env, owner: Owner) {
+  const client = cloudflareClientCredentials(env);
+  if (!client) throw cloudflareMissingClient();
   const { configured, scopes } = cloudflareSettings(env);
-  if (!configured) throw unavailable();
+  if (!configured) throw new AgentApiError(503, "unavailable", "Set the default Cloudflare OAuth scopes before authorizing a connection.");
   const verifier = base64url(crypto.getRandomValues(new Uint8Array(32)));
   const challenge = base64url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))));
   const state = crypto.randomUUID();
@@ -54,7 +60,7 @@ export async function startCloudflare(env: Env, owner: Owner) {
       [owner.tenantId, owner.userId, owner.sessionVersion, state, await encrypt(verifier, env.CREDENTIAL_ENCRYPTION_KEY)]);
   });
   const target = new URL(oauthOrigin + "/oauth2/auth");
-  target.search = new URLSearchParams({ client_id: env.CLOUDFLARE_OAUTH_CLIENT_ID!, redirect_uri: env.APP_ORIGIN + cloudflareCallback,
+  target.search = new URLSearchParams({ client_id: client.client_id, redirect_uri: env.APP_ORIGIN + cloudflareCallback,
     response_type: "code", state, scope: scopes.join(" "), code_challenge: challenge, code_challenge_method: "S256" }).toString();
   return { authorizationUrl: target.href, cookie: cookie(state) };
 }
@@ -68,7 +74,7 @@ export async function cloudflareOAuthCallback(request: Request, env: Env) {
   let stage: CallbackFailureCode = "configuration";
   try {
     if (request.headers.has("Authorization")) return result("failed");
-    if (!cloudflareSettings(env).configured) return result("failed", false, stage);
+    if (!cloudflareClientCredentials(env)) return result("failed", false, stage);
     stage = "attempt";
     const url = new URL(request.url), state = url.searchParams.get("state"), code = url.searchParams.get("code");
     const owner = await readBrowserSession(request, env);
@@ -151,7 +157,6 @@ export function cloudflarePath(relative: string) {
 
 export async function cloudflareCredential(env: Env, tenant: string, id: string, relative: string): Promise<OutboundCredential> {
   const path = cloudflarePath(relative);
-  if (!cloudflareSettings(env).configured) throw unavailable();
   const credentials = await databaseFor(env).transaction(async sql => {
     await lock(sql, tenant);
     const row = (await sql.query<{ encrypted_credentials: string | null }>(
