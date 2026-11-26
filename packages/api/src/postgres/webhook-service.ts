@@ -1,3 +1,4 @@
+import { EnrichmentBudget } from "../event-enrichment";
 import { clickUpJson, matchingClickUpTask } from "../clickup";
 import { equalHmac } from "../crypto";
 import type { Trigger } from "../trigger-domain";
@@ -9,6 +10,7 @@ import type { Database } from "./database";
 import { EventMatchRepository, wakeMcpDeliveries } from "./event-match-repository";
 
 export class WebhookService {
+  private enrichmentBudget = new EnrichmentBudget();
   private connections: ConnectionRepository;
   constructor(private database: Database, private env: Env, private tenantId: string) {
     this.connections = new ConnectionRepository(database, tenantId, env.CREDENTIAL_ENCRYPTION_KEY);
@@ -42,7 +44,7 @@ export class WebhookService {
         await this.event(deliveryPk, candidate.trigger.id, provider, deliveryId, decision.decision === "error" ? "conditions_error" : "excluded", decision.decision === "error" ? "Webhook conditions failed; no occurrence was recorded." : "Webhook conditions did not match; no occurrence was recorded.");
         continue;
       }
-      const result = await new EventMatchRepository(this.database, () => wakeMcpDeliveries(this.env)).match({
+      const result = await new EventMatchRepository(this.database, () => wakeMcpDeliveries(this.env), this.env, this.enrichmentBudget).match({
         tenantId: this.tenantId,
         triggerId: candidate.trigger.id,
         triggerRevision: candidate.triggerRevision,

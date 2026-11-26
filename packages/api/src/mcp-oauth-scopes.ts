@@ -4,7 +4,7 @@ import type { Env, OAuthProps } from "./types";
 
 const requirements = new Map<string, string>();
 function tools(scope: string, names: string) { for (const name of names.split(" ")) requirements.set(name, scope); }
-tools("triggers:read", "list_events get_event read_event_delivery_diagnostics read_event_occurrences list_event_occurrences list_triggers get_trigger list_trigger_webhook_activity list_webhook_deliveries get_webhook_delivery get_event_processing_acknowledgments set_event_processing_acknowledgments acknowledge_events replay_unacknowledged_events");
+tools("triggers:read", "list_events get_event list_event_evaluations read_event_delivery_diagnostics read_event_occurrences list_event_occurrences list_triggers get_trigger list_trigger_webhook_activity list_webhook_deliveries get_webhook_delivery get_event_processing_acknowledgments set_event_processing_acknowledgments acknowledge_events replay_unacknowledged_events");
 tools("triggers:write", "create_event update_event delete_event create_trigger update_trigger delete_trigger enable_trigger disable_trigger fire_trigger test_trigger_webhook_conditions");
 tools("integrations:read", "list_exe_connections list_github_installations list_cloudflare_tail_integrations");
 tools("vms:read", "list_vms");

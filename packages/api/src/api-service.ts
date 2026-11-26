@@ -1,3 +1,5 @@
+import { authorizeEnrichment } from "./event-enrichment";
+import { enrichmentRun } from "./event-enrichment-contracts";
 import { readOccurrenceSummaries } from "./postgres/occurrence-summary-repository";
 import { eventOccurrenceSummaryPage, subscriptionOccurrenceSummaryPage, parseOccurrenceSummaryCursor } from "./event-contracts";
 import { cloudflareState, disconnectCloudflare, startCloudflare } from "./cloudflare-oauth";
@@ -225,8 +227,21 @@ export class ApiService {
     return publicValue(eventSubscription, result);
   }
   async getEvent(id: string) { await this.authorize("triggers:read"); const event = await this.eventDefinitions().get(id); if (!event) throw new ServiceError(404, "not_found", "Event not found"); return publicValue(eventDefinitionResponse, event); }
-  async createEvent(input: unknown) { await this.authorize("triggers:write"); return publicValue(eventDefinitionResponse, await this.eventDefinitions().create(eventDefinitionInput.parse(input))); }
-  async updateEvent(id: string, input: unknown) { await this.authorize("triggers:write"); const parsed = eventDefinitionUpdate.parse(input); try { const result = await this.eventDefinitions().update(id, parsed, parsed.expectedRevision); if (!result) throw new ServiceError(404, "not_found", "Event not found"); return publicValue(eventDefinitionResponse, result); } catch (error) { if (error instanceof EventDefinitionConflict) throw new ServiceError(409, "stale_event", "Event changed since it was loaded."); throw error; } }
+  async createEvent(input: unknown) { await this.authorize("triggers:write"); const parsed = eventDefinitionInput.parse(input); return publicValue(eventDefinitionResponse, await this.eventDefinitions().create({ ...parsed, evaluatorAuthority: parsed.enrichment ? await authorizeEnrichment(this.env,this.auth,parsed.enrichment) : undefined })); }
+  async updateEvent(id: string, input: unknown) { await this.authorize("triggers:write"); const parsed = eventDefinitionUpdate.parse(input); try { const result = await this.eventDefinitions().update(id, { ...parsed, evaluatorAuthority: parsed.enrichment ? await authorizeEnrichment(this.env,this.auth,parsed.enrichment) : undefined }, parsed.expectedRevision); if (!result) throw new ServiceError(404, "not_found", "Event not found"); return publicValue(eventDefinitionResponse, result); } catch (error) { if (error instanceof EventDefinitionConflict) throw new ServiceError(409, "stale_event", "Event changed since it was loaded."); throw error; } }
+  async listEnrichmentRuns(id: string) {
+    await this.authorize("triggers:read");
+    if (!await this.eventDefinitions().get(id)) throw new ServiceError(404,"not_found","Event not found");
+    const { rows } = await databaseFor(this.env).pool.query<{id:string;trigger_id:string;created_at:Date;state:string;stage:string|null;reason:string|null;steps:unknown;normalized_input:unknown}>(
+      `SELECT id,trigger_id,created_at,steps,normalized_input,
+         CASE WHEN state='running' AND created_at<now()-interval '30 seconds' THEN 'failed' ELSE state END AS state,
+         CASE WHEN state='running' AND created_at<now()-interval '30 seconds' THEN 'evaluation' ELSE stage END AS stage,
+         CASE WHEN state='running' AND created_at<now()-interval '30 seconds' THEN 'interrupted_no_retry' ELSE reason END AS reason
+       FROM app.event_enrichment_runs
+       WHERE tenant_id=$1 AND definition_id=$2 ORDER BY created_at DESC,id LIMIT 50`,[this.auth.tenantId,id]);
+    return publicValue(z.array(enrichmentRun),rows.map(row=>({id:row.id,triggerId:row.trigger_id,createdAt:row.created_at.toISOString(),
+      state:row.state,stage:row.stage,reason:row.reason,steps:row.steps,input:row.normalized_input})));
+  }
   async deleteEvent(id: string) { await this.authorize("triggers:write"); if (!await this.eventDefinitions().delete(id)) throw new ServiceError(404, "not_found", "Event not found"); return { id, deleted: true as const }; }
   private occurrenceSummaryBoundary(id: string, cursor?: string) {
     if (cursor === undefined) return undefined;
@@ -330,10 +345,12 @@ export class ApiService {
   async testTriggerConditions(input: unknown) { await this.authorize("triggers:write"); const parsed = triggerConditionsTestSchema.parse(input); return evaluateWebhookConditions(parsed.conditions, parsed.webhook); }
   async createTrigger(request: TriggerInput) {
     await this.authorize("triggers:write");
-    if (!await this.eventDefinitions().get(request.eventId)) throw new ServiceError(404, "not_found", "Event not found");
+    const event = await this.eventDefinitions().get(request.eventId);
+    if (!event) throw new ServiceError(404, "not_found", "Event not found");
+    if (event.enrichment) await authorizeEnrichment(this.env, this.auth, event.enrichment);
     const id = crypto.randomUUID(), timestamp = new Date().toISOString();
     const sources = this.normalizedSources(request.sources).map(source => ({ ...source, triggerId: id }));
-    const trigger: Trigger = { id, eventId: request.eventId, name: request.name, description: "", slug: request.name, revision: 1, enabled: true, sources, createdAt: timestamp, updatedAt: timestamp };
+    const trigger: Trigger = { id, eventId: request.eventId, name: request.name, description: "", slug: request.name, revision: 1, enabled: true, sources, ...(request.inputMapping ? {inputMapping: request.inputMapping} : {}), createdAt: timestamp, updatedAt: timestamp };
     try { const saved = await this.triggers().create(trigger); await this.wakeScheduler(); return this.presentTrigger(saved); }
     catch (error: any) { if ((error?.code ?? error?.cause?.code) === "23505") throw new ServiceError(409, "conflict", "Trigger name is already in use"); throw error; }
   }
@@ -342,9 +359,11 @@ export class ApiService {
     const repository = this.triggers(), current = await repository.getTrigger(triggerId);
     if (!current) throw new ServiceError(404, "not_found", "Trigger not found");
     const eventId = request.eventId;
-    if (!await this.eventDefinitions().get(eventId)) throw new ServiceError(404, "not_found", "Event not found");
+    const event = await this.eventDefinitions().get(eventId);
+    if (!event) throw new ServiceError(404, "not_found", "Event not found");
+    if (event.enrichment) await authorizeEnrichment(this.env, this.auth, event.enrichment);
     const sources = this.normalizedSources(request.sources, current.sources).map(source => ({ ...source, triggerId }));
-    try { const saved = await repository.update({ ...current, eventId, name: request.name, slug: request.name, sources, updatedAt: new Date().toISOString() }, request.expectedUpdatedAt); await this.wakeScheduler(); return this.presentTrigger(saved); }
+    try { const saved = await repository.update({ ...current, eventId, name: request.name, slug: request.name, sources, inputMapping: request.inputMapping === null ? undefined : request.inputMapping ?? current.inputMapping, updatedAt: new Date().toISOString() }, request.expectedUpdatedAt); await this.wakeScheduler(); return this.presentTrigger(saved); }
     catch (error) { if ((error as any)?.code === "23505") throw new ServiceError(409, "conflict", "Trigger name is already in use"); if (error instanceof StaleTriggerEdit) throw new ServiceError(409, "stale_trigger", "This Trigger changed. Reload it before saving."); throw error; }
   }
 
@@ -363,8 +382,8 @@ export class ApiService {
     await this.authorize("triggers:write"); const trigger = await this.triggers().getTrigger(triggerId); if (!trigger) throw new ServiceError(404, "not_found", "Trigger not found");
     const source = trigger.sources.find(value => value.kind === "manual" && value.enabled); if (!source) throw new ServiceError(409, "operation_failed", "The manual Trigger source is disabled");
     const deduplicationKey = input.idempotencyKey ?? crypto.randomUUID();
-    const result = await new EventMatchRepository(databaseFor(this.env), () => wakeMcpDeliveries(this.env)).match({ tenantId: this.auth.tenantId, triggerId, triggerRevision: trigger.revision, sourceIdentity: `manual:${source.id}`, deduplicationKey, evidence: input.data ?? {}, decision: "matched" });
-    return { occurrenceId: result.occurrence?.id ?? null, duplicate: result.duplicate };
+    const result = await new EventMatchRepository(databaseFor(this.env), () => wakeMcpDeliveries(this.env), this.env).match({ tenantId: this.auth.tenantId, triggerId, triggerRevision: trigger.revision, sourceIdentity: `manual:${source.id}`, deduplicationKey, evidence: input.data ?? {}, decision: "matched" });
+    return { occurrenceId: result.occurrence?.id ?? null, duplicate: result.duplicate, ...(result.evaluationId ? {evaluationId:result.evaluationId} : {}) };
   }
   async listTriggerEventAvailability() { await this.authorize("triggers:read"); const [kinds, installations] = await Promise.all([this.connections().kinds(), new GitHubRepository(databaseFor(this.env),this.auth.tenantId).installations()]), states=installations.map((x:any)=>x.state); return installedEventAvailability(kinds.includes("linear"),kinds.includes("clickup"),states); }
   async previewSchedule(input: unknown) {

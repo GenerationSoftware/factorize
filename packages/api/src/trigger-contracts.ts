@@ -1,3 +1,4 @@
+import { inputMapping } from "./event-enrichment-contracts";
 import { z } from "zod";
 import { triggerInputSchema, triggerSourceSchema, webhookSourceConfigSchema } from "./trigger-schemas";
 
@@ -13,6 +14,6 @@ export const triggerSourceResponse = z.discriminatedUnion("kind", [
   triggerSourceSchema.options[1].extend(triggerSourceIdentity),
   triggerSourceSchema.options[2].extend({ ...triggerSourceIdentity, config: webhookResponse }),
 ]);
-export const triggerResponse = z.object({ id: z.guid(), name: z.string(), description: z.string(), enabled: z.boolean(), eventId: z.guid(), sources: z.array(triggerSourceResponse), createdAt: z.string(), updatedAt: z.string() });
+export const triggerResponse = z.object({ inputMapping: inputMapping.optional(), id: z.guid(), name: z.string(), description: z.string(), enabled: z.boolean(), eventId: z.guid(), sources: z.array(triggerSourceResponse), createdAt: z.string(), updatedAt: z.string() });
 // Omission preserves last-writer-wins behavior for existing REST/MCP clients.
 export const triggerUpdateInput = triggerInputSchema.extend({ expectedUpdatedAt: z.iso.datetime().optional() });

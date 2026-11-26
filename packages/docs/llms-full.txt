@@ -272,6 +272,7 @@ its input and enforces the operation's required scope.
 | `import_attachment` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `list_apps` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `list_cloudflare_tail_integrations` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
+| `list_event_evaluations` | `triggers:read` | List recent safe evaluation results and mapped input; never returns provider response bodies. |
 | `list_event_occurrences` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
 | `get_event_processing_acknowledgments` | Same active OAuth grant with `triggers:read` | Read the processing policy and cooldown for the active subscription owned by this OAuth grant |
 | `replay_unacknowledged_events` | Same active OAuth grant with `triggers:read` | Queue recovery for exact unresolved original occurrence UUIDs on this subscription |
@@ -447,6 +448,27 @@ the 64-byte JWS format. Include these claims:
 Send the proof within 60 seconds and sign a fresh proof for every retry. MCP
 workloads need a transport that can set dynamic HTTP headers. The VM uses
 the scopes in its saved grant and refreshes its provider token before expiry.
+
+### Opt-in Event enrichment
+
+An Event can define an ordered `enrichment.extraDataUrls` list and one boolean
+JMESPath `rule`. A Trigger attached to it supplies an `inputMapping` from dotted
+paths in its evidence to common, scalar input keys. Usual Trigger prefilters
+run first. Each lookup uses a fixed integration and HTTP method. Its path is
+relative to that integration; Mustache variables can reference `input.name`
+or an earlier `lookups.step.field`. Path values are single safe segments and
+query values are escaped as data. Credentials come only from the authorized
+integration. Configure and edit an enriched Trigger using an OAuth grant with
+the explicit matching integration scopes, `proxy:use`, and `triggers:write`.
+
+The final rule sees the normalized `input` and `lookups`. No lookup response
+bodies are persisted, shown on the Event page, or delivered. Only mapped input
+becomes the occurrence payload; choose those fields deliberately. Diagnostics
+are available through `list_event_evaluations` or the authenticated
+`GET /api/v1/events/{eventId}/evaluations` endpoint. They include named step
+results, a safe failure reason, and mapped input, not raw provider responses.
+Missing inputs, failed lookups, revoked access, and interrupted attempts stop
+evaluation without retrying or creating an occurrence.
 
 ## Events and Triggers
 Source: https://docs.factorize.sh/concepts

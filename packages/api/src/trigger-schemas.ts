@@ -1,3 +1,4 @@
+import { inputMapping } from "./event-enrichment-contracts";
 import Mustache from "mustache";
 import { z } from "zod";
 import { ACCESS_SCOPES } from "./access-tokens";
@@ -20,7 +21,7 @@ export const triggerSourceSchema = z.discriminatedUnion("kind", [
   z.object({ id: z.string().min(1).optional(), slug: z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/).optional(), kind: z.literal("webhook"), template: sourceTemplate, enabled: z.boolean().default(true), config: webhookSourceConfigSchema }).strict(),
 ]);
 const triggerSources = z.array(triggerSourceSchema).min(1).max(50);
-export const triggerInputSchema = z.object({ name: resourceName, eventId: z.guid(), sources: triggerSources.default([{ kind: "manual", slug: "source-1", enabled: true, config: {} }]) }).strict();
+export const triggerInputSchema = z.object({ name: resourceName, eventId: z.guid(), inputMapping: inputMapping.nullable().optional(), sources: triggerSources.default([{ kind: "manual", slug: "source-1", enabled: true, config: {} }]) }).strict();
 
 // Require explicit MCP input so a stale tool catalog cannot discard the
 // source configuration and fall back to creating or restoring a manual source.

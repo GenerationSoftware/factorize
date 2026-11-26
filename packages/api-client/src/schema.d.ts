@@ -1818,6 +1818,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/events/{eventId}/evaluations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read recent safe Event evaluation diagnostics
+         * @description Requires the triggers:read scope.
+         *
+         *     Accepts a scoped bearer token or interactive owner session.
+         */
+        get: operations["get_api_v1_events_eventId_evaluations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/events/{eventId}/occurrences": {
         parameters: {
             query?: never;
@@ -2580,6 +2602,9 @@ export interface components {
             name: string;
             /** Format: uuid */
             eventId: string;
+            inputMapping?: {
+                [key: string]: string;
+            } | null;
             /**
              * @default [
              *       {
@@ -6346,6 +6371,17 @@ export interface operations {
                         payloadSchema: {
                             [key: string]: unknown;
                         };
+                        enrichment?: {
+                            extraDataUrls: {
+                                name: string;
+                                /** Format: uuid */
+                                integration: string;
+                                /** @enum {string} */
+                                method: "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS";
+                                path: string;
+                            }[];
+                            rule: string;
+                        };
                         createdAt: string;
                         updatedAt: string;
                         triggerCount: number;
@@ -6376,6 +6412,17 @@ export interface operations {
                     name: string;
                     /** @default  */
                     description?: string;
+                    enrichment?: {
+                        extraDataUrls: {
+                            name: string;
+                            /** Format: uuid */
+                            integration: string;
+                            /** @enum {string} */
+                            method: "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS";
+                            path: string;
+                        }[];
+                        rule: string;
+                    } | null;
                     /**
                      * @default {
                      *       "type": "object"
@@ -6402,6 +6449,17 @@ export interface operations {
                         revision: number;
                         payloadSchema: {
                             [key: string]: unknown;
+                        };
+                        enrichment?: {
+                            extraDataUrls: {
+                                name: string;
+                                /** Format: uuid */
+                                integration: string;
+                                /** @enum {string} */
+                                method: "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS";
+                                path: string;
+                            }[];
+                            rule: string;
                         };
                         createdAt: string;
                         updatedAt: string;
@@ -6445,6 +6503,17 @@ export interface operations {
                         payloadSchema: {
                             [key: string]: unknown;
                         };
+                        enrichment?: {
+                            extraDataUrls: {
+                                name: string;
+                                /** Format: uuid */
+                                integration: string;
+                                /** @enum {string} */
+                                method: "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS";
+                                path: string;
+                            }[];
+                            rule: string;
+                        };
                         createdAt: string;
                         updatedAt: string;
                     };
@@ -6475,6 +6544,17 @@ export interface operations {
                     name: string;
                     /** @default  */
                     description?: string;
+                    enrichment?: {
+                        extraDataUrls: {
+                            name: string;
+                            /** Format: uuid */
+                            integration: string;
+                            /** @enum {string} */
+                            method: "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS";
+                            path: string;
+                        }[];
+                        rule: string;
+                    } | null;
                     /**
                      * @default {
                      *       "type": "object"
@@ -6502,6 +6582,17 @@ export interface operations {
                         revision: number;
                         payloadSchema: {
                             [key: string]: unknown;
+                        };
+                        enrichment?: {
+                            extraDataUrls: {
+                                name: string;
+                                /** Format: uuid */
+                                integration: string;
+                                /** @enum {string} */
+                                method: "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS";
+                                path: string;
+                            }[];
+                            rule: string;
                         };
                         createdAt: string;
                         updatedAt: string;
@@ -6537,6 +6628,56 @@ export interface operations {
                 };
                 content: {
                     "application/json": Record<string, never>;
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    get_api_v1_events_eventId_evaluations: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                eventId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Evaluations */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        /** Format: uuid */
+                        triggerId: string;
+                        /** Format: date-time */
+                        createdAt: string;
+                        /** @enum {string} */
+                        state: "running" | "matched" | "excluded" | "failed";
+                        stage: string | null;
+                        reason: string | null;
+                        input: {
+                            [key: string]: string | number | boolean;
+                        } | null;
+                        steps: {
+                            name: string;
+                            /** @enum {string} */
+                            outcome: "ok" | "failed";
+                            status?: number;
+                        }[];
+                    }[];
                 };
             };
             400: components["responses"]["Error400"];
@@ -6613,6 +6754,9 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
+                        inputMapping?: {
+                            [key: string]: string;
+                        };
                         /** Format: uuid */
                         id: string;
                         name: string;
@@ -6753,6 +6897,9 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
+                        inputMapping?: {
+                            [key: string]: string;
+                        };
                         /** Format: uuid */
                         id: string;
                         name: string;
@@ -6898,6 +7045,8 @@ export interface operations {
                     "application/json": {
                         occurrenceId: string | null;
                         duplicate: boolean;
+                        /** Format: uuid */
+                        evaluationId?: string;
                     };
                 };
             };
@@ -8001,6 +8150,9 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
+                        inputMapping?: {
+                            [key: string]: string;
+                        };
                         /** Format: uuid */
                         id: string;
                         name: string;
@@ -8136,6 +8288,9 @@ export interface operations {
                     name: string;
                     /** Format: uuid */
                     eventId: string;
+                    inputMapping?: {
+                        [key: string]: string;
+                    } | null;
                     /**
                      * @default [
                      *       {
@@ -8237,6 +8392,9 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
+                        inputMapping?: {
+                            [key: string]: string;
+                        };
                         /** Format: uuid */
                         id: string;
                         name: string;

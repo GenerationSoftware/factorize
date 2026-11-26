@@ -225,6 +225,7 @@ function createMcpServer(service: ApiService, subscriptions = true): McpServer {
     tool("list_events", "List Events, their current payload schema revisions, and Trigger and occurrence counts.", z.object({}), () => service.listEvents());
     tool("get_event", "Read an Event and its current payload schema revision.", z.object({eventId:z.uuid()}), ({eventId}:any) => service.getEvent(eventId));
     tool("create_event", "Create a durable Event that one or more Triggers can publish.", eventDefinitionInput, (input:any) => service.createEvent(input));
+    tool("list_event_evaluations", "Read recent Event evaluation diagnostics and mapped input, without raw lookup responses.", z.object({eventId:z.uuid()}), (input:any) => service.listEnrichmentRuns(input.eventId));
     tool("update_event", "Create a new Event payload schema revision; existing occurrences retain their original revision.", eventDefinitionUpdate.extend({eventId:z.uuid()}), ({eventId,...input}:any) => service.updateEvent(eventId,input));
     tool("delete_event", "Permanently delete an Event, all its Triggers and input configurations, and its occurrence history.", z.object({eventId:z.uuid()}), ({eventId}:any) => service.deleteEvent(eventId));
     const processingAction = async <T>(action: () => Promise<T>) => {

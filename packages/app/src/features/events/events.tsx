@@ -1,3 +1,4 @@
+import { triggersQuery } from "../triggers/queries";
 import type { ReactNode } from "react";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -48,6 +49,12 @@ export function EventPage() {
   const cache = useQueryClient();
   const navigate = useNavigate();
   const events = useQuery({ ...eventsQuery, select: rows => rows.find(row => row.id === eventId) });
+  const detail = useQuery({ queryKey: ["events",eventId,"detail"], enabled: !!events.data, queryFn: async ({signal}) => {
+    const response = await api.GET("/api/v1/events/{eventId}",{signal,params:{path:{eventId}}});
+    if (!response.data || response.error) throw new Error(response.error?.error?.message ?? "Could not load the Event rule.");
+    return response.data;
+  }});
+  const triggers = useQuery({ ...triggersQuery(), enabled: !!events.data, select: rows => rows.filter(row => row.eventId === eventId) });
   const event = events.data;
   const remove = useMutation({
     mutationFn: async () => {
@@ -76,6 +83,31 @@ export function EventPage() {
         <div><dt className="font-semibold">Created</dt><dd><SubscriptionTime value={event.createdAt} /></dd></div>
         <div><dt className="font-semibold">Updated</dt><dd><SubscriptionTime value={event.updatedAt} /></dd></div>
       </dl>
+      <section className="space-y-3">
+        <h2>Triggers</h2>
+        {triggers.error && <p role="alert">{triggers.error.message}</p>}
+        {triggers.isPending && <p role="status">Loading Triggers...</p>}
+        {triggers.data?.length ? <Table>
+          <thead><tr>{["Trigger","Input sources","Status"].map(item=><th key={item} scope="col" className={tableCellClasses}>{item}</th>)}</tr></thead>
+          <tbody>{triggers.data.map(trigger=><tr key={trigger.id}>
+            <td className={tableCellClasses}><Link className="text-factorize-700 hover:underline" to="/triggers/$triggerId" params={{triggerId:trigger.id}}>{trigger.name}</Link></td>
+            <td className={tableCellClasses}>{[...new Set(trigger.sources.map(source=>source.kind))].join(", ") || "None"}</td>
+            <td className={tableCellClasses}>{trigger.enabled ? "Enabled" : "Disabled"}</td>
+          </tr>)}</tbody>
+        </Table> : triggers.data && <p>No Triggers are attached.</p>}
+      </section>
+      {detail.data?.enrichment && <section className="space-y-3 rounded-xl border border-stone-200 bg-stone-50 p-4 dark:border-slate-700 dark:bg-slate-900">
+        <h2>Match logic</h2>
+        <p className="text-sm">After a Trigger matches, lookups run in order. The Event fires only when the final rule is true.</p>
+        {!!detail.data.enrichment.extraDataUrls.length && <ol className="space-y-2 text-sm">
+          {detail.data.enrichment.extraDataUrls.map((step,index)=><li key={step.name} className="rounded bg-white p-2 dark:bg-slate-800">
+            <strong>{index+1}. {step.name}</strong> <span className="ml-2 font-mono text-xs">{step.method} {step.path}</span>
+          </li>)}
+        </ol>}
+        <p className="text-sm font-semibold">Final rule</p>
+        <pre className="overflow-x-auto whitespace-pre-wrap rounded bg-white p-3 text-sm dark:bg-slate-800">{detail.data.enrichment.rule}</pre>
+        <p className="text-xs">Read only. Edit this rule through the Factorize API or MCP.</p>
+      </section>}
       <section><h2 className="mb-3">Subscriptions</h2><EventSubscriptions eventId={eventId} /></section>
       <OccurrenceTable key={eventId} eventId={eventId} />
       <Button disabled={remove.isPending} onClick={() => {

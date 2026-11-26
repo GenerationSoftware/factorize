@@ -35,7 +35,7 @@ export class AlarmCoordinator extends DurableObject<Env> {
     let backlog = false;
     try {
       try {
-        await new AutomationScheduler(databaseFor(this.env), this.env).process();
+        await new AutomationScheduler(databaseFor(this.env), this.eventEnv()).process();
         await maintainProxyOperations(this.env);
         await cleanupAgentResponses(this.env);
       } finally {

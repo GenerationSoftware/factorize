@@ -1,3 +1,5 @@
+import type { EvaluatorAuthority } from "../event-enrichment";
+import type { EventEnrichment } from "../event-enrichment-contracts";
 import type { Database, DatabaseClient } from "./database";
 
 interface RecordedOccurrence {
@@ -49,6 +51,8 @@ export interface EventDefinitionInput {
   name: string;
   description?: string;
   payloadSchema?: Record<string, unknown>;
+  enrichment?: EventEnrichment | null;
+  evaluatorAuthority?: EvaluatorAuthority | null;
 }
 
 export class EventDefinitionRepository {
@@ -58,11 +62,11 @@ export class EventDefinitionRepository {
 
   private async present(client: Pick<DatabaseClient, "query">, id: string) {
     const row = (await client.query<any>(`SELECT d.id,d.name,d.description,d.current_revision,d.created_at,d.updated_at,
-        r.payload_schema
+        r.payload_schema,r.enrichment
       FROM app.event_definitions d JOIN app.event_definition_revisions r
         ON r.tenant_id=d.tenant_id AND r.definition_id=d.id AND r.revision=d.current_revision
       WHERE d.tenant_id=$1 AND d.id=$2`, [this.tenantId, id])).rows[0];
-    return row && { id: row.id, name: row.name, description: row.description, revision: row.current_revision, payloadSchema: row.payload_schema, createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString() };
+    return row && { id: row.id, name: row.name, description: row.description, revision: row.current_revision, payloadSchema: row.payload_schema, ...(row.enrichment ? { enrichment: row.enrichment } : {}), createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString() };
   }
 
   async list() {
@@ -149,7 +153,7 @@ export class EventDefinitionRepository {
     const id = crypto.randomUUID();
     await this.database.transaction(async client => {
       await client.query(`INSERT INTO app.event_definitions(tenant_id,id,name,description,current_revision) VALUES($1,$2,$3,$4,1)`, [this.tenantId, id, input.name, input.description ?? ""]);
-      await client.query(`INSERT INTO app.event_definition_revisions(tenant_id,definition_id,revision,payload_schema) VALUES($1,$2,1,$3)`, [this.tenantId, id, input.payloadSchema ?? { type: "object" }]);
+      await client.query(`INSERT INTO app.event_definition_revisions(tenant_id,definition_id,revision,payload_schema,enrichment,evaluator_authority) VALUES($1,$2,1,$3,$4,$5)`, [this.tenantId, id, input.payloadSchema ?? { type: "object" }, input.enrichment ?? null,input.evaluatorAuthority ?? null]);
     });
     return this.get(id);
   }
@@ -160,7 +164,12 @@ export class EventDefinitionRepository {
       if (!current) return null;
       if (current.current_revision !== expectedRevision) throw new EventDefinitionConflict();
       const revision = current.current_revision + 1;
-      await client.query(`INSERT INTO app.event_definition_revisions(tenant_id,definition_id,revision,payload_schema) VALUES($1,$2,$3,$4)`, [this.tenantId, id, revision, input.payloadSchema ?? { type: "object" }]);
+      const previous = input.enrichment === undefined ? (await client.query<{ enrichment: EventEnrichment; evaluator_authority: EvaluatorAuthority }>(
+        "SELECT enrichment,evaluator_authority FROM app.event_definition_revisions WHERE tenant_id=$1 AND definition_id=$2 AND revision=$3",
+        [this.tenantId,id,current.current_revision])).rows[0] : undefined;
+      await client.query(`INSERT INTO app.event_definition_revisions(tenant_id,definition_id,revision,payload_schema,enrichment,evaluator_authority)
+        VALUES($1,$2,$3,$4,$5,$6)`, [this.tenantId,id,revision,input.payloadSchema ?? {type:"object"},previous?.enrichment ?? input.enrichment ?? null,
+          previous?.evaluator_authority ?? input.evaluatorAuthority ?? null]);
       await client.query(`UPDATE app.event_definitions SET name=$3,description=$4,current_revision=$5,updated_at=now() WHERE tenant_id=$1 AND id=$2`, [this.tenantId, id, input.name, input.description ?? "", revision]);
       return this.present(client, id);
     });
