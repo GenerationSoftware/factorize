@@ -1,29 +1,63 @@
 ---
-title: Create and edit Triggers
-description: Attach input sources to Events and publish validated occurrences.
+title: React to an Event
+description: Publish a test occurrence, verify delivery, and configure real inputs when ready.
 ---
 
-A Trigger belongs to exactly one Event. An Event can have multiple Triggers.
-Triggers accept supported input sources such as schedules, signed webhooks,
-provider events, and explicit fire requests. A match produces a durable
-occurrence of the parent Event; it does not start an agent execution.
+Human setup: follow [React to an event](/quickstart#react-to-an-event).
+Use `triggers:write` for setup, manual fire, and cleanup; use
+`triggers:read` for discovery, subscriptions, and reads.
 
-Use the browser or MCP `create_trigger` and `update_trigger` tools. Each Trigger
-has a name, an `eventId`, and a `sources` array with a kind and configuration for
-each source. Updates replace the configuration, so read the current Trigger
-first and include the intended full configuration. Credentials are configured through integrations and are never
-accepted in Trigger input.
+1. In a test team use `create_event` with a unique test name and an object
+   schema. Use the returned Event UUID as `eventId` in `create_trigger`.
+   Add a manual source to start; no provider credential is needed.
+2. If your client supports subscriptions, subscribe to
+   `factorize://events/{eventId}/occurrences` before firing. Call
+   `fire_trigger` with the returned Trigger ID, a stable `idempotencyKey`,
+   and a message that matches the schema.
+3. Use `list_event_occurrences` to verify the durable record (and to recover
+   after a missed notification). Reuse the key for the same logical fire:
+   it must not create another occurrence. Unsubscribe and use `delete_event`
+   only for the confirmed test Event; deletion cascades to its Triggers
+   and occurrence history.
 
-## Sources and delivery
+```json create_event
+{"name":"hello.factorize","payloadSchema":{"type":"object","properties":{"message":{"type":"string"}},"required":["message"]}}
+```
 
-- **Schedule:** cron expression and timezone.
-- **Webhook/provider:** provider-specific routing configuration, signatures,
-  conditions and delivery identifiers.
-- **Manual:** `fire_trigger` with a payload and idempotency key.
+```json create_trigger
+{"eventId":"11111111-1111-4111-8111-111111111111","name":"hello-manual","sources":[{"kind":"manual"}]}
+```
 
-Duplicate provider deliveries and repeated manual keys do not create duplicate
-occurrences. The Event's current JSON payload schema is validated before an
-occurrence is stored. Occurrences retain the schema revision used at creation.
+```json fire_trigger
+{"triggerId":"22222222-2222-4222-8222-222222222222","idempotencyKey":"hello-factorize-1","data":{"message":"hello"}}
+```
 
-See [the Event walkthrough](/quickstart), [MCP tools](/mcp/tools), and
-[webhook troubleshooting](/troubleshooting/events).
+## What each signal means
+
+- **Occurrence:** A validated Event record was committed. One Event can have
+  several Triggers. It is not proof an agent ran.
+- **Transport receipt:** A resource update tells a client to read; an HTTP
+  callback receipt means a delivery endpoint accepted the request. Neither
+  proves the subscriber finished processing.
+- **Processing ACK:** An optional confirmation by the subscriber, recording
+  durable completion or handoff on its exact subscription and original
+  occurrence ID. It is not inferred from HTTP success.
+- **Execution:** What the subscriber chooses to do. Factorize does not run
+  an agent simply because it published an occurrence.
+
+## Add a real input when ready
+
+Use a [webhook or provider source](/integrations/events), or select a schedule
+with a cron expression and time zone. Work with recorded test evidence first.
+Read the existing Trigger with `get_trigger` before replacing a configuration
+with `update_trigger`. Inspect [delivery and ACK diagnostics](/mcp/tools#optional-processing-acknowledgments)
+rather than repeating a live action just to verify it.
+
+Optional [Event enrichment](/mcp/tools#opt-in-event-enrichment) maps different
+Trigger sources into a common input, evaluates ordered named lookups using
+existing authorized integrations, and applies one final Event-level rule.
+Configure it with an OAuth grant authorized for `triggers:write`,
+`proxy:use`, and every selected integration. Do not add live lookups to a test
+Event. Lookups are not retried; safe evaluation results can be read through
+`list_event_evaluations`, but raw provider response bodies are not stored or
+delivered. The app shows attached Triggers and read-only match logic.

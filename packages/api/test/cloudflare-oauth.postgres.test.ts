@@ -1,3 +1,4 @@
+import { example } from "./helpers/docs-example";
 import { expect, it, vi } from "vitest";
 import { cloudflarePath, cloudflareSettings } from "../src/cloudflare-oauth";
 import { encrypt } from "../src/crypto";
@@ -48,10 +49,11 @@ it.skipIf(!database)("redirects and saves fresh Cloudflare consent, refreshes an
       (tenant_id,kind,credential_id,name,available,policy) VALUES($1,'cloudflare',$2,'Legacy',true,'requestable') RETURNING id,epoch`, [f.tenantId, old])).rows[0];
     const api = (method: string, path: string, cookie = f.cookie) => worker.fetch(new Request(f.env.APP_ORIGIN + path,
       { method, headers: { Cookie: cookie, Origin: f.env.APP_ORIGIN } }), f.env, {} as ExecutionContext);
-    const call = (policy: {id:string;epoch:number}, method: string, path: string, extra: Record<string,unknown> = {}, grant = true) =>
+    const request = (policy: {id:string;epoch:number}, grant = true) =>
       mcpRequest(f.env, { ...f.auth, authMethod: "oauth", oauthGrantId: "fixture-grant", oauthClientId: "fixture-client",
-        oauthExpiresAt: Date.now()/1000 + 600, explicitIntegrationScopes: true, scopes: ["proxy:use", ...(grant ? [`integration:${policy.id}:${policy.epoch}`] : [])] })(
-      "tools/call", { name: "request_api", arguments: { method, path, integration: policy.id, execution: "sync", ...extra } });
+        oauthExpiresAt: Date.now()/1000 + 600, explicitIntegrationScopes: true, scopes: ["proxy:use", ...(grant ? [`integration:${policy.id}:${policy.epoch}`] : [])] });
+    const call = (policy: {id:string;epoch:number}, method: string, path: string, extra: Record<string,unknown> = {}, grant = true) =>
+      request(policy, grant)("tools/call", { name: "request_api", arguments: { method, path, integration: policy.id, execution: "sync", ...extra } });
     const legacy = await (await api("GET", url)).json() as { connections: unknown[] };
     expect(legacy.connections).toEqual([{ id: old, name: "Legacy account", connected: false, reconnectRequired: true }]);
     const provider = vi.fn(async (value: URL|string, init?: RequestInit) => {
@@ -127,8 +129,15 @@ it.skipIf(!database)("redirects and saves fresh Cloudflare consent, refreshes an
     const listed = await (await api("GET", url)).text();
     for (const value of [config.CLOUDFLARE_OAUTH_CLIENT_SECRET,"first-fixture","refresh-fixture"]) expect(listed).not.toContain(value);
     expect(JSON.parse(listed).connections).toHaveLength(2);
+    const reflection = (await request(fresh)("tools/call", { name: "get_api_reflection", arguments: {} })).message.result.structuredContent;
+    expect(reflection.integrations).toEqual(expect.arrayContaining([expect.objectContaining({ id: fresh.id, access: "granted" })]));
+    const recipe = await example("use-an-api", "request_api");
+    const sample = await request(fresh)("tools/call", {
+      name: "request_api", arguments: { ...recipe, integration: fresh.id, path: "/accounts/one/widgets" },
+    });
+    expect(sample.message.result.structuredContent).toMatchObject({ status: 200 });
     expect((await call(fresh,"GET","/accounts/one/widgets",{},false)).status).toBe(403);
-    expect(provider).toHaveBeenCalledTimes(1);
+    expect(provider).toHaveBeenCalledTimes(2);
     // A stored, unexpired token needs neither new-consent defaults nor a client
     // secret. The refresh below still needs the secret but does not need defaults.
     delete f.env.CLOUDFLARE_OAUTH_CLIENT_SECRET;

@@ -1,4 +1,5 @@
 import { pruneRevokedMcpSubscriptions } from "../src/postgres/mcp-event-outbox";
+import { example } from "./helpers/docs-example";
 import { createHmac } from "node:crypto";
 import { AlarmCoordinator } from "../src/alarm-coordinator";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -664,6 +665,21 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("MCP event webhook lifecycl
     await dispatchMcpEvents(f.env);
     expect(observed(remainingAlpha)).toEqual([[alphaFanout.id, "factorize.occurrence", first.eventId]]);
     expect(observed(remainingLegacy)).toEqual([[companion.id, "factorize.occurrence", source.definitionId]]);
+  });
+
+  it("runs and cleans up the documented manual Event recipe over MCP", async () => {
+    const created = (await tool("create_event", await example("triggers", "create_event"))).structuredContent;
+    expect(created).toMatchObject({ name: "hello.factorize" });
+    const trigger = (await tool("create_trigger", {
+      ...await example("triggers", "create_trigger"), eventId: created.id,
+    })).structuredContent;
+    const args = { ...await example("triggers", "fire_trigger"), triggerId: trigger.triggerId ?? trigger.id };
+    const first = (await tool("fire_trigger", args)).structuredContent;
+    expect(first).toMatchObject({ occurrenceId: expect.any(String), duplicate: false });
+    expect((await tool("fire_trigger", args)).structuredContent).toEqual({ ...first, duplicate: true });
+    const listed = (await tool("list_event_occurrences", { eventId: created.id })).structuredContent;
+    expect(listed.items).toMatchObject([{ id: first.occurrenceId, payload: { message: "hello" } }]);
+    expect((await tool("delete_event", { eventId: created.id })).isError).not.toBe(true);
   });
 
   it("discovers, subscribes, commits, dispatches and reads a deduplicated occurrence", async () => {

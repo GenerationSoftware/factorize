@@ -6,7 +6,7 @@ import {builtinSkillDocuments,builtinSkillsVersion,builtinSkillUri,builtinSkill,
 
 describe("build-shipped workflow catalog",()=>{
  it("ships the standalone management documents with exact canonical bytes and manifests",async()=>{
-  expect(builtinSkillDocuments.map(skill=>skill.name)).toEqual(["manage-triggers"]);
+  expect(builtinSkillDocuments.map(skill=>skill.name)).toEqual(["grant-vm-access","manage-triggers","use-an-api"]);
   for(const skill of builtinSkillDocuments){
    const text=await readFile(resolve(import.meta.dirname,"../../../skills",skill.name,"SKILL.md"),"utf8");
    expect(skill.text).toBe(text);expect(skill.frontmatter.name).toBe(skill.name);expect(skill.frontmatter.description.length).toBeGreaterThan(10);
@@ -19,7 +19,7 @@ describe("build-shipped workflow catalog",()=>{
  });
  it("covers the live Trigger and Event tools",()=>{
   for(const term of ["create_trigger","webhook","list_webhook_deliveries"])
-   expect(builtinSkillDocuments[0].text).toContain(term);
+   expect(builtinSkillDocuments.find(skill=>skill.name==="manage-triggers")!.text).toContain(term);
  });
  it("rejects noncanonical and unknown versions/paths",()=>{
   for(const uri of [builtinSkillUri("missing"),builtinSkillUri("manage-triggers")+"?q=1",builtinSkillUri("manage-triggers").replace("SKILL.md","%53KILL.md"),builtinSkillUri("manage-triggers").replace(builtinSkillsVersion,"old")])expect(()=>builtinSkill(uri)).toThrow();

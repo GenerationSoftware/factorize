@@ -1,3 +1,4 @@
+import { example } from "./helpers/docs-example";
 import { Buffer } from "node:buffer";
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
@@ -60,8 +61,10 @@ describe.skipIf(!url)("Fly permission enrollment", () => {
         "SELECT id FROM app.agent_integrations WHERE tenant_id=$1 AND kind='fly'", [f.tenantId],
       )).rows[0]!.id;
       const env = { ...f.env, FLY_VM_GRANTS_ENABLED: "true" };
-      const auth = { ...f.auth, scopes: ["vms:edit", "vms:read", "team:read"] };
-      const input = { providerId, vm: "1234abcd", app: "demo", requestKey: "retry", permissions: { scopes: ["vms:read", "team:read"] } };
+      const auth = { ...f.auth, scopes: ["vms:edit", "vms:read", "team:read", "triggers:read"] };
+      const recipe = await example("vm-access", "grant_vm_permissions");
+      const { kind: _fixtureKind, ...fixtureTarget } = recipe.target;
+      const input = { ...fixtureTarget, providerId, app: "demo", permissions: { scopes: [...recipe.permissions.scopes, "vms:read", "team:read"] } };
       let organization = "wrong";
       let failDiscovery = true;
       const attemptedIds: string[] = [];
@@ -99,7 +102,7 @@ describe.skipIf(!url)("Fly permission enrollment", () => {
       failDiscovery = false;
       const active = await provisionVmGrant(env, auth, input);
       expect(attemptedIds).toEqual([active.id, active.id]);
-      expect(active).toMatchObject({ scopes: ["vms:read", "team:read"], issuer, machine_key: "example/demo/1234abcd" });
+      expect(active).toMatchObject({ scopes: ["triggers:read", "vms:read", "team:read"], issuer, machine_key: "example/demo/1234abcd" });
       expect(active.public_key).not.toHaveProperty("d");
       expect(await repository.list()).toHaveLength(1);
       expect((await provisionVmGrant(env, auth, input)).id).toBe(active.id);
@@ -140,9 +143,15 @@ describe.skipIf(!url)("Fly permission enrollment", () => {
       const listPath = "/api/v1/vms";
       const listResponse = await invoke(listPath, requestProof(active.id, token, "GET", f.env.APP_ORIGIN + listPath));
       expect(listResponse.status).toBe(200);
-      expect(await listResponse.json()).toMatchObject([{ id: active.id, scopes: ["vms:read", "team:read"] }]);
+      expect(await listResponse.json()).toMatchObject([{ id: active.id, scopes: ["triggers:read", "vms:read", "team:read"] }]);
       const mcp = (tool: { name: string; arguments: unknown }) => invoke("/mcp", requestProof(active.id, token, "POST", f.env.APP_ORIGIN + "/mcp"), token, tool);
       expect(await (await mcp({ name: "list_vms", arguments: {} })).text()).toContain(active.id);
+      expect((await mcp({ name: "list_events", arguments: {} })).status).toBe(200);
+      const eventPath = "/api/v1/events";
+      const events = await invoke(eventPath, requestProof(active.id, token, "GET", f.env.APP_ORIGIN + eventPath));
+      expect(events.status).toBe(200);
+      expect(await events.json()).toEqual([]);
+
       expect(await (await mcp({ name: "revoke_vm_permissions", arguments: { grantId: active.id } })).text()).toContain("insufficient_scope");
 
       const sessionRequest = (path: string, method: string, body?: unknown) => worker.fetch(new Request(f.env.APP_ORIGIN + path, {

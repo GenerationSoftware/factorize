@@ -1,19 +1,27 @@
 # Factorize
 
-Factorize stores durable Events and input Triggers. Connect an MCP client, define an Event, attach one or more Triggers, and subscribe to its occurrence resource.
+Factorize is a development environment for your agent. [Open Factorize](https://app.factorize.sh)
+and connect a supported MCP client to `https://app.factorize.sh/mcp`.
 
-Start at [app.factorize.sh](https://app.factorize.sh). Connect an MCP client to `https://app.factorize.sh/mcp`, approve `triggers:read` to discover Events and read occurrences, and approve `triggers:write` to manage Events and Triggers.
+- Use approved APIs from services you connect, without giving your agent raw credentials.
+- Give a supported workload, such as a VM, its own scoped access.
+- Publish durable Events from webhooks, schedules, or manual Triggers so subscribers can decide what to do.
 
-Ask your agent:
+You control what gets connected, what access is approved, and when to revoke it.
+[Try your first task](https://docs.factorize.sh/quickstart) or browse
+[MCP tools](https://docs.factorize.sh/mcp/tools) and the
+[generated REST contract](https://docs.factorize.sh/openapi.yaml).
 
-> Create an Event named `orders.created`, attach a manual Trigger, and publish a sample order. Subscribe to the Event and read the durable occurrence.
+## Operators and contributors
 
-The client uses the documented Event and Trigger API, then reads the stored occurrence after an MCP resource update notification. Retrying a manual fire with the same idempotency key does not create a duplicate.
+- [Optional self-hosting](https://docs.factorize.sh/self-hosting/deployment)
+- [Documentation development](docs/mintlify.md)
 
-Read the [first Event guide](https://docs.factorize.sh/quickstart), [Trigger guide](https://docs.factorize.sh/work/triggers), and [MCP tool reference](https://docs.factorize.sh/mcp/tools).
+Use the Node and npm versions pinned in the repository. Run `npm ci`, then
+`npm run dev`. Run `npm run test:local` on the [pinned validation
+runner](docs/factorize-validation-runner.md); it resets only the isolated local
+database. See [repository validation](docs/ci-testing.md) for other checks.
 
-## Development and validation
-
-Use Node 24.21.0 and npm 11.19.0 from `.node-version` and `package.json`. Run `npm ci`, then `npm run dev`. The complete required local suite is `npm run test:local` on the documented Factorize validation runner image; it resets only an isolated local database and runs `npm test`. Never point validation at production or a shared database. See [the validation runner guide](docs/factorize-validation-runner.md).
-
-The Worker is in `packages/api`, the static frontend in `packages/app`, and the generated public API contract in `packages/api-client`. Frontend code uses the same documented `/api/v1` routes as external clients. Run `npm run check:boundaries` to verify package imports.
+The Worker is in `packages/api`, the frontend in `packages/app`, and the
+generated public contract in `packages/api-client`. The frontend uses the
+same `/api/v1` routes as external clients.

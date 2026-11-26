@@ -1,42 +1,62 @@
 ---
-title: Your first Event
-description: Create an Event, attach a Trigger, and read its durable occurrence.
+title: Your first steps
+description: Connect your agent and try one small, reversible task.
 ---
 
-## Connect an MCP client
+In [Factorize](https://app.factorize.sh), select the team you want to use. In
+your agent's MCP client, add the remote endpoint
+`https://app.factorize.sh/mcp` and follow the sign-in prompt.
 
-Connect to `https://app.factorize.sh/mcp` using the [MCP setup guide](/mcp/overview).
-Authorize `triggers:read` to discover Events and occurrences, and `triggers:write`
-to create or change Events and Triggers.
+Factorize shows a consent page with the permissions you can approve. Select
+only what the task needs and leave the rest unchecked. The browser's
+**Clients** shows the connection afterward. If the task needs more
+access later, review the new permissions in the browser; start Reconnect in the client,
+then choose the same connection in Factorize to get a fresh credential. [Connection help](/mcp/overview)
 
-## Create and publish an Event
+Pick one path. You do not need to complete all three.
 
-An Event defines the payload shape. A Trigger belongs to one Event and watches
-an input source. Multiple Triggers may publish to the same Event.
+## Use an API
 
-Use the `create_event` MCP tool or the REST API to create an Event named `review.requested`
-with a JSON object payload schema. Then call `create_trigger` to add an enabled Trigger attached to it.
-For a simple local check, create a manual Trigger and fire it with a stable
-idempotency key and a JSON payload accepted by the Event schema.
+If you have no connected service, open **Integrations** in Factorize and
+connect one you own using a sandbox or test project. Approve a read-only
+permission where the provider offers it, and approve access to that integration
+for your agent. Do not paste credentials into the chat.
 
-```json
-{
-  "eventId": "EVENT_ID",
-  "name": "manual-review",
-  "sources": [{ "kind": "manual", "config": {} }]
-}
-```
+> Find an API I have connected in Factorize. Tell me which one you found, then
+> make one read-only request against my test project. Show me the status and a
+> short summary. Do not change anything or show credentials.
 
-## Subscribe, fire, and read
+Success is a status and a result you recognize from the test project, not just
+a list of tools. No provider record needs deleting. To remove temporary access,
+update the client's permissions or disconnect the test integration if nothing
+else needs it. [Agent recipe](/work/use-an-api)
 
-Call `list_events` or `get_event` to find the Event ID. Subscribe to
-`factorize://events/{eventId}/occurrences` before firing the Trigger.
+## Give a VM access
 
-Call `fire_trigger` with `triggerId`, `idempotencyKey`, and `data`. The response
-includes the durable occurrence ID. Reusing the same idempotency key returns
-that ID and reports a duplicate.
+Use a disposable Fly.io Machine on a Factorize deployment with [VM enrollment](/work/vm-access) enabled.
+Connect Fly.io in **Integrations** first. Review the client's VM
+permissions on Factorize's consent page and approve only the grant described
+below. Do not use a shared or production VM for the example.
 
-Read the resource after the MCP update notification. After reconnecting, use
-`list_event_occurrences` to recover occurrences that arrived while disconnected.
+> Ask me which test VM to use. Give just that VM permission to read Factorize
+> Events. From inside the VM, list the team's Events to verify it works. Do not
+> grant any other permissions or create or delete a VM.
 
-The same data is available from `GET /api/v1/events/{eventId}/occurrences`.
+An empty Event list from inside the VM counts as success. In Factorize, review
+the active grant, then ask the agent to revoke that exact grant and confirm it
+is gone. Revoking Factorize access does not stop the VM. [Agent recipe](/work/vm-access)
+
+## React to an event
+
+Approve permission to read and write test Events and Triggers. Start with a
+manual Trigger so you do not need a webhook provider or a scheduled job.
+
+> Create a test Event named hello.factorize with a manual Trigger. If this
+> client can subscribe to it, subscribe before firing. Fire it once with
+> message "hello" and show me the saved occurrence. Do not send a notification
+> or run another job.
+
+Success is a saved occurrence you can also find in **Events**. A client that
+cannot subscribe can still read the saved occurrence. When done, unsubscribe
+if applicable, then have the agent delete only the test Event. Deleting an Event
+also deletes its attached Triggers and stored occurrences. [Agent recipe](/work/triggers)

@@ -11,56 +11,58 @@ Tools return structured JSON. IDs must come from the authorized workspace.
 Every tool listed below is registered by the MCP server. The server validates
 its input and enforces the operation's required scope.
 
-| Tool | Authorization | Input |
-| --- | --- | --- |
-| `acknowledge_events` | Same active OAuth grant with `triggers:read` | Record durable processing of exact original occurrence UUIDs; optionally pace future delivery on this subscription |
-| `append_payload_chunk` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
-| `cancel_api_operation` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
-| `create_app` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
-| `create_event` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
-| `create_payload` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
-| `create_trigger` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
-| `delete_event` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
-| `delete_trigger` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
-| `disable_trigger` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
-| `enable_trigger` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
-| `fetch_payload` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
-| `finalize_payload` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
-| `fire_trigger` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
-| `get_api_operation` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
-| `get_api_reflection` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
-| `get_app` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
-| `get_event` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
-| `get_trigger` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
-| `get_webhook_delivery` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
-| `grant_vm_permissions` | `vms:edit` | Machine or existing grant, plus a preset ID or explicit scopes |
-| `import_attachment` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
-| `list_apps` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
-| `list_cloudflare_tail_integrations` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
-| `list_event_evaluations` | `triggers:read` | List recent safe evaluation results and mapped input; never returns provider response bodies. |
-| `list_event_occurrences` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
-| `get_event_processing_acknowledgments` | Same active OAuth grant with `triggers:read` | Read the processing policy and cooldown for the active subscription owned by this OAuth grant |
-| `replay_unacknowledged_events` | Same active OAuth grant with `triggers:read` | Queue recovery for exact unresolved original occurrence UUIDs on this subscription |
-| `set_event_processing_acknowledgments` | Same active OAuth grant with `triggers:read` | Enable processing acknowledgment for future occurrences or waive outstanding acknowledgments on this subscription |
-| `read_event_delivery_diagnostics` | Owner credential with `triggers:read` | Read safe outbound MCP webhook delivery diagnostics for one occurrence ID |
-| `read_event_occurrences` | `triggers:read` | An `occurrenceId`, or a `definitionId` and inclusive `since` with optional `cursor` and `limit` |
-| `list_events` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
-| `list_exe_connections` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
-| `list_github_installations` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
-| `list_trigger_webhook_activity` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
-| `list_triggers` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
-| `list_vms` | `vms:read` | Empty object |
-| `list_webhook_deliveries` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
-| `query_api_response` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
-| `read_api_operation` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
-| `read_api_response` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
-| `rename_mcp_client` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
-| `request_api` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
-| `revoke_vm_permissions` | `vms:edit` | Grant ID |
-| `test_trigger_webhook_conditions` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
-| `update_app` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
-| `update_event` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
-| `update_trigger` | Purpose-specific scope enforced by the server | Validated tool-specific JSON input |
+{/* mcp-inventory:start */}
+| Tool | Description from MCP discovery |
+| --- | --- |
+| `acknowledge_events` | After durable completion or handoff, acknowledge exact original data.occurrenceId UUIDs on your opted-in subscription. Never pass a recovery wake ID or assume an ordered range. Ack successful work promptly; optional cooldown applies only when a new ID is acknowledged, not on retries. Keep client-local pacing and don't drop unfinished work. |
+| `append_payload_chunk` | Append a small generated UTF8/base64 chunk at the returned payload byte size. Identical retries are safe. |
+| `cancel_api_operation` | Cancel an HTTP operation. Upstream writes may already have taken effect. |
+| `create_app` | Register a server-side app. Create client secrets separately in the browser. |
+| `create_event` | Create a durable Event that one or more Triggers can publish. |
+| `create_payload` | Reserve a temporary request body. Open browserUploadUrl to upload an existing file for that connection, or append/finalize generated text in chunks. Pass the finalized handle to request_api bodySource. |
+| `create_trigger` | Create an input Trigger attached to an Event. Credentials are never accepted or returned. |
+| `delete_event` | Permanently delete an Event, all its Triggers and input configurations, and its occurrence history. |
+| `delete_trigger` | Delete an input Trigger |
+| `disable_trigger` | Disable a trigger |
+| `enable_trigger` | Enable a trigger |
+| `fetch_payload` | Import unchanged file bytes from an authorized integration into a temporary request payload. |
+| `finalize_payload` | Finalize an immutable request payload; optional SHA256 verifies exact bytes. |
+| `fire_trigger` | Fire an enabled Trigger and persist an Event occurrence. Reuse idempotencyKey to make retries safe. |
+| `get_api_operation` | Poll a durable HTTP operation. Does not repeat the upstream request. |
+| `get_api_reflection` | Use this first to discover authorized integration APIs and request_api examples. Call request_api with the returned integration ID; no shell or raw credential is needed. Availability is not a credential health check. |
+| `get_app` | Read a registered app's non-secret metadata. |
+| `get_event` | Read an Event and its current payload schema revision. |
+| `get_event_processing_acknowledgments` | Read optional processing acknowledgment settings for your exact active MCP subscription. Off by default; independent of HTTP receipt and client-side throttling. |
+| `get_trigger` | Get a Trigger, its parent Event, and input configuration |
+| `get_webhook_delivery` | Get a webhook delivery and its safe processing timeline. Secrets and payloads are never returned. |
+| `grant_vm_permissions` | Grant or replace Factorize permissions for an existing VM. Use explicit scopes within your effective access. Requires vms:edit. |
+| `import_attachment` | Import a user-attached ChatGPT file directly into temporary artifact storage. Returns a payload handle for request_api. Missing native download URLs require create_payload and its browserUploadUrl. |
+| `list_apps` | List the team's registered server-side apps. Requires apps:manage. |
+| `list_cloudflare_tail_integrations` | Legacy; historical installations only. List installed Cloudflare Tail integrations and reference counts. Signing secrets are never returned. |
+| `list_event_evaluations` | Read recent Event evaluation diagnostics and mapped input, without raw lookup responses. |
+| `list_event_occurrences` | Read durable Event occurrences in reverse recorded order, not UUID order. Reads do not acknowledge processing or define a task batch. |
+| `list_events` | List Events, their current payload schema revisions, and Trigger and occurrence counts. |
+| `list_exe_connections` | List safe metadata for saved exe.dev connections. API tokens are never returned. |
+| `list_github_installations` | List connected GitHub App installations, including the installation IDs needed by GitHub Trigger events. Credentials are never returned. |
+| `list_trigger_webhook_activity` | List matching, rejected, duplicate, and accepted webhook activity for a trigger |
+| `list_triggers` | List triggers and their parent Events |
+| `list_vms` | List active Factorize permission grants for team VMs. Requires vms:read. |
+| `list_webhook_deliveries` | Search tenant-scoped webhook deliveries by provider, delivery ID, event, outcome, trigger, time range, or safe diagnostic text. Results are newest first and cursor paginated. |
+| `query_api_response` | Query a retained response without loading it into context. JSON supports bounded JMESPath fields/projections/filters, text uses line offsets, bytes uses byte offsets. Parsing is limited to 1 MiB; use byte ranges for larger bodies. |
+| `read_api_operation` | Read bounded incremental response bytes, including partial bytes after failure. Poll get_api_operation for status. |
+| `read_api_response` | Read a retained integration response chunk with the same authorization as the original request. |
+| `read_event_delivery_diagnostics` | Read separate safe HTTP and optional processing diagnostics for one original occurrence ID. A 2xx receipt is not acknowledgment. Does not return payloads or callback details or retry deliveries. |
+| `read_event_occurrences` | Read committed Event payloads by occurrenceId or by definitionId and an inclusive recorded-time since value. Follow nextCursor with the same definitionId and since. Read recovery wakes by original data.occurrenceId, not their fresh eventId. Reads do not consume history or acknowledge processing; handle out-of-order work by exact ID. |
+| `rename_mcp_client` | Set the display name of this OAuth connection in Authorized clients. |
+| `replay_unacknowledged_events` | Queue exact unresolved original occurrence IDs on your opted-in subscription, without duplicating business events or bypassing cooldown. Recovery wakes can have fresh event IDs; deduplicate by their original data.occurrenceId. |
+| `request_api` | Call an integration discovered by get_api_reflection. Use its integration ID and relative path; no VM, shell or credential is needed. Credentials stay in Factorize. OAuth requires proxy:use. Use read_api_response for retained response handles. |
+| `revoke_vm_permissions` | Revoke a VM's Factorize permissions. The VM keeps running. Requires vms:edit. |
+| `set_event_processing_acknowledgments` | Opt in to processing acknowledgments for future occurrences on your exact MCP subscription. Turning off waives unresolved acknowledgments and clears cooldown; does not alter standard MCP subscription behavior. |
+| `test_trigger_webhook_conditions` | Evaluate conditions on supplied prepared webhook context. No authentication of the example, routing, live GitHub verification, or Trigger firing. |
+| `update_app` | Update redirect URLs, visibility, or enabled state for a registered app. |
+| `update_event` | Create a new Event payload schema revision; existing occurrences retain their original revision. |
+| `update_trigger` | Replace a Trigger's input configuration and Event parent. |
+{/* mcp-inventory:end */}
 
 ## Events and occurrences
 
@@ -214,7 +216,7 @@ Send the proof within 60 seconds and sign a fresh proof for every retry. MCP
 workloads need a transport that can set dynamic HTTP headers. The VM uses
 the scopes in its saved grant and refreshes its provider token before expiry.
 
-### Opt-in Event enrichment
+## Opt-in Event enrichment
 
 An Event can define an ordered `enrichment.extraDataUrls` list and one boolean
 JMESPath `rule`. A Trigger attached to it supplies an `inputMapping` from dotted

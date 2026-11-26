@@ -1,25 +1,25 @@
 # Factorize
 
-Hosted workflow: connect your agent → define Events → attach Triggers → subscribe to durable occurrences.
+A development environment for your agent: use an authorized API, give a VM scoped access, or react to an Event.
 
 Application: https://app.factorize.sh
 MCP (Streamable HTTP + OAuth): https://app.factorize.sh/mcp
 
-Browser: manage Event definitions, input Triggers, integrations and consent.
-MCP: discover Events, subscribe to occurrence resources, read durable occurrences, and manage Triggers.
-A resource update notification signals that an occurrence is ready to read; stored occurrences support recovery after reconnecting.
+Factorize publishes Event occurrences; subscribers decide what to do with them.
 
 ## Get started
 
-- [Factorize with your agent](https://docs.factorize.sh/): Connect your agent, define Events, and publish durable occurrences through Triggers.
-- [Connect your agent](https://docs.factorize.sh/mcp/overview): Authorize an MCP client to discover Events and subscribe to occurrences.
-- [Your first Event](https://docs.factorize.sh/quickstart): Create an Event, attach a Trigger, and read its durable occurrence.
+- [Factorize](https://docs.factorize.sh/): A development environment for your agent.
+- [Your first steps](https://docs.factorize.sh/quickstart): Connect your agent and try one small, reversible task.
+- [Connect your agent](https://docs.factorize.sh/mcp/overview): Authorize a remote MCP client and control what it may do.
 
 ## Work with your agent
 
-- [Create and edit Triggers](https://docs.factorize.sh/work/triggers): Attach input sources to Events and publish validated occurrences.
+- [Use a connected API](https://docs.factorize.sh/work/use-an-api): Discover an authorized integration and make a read-only test request.
+- [Give a VM access](https://docs.factorize.sh/work/vm-access): Grant and revoke isolated Factorize access for an existing workload.
+- [React to an Event](https://docs.factorize.sh/work/triggers): Publish a test occurrence, verify delivery, and configure real inputs when ready.
 
-## Automate triggers
+## Event sources
 
 - [Event payloads and conditions](https://docs.factorize.sh/integrations/events): Define payload schemas and filter provider Trigger inputs.
 - [GitHub Triggers](https://docs.factorize.sh/integrations/github): Configure GitHub webhook inputs that publish Event occurrences.

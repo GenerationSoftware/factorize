@@ -23,7 +23,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("MCP Skills and Event resou
  }
  it("advertises standalone built-in Skills without any feature scope",async()=>{
   const discovery=await rpc("server/discover");expect(discovery.result.capabilities.extensions[SKILLS_EXTENSION]).toEqual({});
-  const first=(await rpc("skills/list")).result;expect(first.skills).toHaveLength(1);expect(first.nextCursor).toBeUndefined();expect(first.ttlMs).toBeGreaterThan(0);
+  const first=(await rpc("skills/list")).result;expect(first.skills).toHaveLength(3);expect(first.nextCursor).toBeUndefined();expect(first.ttlMs).toBeGreaterThan(0);
   expect(first.skills.map((skill:any)=>skill.frontmatter.name)).toEqual(builtinSkillDocuments.map(skill=>skill.name));
   expect((await rpc("skills/list",{}, {...auth,scopes:[]})).result).toEqual(first);
   await new IdentityRepository(f.db,f.otherTenant).upsertOwner(f.userId,"owner@example.test");

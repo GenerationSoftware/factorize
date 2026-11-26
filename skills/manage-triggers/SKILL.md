@@ -1,43 +1,15 @@
 ---
 name: manage-triggers
-description: Configure input Triggers that publish durable Factorize Events.
+description: Publish Factorize Events from manual, webhook, or scheduled Triggers.
 ---
-# Manage Events and Triggers
 
-Call `get_api_reflection` to inspect current identity and permissions. An Event describes a durable payload stream. A Trigger watches one or more input sources and publishes matching occurrences.
+Use `create_event` and `create_trigger`. Start with a manual fixture and reuse
+the same idempotency key for the same fire. Verify the stored occurrence before
+adding a real input. For webhook problems, start with `list_webhook_deliveries`
+rather than repeating provider actions. Keep credentials in integrations.
 
-## Events
+A saved occurrence, transport receipt, and subscriber processing ACK are
+different. Factorize publishes; the subscriber decides what to run.
 
-Use `list_events` and `get_event` to inspect Events and their payload schema revisions. Create an Event with `create_event`, including a lowercase stable `name`, optional description, and JSON Schema object in `payloadSchema`. Use `update_event` with the current `expectedRevision` to add a schema revision. Existing occurrences keep their original revision. `delete_event` permanently deletes the Event, all attached Triggers and input configurations, and all occurrence history.
-
-MCP subscribers read `factorize://events/{eventId}/occurrences`. Subscribe through `subscriptions/listen`; on resource update, read the occurrence resource. Occurrences are durable, so reconnecting clients can read missed records. Use `list_event_occurrences` to page through stored occurrences.
-
-## Optional webhook processing acknowledgments
-
-Use the stable `factorize.occurrence` type with the exact Event UUID in
-`event_id`. HTTP 2xx is only callback acceptance. If the user opted in,
-read the exact subscription policy with `get_event_processing_acknowledgments`
-and change it with `set_event_processing_acknowledgments`. Standard
-subscriptions are off by default. This is separate from task run limits.
-
-After durable completion or handoff, promptly call `acknowledge_events` with
-your `subscription_id` and exact original `event_ids` from
-`data.occurrenceId`. Use the original ID to read and deduplicate; recovery
-may use a fresh webhook `eventId`. IDs do not encode ordering, and wakes can
-be partial or out of order. Never assume a batching window or rate cap.
-Pace work locally, persist unfinished work instead of dropping it, and do not
-acknowledge it until durable. Optional `cooldown_seconds` pauses future
-delivery on that subscription only, and duplicate ACKs do not extend it.
-
-Use `read_event_delivery_diagnostics` for HTTP versus processing status, and
-`replay_unacknowledged_events` for exact unresolved original IDs only. Turning
-off waives unresolved ACKs and clears cooldown; re-enabling applies forward.
-
-
-## Triggers
-
-Each Trigger belongs to one Event; multiple Triggers may publish the same Event. Configure a Trigger with an existing `eventId`, or let the API create its initial Event. Trigger inputs can be manual, scheduled, or provider webhooks. Schedules use cron and an IANA timezone. Webhook inputs select a provider and provider-specific filters. Use `list_github_installations` and `list_cloudflare_tail_integrations` to discover saved provider setup.
-
-Use `list_triggers` and `get_trigger` to inspect Triggers. `create_trigger` and `update_trigger` require `triggers:write`; read before editing and preserve stable IDs for entries in the `sources` array. A successful input match writes one schema-validated Event occurrence. Reuse `idempotencyKey` when retrying `fire_trigger`; duplicate source deliveries do not create duplicate occurrences. `enable_trigger` and `disable_trigger` control future input processing. `delete_trigger` removes its future automation.
-
-Webhook `conditions` are optional and can be checked with `test_trigger_webhook_conditions` against representative prepared data; this does not verify provider authentication or delivery. Use `list_trigger_webhook_activity`, `list_webhook_deliveries`, and `get_webhook_delivery` to inspect safe input-processing results.
+Follow the [Event recipe](https://docs.factorize.sh/work/triggers) and
+[MCP reference](https://docs.factorize.sh/mcp/tools#events-and-occurrences).
