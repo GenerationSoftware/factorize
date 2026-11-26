@@ -228,9 +228,9 @@ export async function decideDevice(env: Env, oauth: OAuthHelpers, session: { ten
     if (!record || record.status !== "pending" || record.expiresAt <= Math.floor(Date.now() / 1000)) return null;
     if (decision === "deny") { record.status = "denied"; await write(record); return { status: "denied" as const }; }
   await integrationConsentLabels(env, session.tenantId, record.scope);
-  const props: OAuthProps = { tenantId: session.tenantId, userId: session.userId, sessionVersion: session.sessionVersion, scopes: record.scope, authMethod: "oauth" };
+  const props: OAuthProps = { tenantId: session.tenantId, userId: session.userId, sessionVersion: session.sessionVersion, scopes: record.scope, authMethod: "oauth", explicitIntegrationScopes: true };
     const authRequest: AuthRequest = { responseType: "code", clientId: record.clientId, redirectUri: record.redirectUri, scope: record.scope, state: "", codeChallenge: record.codeChallenge, codeChallengeMethod: "S256", resource: record.resource, issuer: env.APP_ORIGIN };
-    const result = await oauth.completeAuthorization({ request: authRequest, userId: session.userId, metadata: { tenantId: session.tenantId }, scope: record.scope, props, revokeExistingGrants: false });
+    const result = await oauth.completeAuthorization({ request: authRequest, userId: session.userId, metadata: { tenantId: session.tenantId, explicitIntegrationScopes: true }, scope: record.scope, props, revokeExistingGrants: false });
     record.authorizationCode = new URL(result.redirectTo).searchParams.get("code") ?? undefined;
     if (!record.authorizationCode) throw new Error("Incomplete device authorization");
     record.status = "approved"; await write(record); return { status: "approved" as const };

@@ -3,13 +3,12 @@ import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "factorize-api-client";
 import {
-  Button, Card, Label, Page, PageHeader, Select, Table, Textarea,
+  Button, Card, Label, Page, PageHeader, Table, Textarea,
   tableCellClasses, tableHeadClasses, tableRowClasses,
 } from "../../shared/ui";
 import { messageOf, sessionQuery } from "../auth/session";
 import { vmGrantsQuery, type WorkloadGrant as Grant } from "./queries";
 
-const presetKey = ["settings", "permission-presets"];
 const vmName = (grant: Grant) => grant.app ? `${grant.app}/${grant.vm}` : grant.vm;
 const providerName = (grant: Grant) => grant.provider === "fly.io" ? "Fly.io" : grant.provider;
 const linkClass = "font-semibold underline decoration-transparent underline-offset-4 hover:decoration-current focus-visible:decoration-current";
@@ -43,7 +42,7 @@ export function WorkloadsPage() {
       <tbody>{rows.map(grant => <tr key={grant.id} className={tableRowClasses}>
         <th scope="row" className={tableCellClasses}><Link className={linkClass} to="/workloads/$workloadId" params={{ workloadId: grant.id }}>{vmName(grant)}</Link></th>
         <td className={tableCellClasses}>{providerName(grant)}</td>
-        <td className={tableCellClasses}>{grant.presetName ?? (grant.scopes.join(", ") || "No scopes")}</td>
+        <td className={tableCellClasses}>{grant.scopes.join(", ") || "No scopes"}</td>
       </tr>)}</tbody>
     </Table>}
   </Page>;
@@ -60,7 +59,6 @@ export function WorkloadPage() {
     {state.canRead && state.grants.isSuccess && !grant && <p>Workload not found.</p>}
     {grant && <Card>
       <h2>Permissions</h2>
-      {grant.presetName && <p>{grant.presetName}</p>}
       <p className="break-words">{grant.scopes.join(", ") || "No scopes"}</p>
       {state.canEdit && <VmGrantActions key={grant.id} grant={grant} />}
     </Card>}
@@ -71,25 +69,16 @@ function VmGrantActions({ grant }: { grant: Grant }) {
   const cache = useQueryClient();
   const navigate = useNavigate();
   const [editRevision, setEditRevision] = useState<number>();
-  const [presetId, setPresetId] = useState("");
   const [scopeText, setScopeText] = useState("");
   const [error, setError] = useState("");
-  const presets = useQuery({
-    queryKey: presetKey,
-    enabled: editRevision !== undefined,
-    queryFn: async ({ signal }) => {
-      const { data, error } = await api.GET("/api/v1/permission-presets", { signal });
-      if (!data || error) throw new Error(messageOf(error));
-      return data;
-    },
-  });
+
   const refresh = () => cache.invalidateQueries({ queryKey: vmGrantsQuery.queryKey });
   const save = useMutation({
     mutationFn: async (expectedRevision: number) => {
       const scopes = [...new Set(scopeText.split(/\s+/).filter(Boolean))];
       const { error, response } = await api.POST("/api/v1/vms/grants", { body: {
         target: { kind: "existing", grantId: grant.id, expectedRevision },
-        permissions: presetId ? { presetId } : { scopes },
+        permissions: { scopes },
       } });
       if (error) {
         if (response.status === 409 || response.status === 404) {
@@ -118,7 +107,7 @@ function VmGrantActions({ grant }: { grant: Grant }) {
   return <>
     {error && <p role="alert" className="mt-4">{error}</p>}
     <div className="mt-4 flex flex-wrap gap-2">
-      <Button disabled={busy || editRevision !== undefined} onClick={() => { setError(""); setEditRevision(grant.revision); setPresetId(""); setScopeText(grant.scopes.join("\n")); }}>Edit permissions</Button>
+      <Button disabled={busy || editRevision !== undefined} onClick={() => { setError(""); setEditRevision(grant.revision); setScopeText(grant.scopes.join("\n")); }}>Edit permissions</Button>
       <Button variant="destructive" disabled={busy} onClick={() => {
         if (window.confirm(`Revoke Factorize permissions for ${vmName(grant)}? The VM will keep running.`)) {
           setError("");
@@ -129,12 +118,7 @@ function VmGrantActions({ grant }: { grant: Grant }) {
     {editRevision !== undefined && <div className="mt-5">
       <form className="grid gap-4" onSubmit={event => { event.preventDefault(); setError(""); save.mutate(editRevision); }}>
         <h2>Edit permissions for {vmName(grant)}</h2>
-        <Label>Permission source<Select value={presetId} onChange={event => setPresetId(event.target.value)}>
-          <option value="">Explicit scopes</option>
-          {presets.data?.map(preset => <option value={preset.id} key={preset.id}>{preset.name}</option>)}
-        </Select></Label>
-        {presets.error && <p role="alert">{presets.error.message}</p>}
-        {!presetId && <Label>Permission scopes<Textarea value={scopeText} onChange={event => setScopeText(event.target.value)} /></Label>}
+        <Label>Permission scopes<Textarea value={scopeText} onChange={event => setScopeText(event.target.value)} /></Label>
         <div className="flex flex-wrap gap-2">
           <Button type="button" disabled={busy} onClick={() => setEditRevision(undefined)}>Cancel</Button>
           <Button variant="primary" disabled={busy}>Save permissions</Button>

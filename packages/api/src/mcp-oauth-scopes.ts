@@ -25,14 +25,14 @@ export async function mcpMissingScopes(env: Env, auth: OAuthProps, body: unknown
       params.notifications.resourceSubscriptions.some((item: unknown) => typeof item === "string" && item.startsWith("factorize://events/")));
   const scope = typeof name === "string" ? requirements.get(name) : methodNeedsRead ? "triggers:read" :
     resourceRead && typeof uri === "string" && uri.startsWith("proxy://responses/") ? "proxy:use" : undefined;
-  if (scope && !auth.scopes.includes(scope)) return [scope];
+  const missing = scope && !auth.scopes.includes(scope) ? [scope] : null;
 
   // Only local Factorize integration policy may request additional OAuth
   // scopes. Blocked integrations and upstream errors stay normal tool errors.
   const integration = params?.arguments?.integration;
   if ((name !== "request_api" && name !== "fetch_payload") || typeof integration !== "string" ||
-      !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(integration)) return null;
+      !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(integration)) return missing;
   const row = (await databaseFor(env).pool.query<AgentIntegration>(
     "SELECT * FROM app.agent_integrations WHERE tenant_id=$1 AND id=$2", [auth.tenantId, integration])).rows[0];
-  return row && connectionAccess(row, auth.scopes, policy) === "requestable" ? ["proxy:use", requiredIntegrationScope(row)] : null;
+  return row && connectionAccess(row, auth.scopes, policy, auth.explicitIntegrationScopes) === "requestable" ? ["proxy:use", requiredIntegrationScope(row)] : missing;
 }

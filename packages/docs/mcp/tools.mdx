@@ -176,8 +176,8 @@ reuse it for retries. Initial enrollment requires a running Machine with
 }
 ```
 
-Use `permissions.presetId` to apply a preset. Factorize saves its current
-scopes and rejects the entire request if any requested scope is outside the
+Provide explicit `permissions.scopes` for the grant. Factorize saves a scope
+snapshot and rejects the entire request if any requested scope is outside the
 caller's effective access. To replace permissions, supply a `target` with
 `kind: "existing"`, `grantId`, and `expectedRevision` from `list_vms`. Revoking
 a grant removes its Factorize permissions while the workload keeps running.

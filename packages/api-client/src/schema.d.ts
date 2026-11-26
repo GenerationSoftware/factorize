@@ -1432,7 +1432,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/permission-presets": {
+    "/api/v1/team-permissions": {
         parameters: {
             query?: never;
             header?: never;
@@ -1440,70 +1440,20 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List team permission presets
+         * List workspace consent defaults
          * @description Requires the team:read scope.
          *
          *     An interactive owner session is required; bearer tokens cannot call this operation.
          */
-        get: operations["get_api_v1_permission_presets"];
-        put?: never;
+        get: operations["get_api_v1_team_permissions"];
         /**
-         * Create a team permission preset
+         * Change one workspace consent default
          * @description Requires the team:write scope.
          *
          *     An interactive owner session is required; bearer tokens cannot call this operation.
          */
-        post: operations["post_api_v1_permission_presets"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/permission-presets/{presetId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * Update a team permission preset
-         * @description Requires the team:write scope.
-         *
-         *     An interactive owner session is required; bearer tokens cannot call this operation.
-         */
-        put: operations["put_api_v1_permission_presets_presetId"];
+        put: operations["put_api_v1_team_permissions"];
         post?: never;
-        /**
-         * Delete a team permission preset
-         * @description Requires the team:write scope.
-         *
-         *     An interactive owner session is required; bearer tokens cannot call this operation.
-         */
-        delete: operations["delete_api_v1_permission_presets_presetId"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/permission-presets/{presetId}/default": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Set the team default permission preset
-         * @description Requires the team:write scope.
-         *
-         *     An interactive owner session is required; bearer tokens cannot call this operation.
-         */
-        post: operations["post_api_v1_permission_presets_presetId_default"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4664,6 +4614,12 @@ export interface operations {
                         clientName: string;
                         scopes: string[];
                         selectedScopes: string[];
+                        /** @default [] */
+                        newScopes: string[];
+                        /** @default [] */
+                        grantedScopes: string[];
+                        /** @default [] */
+                        blockedScopes: string[];
                         unavailableSavedScopes: string[];
                         reconnect: boolean;
                         request: string;
@@ -5689,8 +5645,6 @@ export interface operations {
                         vm: string;
                         app: string | null;
                         scopes: string[];
-                        presetId: string | null;
-                        presetName: string | null;
                         revision: number;
                         /** Format: date-time */
                         createdAt: string;
@@ -5735,9 +5689,6 @@ export interface operations {
                         expectedRevision: number;
                     };
                     permissions: {
-                        /** Format: uuid */
-                        presetId: string;
-                    } | {
                         scopes: string[];
                     };
                 };
@@ -5760,8 +5711,6 @@ export interface operations {
                         vm: string;
                         app: string | null;
                         scopes: string[];
-                        presetId: string | null;
-                        presetName: string | null;
                         revision: number;
                         /** Format: date-time */
                         createdAt: string;
@@ -5820,7 +5769,7 @@ export interface operations {
             503: components["responses"]["Error503"];
         };
     };
-    get_api_v1_permission_presets: {
+    get_api_v1_team_permissions: {
         parameters: {
             query?: never;
             header?: never;
@@ -5829,21 +5778,21 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Permission presets */
+            /** @description Team permission defaults */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
-                        /** Format: uuid */
-                        id: string;
+                        scope: string;
                         name: string;
-                        scopes: string[];
                         isDefault: boolean;
-                        revision: number;
-                        createdAt: string;
-                        updatedAt: string;
+                        integrationId: string | null;
+                        kind: string | null;
+                        credentialId: string | null;
+                        preferenceSet: boolean;
+                        available: boolean;
                     }[];
                 };
             };
@@ -5857,7 +5806,7 @@ export interface operations {
             503: components["responses"]["Error503"];
         };
     };
-    post_api_v1_permission_presets: {
+    put_api_v1_team_permissions: {
         parameters: {
             query?: never;
             header?: never;
@@ -5867,130 +5816,11 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
-                    name: string;
-                    scopes: string[];
-                    expectedRevision?: number;
+                    scope: string;
+                    isDefault: boolean;
                 };
             };
         };
-        responses: {
-            /** @description Created */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /** Format: uuid */
-                        id: string;
-                        name: string;
-                        scopes: string[];
-                        isDefault: boolean;
-                        revision: number;
-                        createdAt: string;
-                        updatedAt: string;
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            415: components["responses"]["Error415"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    put_api_v1_permission_presets_presetId: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                presetId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    name: string;
-                    scopes: string[];
-                    expectedRevision: number;
-                };
-            };
-        };
-        responses: {
-            /** @description Updated */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /** Format: uuid */
-                        id: string;
-                        name: string;
-                        scopes: string[];
-                        isDefault: boolean;
-                        revision: number;
-                        createdAt: string;
-                        updatedAt: string;
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            415: components["responses"]["Error415"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    delete_api_v1_permission_presets_presetId: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                presetId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Deleted */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": Record<string, never>;
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    post_api_v1_permission_presets_presetId_default: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                presetId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
         responses: {
             /** @description Default updated */
             200: {
@@ -6008,6 +5838,7 @@ export interface operations {
             403: components["responses"]["Error403"];
             404: components["responses"]["Error404"];
             409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
             429: components["responses"]["Error429"];
             500: components["responses"]["Error500"];
             503: components["responses"]["Error503"];

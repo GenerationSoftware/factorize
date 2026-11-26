@@ -7,10 +7,7 @@ import type { OAuthProps } from "./types";
 import { initialIntegrationOverrides } from "./oauth-reconnect";
 import { z } from "zod";
 
-export const vmPermissionSource = z.union([
-  z.strictObject({ presetId: z.uuid() }),
-  z.strictObject({ scopes: z.array(z.string().min(1).max(200)).max(100) }),
-]);
+export const vmPermissionSource = z.strictObject({ scopes: z.array(z.string().min(1).max(200)).max(100) });
 export type VmPermissionSource = z.infer<typeof vmPermissionSource>;
 type VmPermissionSnapshot = { scopes: string[]; presetId: string | null };
 
@@ -36,13 +33,7 @@ export async function resolveVmPermissions(db: DatabaseClient, auth: OAuthProps,
   const now = Date.now() / 1000;
   if ((auth.authMethod === "oauth" && (!auth.oauthExpiresAt || auth.oauthExpiresAt <= now)) ||
       (auth.authMethod === "vm" && (!auth.vmTokenExpiresAt || auth.vmTokenExpiresAt <= now))) throw forbidden();
-  const presetId = "presetId" in source ? source.presetId : null;
-  const selected = "scopes" in source ? source.scopes
-    : (await db.query<{ scopes: string[] }>(
-      "SELECT scopes FROM app.permission_presets WHERE tenant_id=$1 AND id=$2",
-      [auth.tenantId, presetId],
-    )).rows[0]?.scopes;
-  if (!selected) throw new AgentApiError(404, "not_found", "Permission preset not found.");
+  const { scopes: selected } = source;
 
   const policy = auth.authMethod === "oauth" && auth.oauthGrantId
     ? (await db.query<{ disabled_scopes: string[]; integration_overrides: Record<string, string | false>; scope_overrides: string[] | null; revoked_at: Date | null }>(
@@ -76,12 +67,12 @@ export async function resolveVmPermissions(db: DatabaseClient, auth: OAuthProps,
     const integration = integrations.get(scope);
     if (!integration || !integration.available || integration.policy === "disabled" || !effective.has("proxy:use")) throw forbidden();
     if (auth.authMethod === "oauth") {
-      if (connectionAccess(integration, [...effective], policy ?? { disabled_scopes: [], integration_overrides: initialIntegrationOverrides(auth.initialIntegrationDenials) }) !== "granted") throw forbidden();
+      if (connectionAccess(integration, [...effective], policy ?? { disabled_scopes: [], integration_overrides: initialIntegrationOverrides(auth.initialIntegrationDenials) }, auth.explicitIntegrationScopes) !== "granted") throw forbidden();
     } else if (!effective.has(scope)) {
       throw forbidden();
     }
   }
-  return { scopes, presetId };
+  return { scopes, presetId: null };
 }
 
 export async function currentVmScopes(db: DatabaseClient, tenantId: string, snapshot: string[]): Promise<string[]> {

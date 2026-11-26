@@ -117,6 +117,10 @@ export const agentIdentities = app.table("agent_identities", {
   integrationOverrides: jsonb("integration_overrides").notNull().default({}), permissionsRevision: integer("permissions_revision").notNull().default(0),
   tenantId:uuid("tenant_id").notNull().references(()=>tenants.id,{onDelete:"cascade"}),id:uuid("id").notNull().defaultRandom(),kind:text("kind").$type<"oauth">().notNull(),subject:text("subject").notNull(),userId:uuid("user_id").notNull(),sessionVersion:integer("session_version").notNull(),revokedAt:timestamp("revoked_at",{withTimezone:true}),createdAt:createdAt(),
 },t=>[primaryKey({columns:[t.tenantId,t.id]}),unique().on(t.tenantId,t.kind,t.subject)]);
+export const teamPermissionDefaults = app.table("team_permission_defaults", {
+  tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  permission: text("permission").notNull(), enabled: boolean("enabled").notNull(),
+}, t => [primaryKey({ columns: [t.tenantId, t.permission] })]);
 export const permissionPresets = app.table("permission_presets", {
   tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
   id: uuid("id").notNull(), name: text("name").notNull(), scopes: text("scopes").array().notNull().default([]),

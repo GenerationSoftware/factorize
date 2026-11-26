@@ -50,6 +50,7 @@ export type OAuthProps = {
   oauthClientId?: string;
   /** Explicit integration denials carried to this grant at browser consent. */
   initialIntegrationDenials?: string[];
+  explicitIntegrationScopes?: boolean;
   /** Expiry of the presented, verified OAuth access token. */
   oauthExpiresAt?: number;
   vmGrantId?: string;

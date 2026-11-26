@@ -144,12 +144,17 @@ test("Settings navigation keeps the Settings tab active and shares integration p
     authenticated: true, user: { id: "owner-a", email: "owner@example.test" },
     team: { id: "workspace-a", name: "Workspace", role: "owner" }, capabilities: [],
   } }));
-  await page.route("**/api/v1/permission-presets", route => route.fulfill({ json: [] }));
   const policyId = "18a2410e-ea09-4fe0-af8a-719c0c91e6e2";
-  await page.route("**/api/v1/integration-api-policies", route => route.fulfill({ json: { integrations: [{
-    id: policyId, credentialId: "linear", name: "Linear", description: null, kind: "linear",
-    policy: "baseline", available: true, revision: 1, requiredScope: `integration:${policyId}:1`,
-  }] } }));
+  let current = { scope: `integration:${policyId}:1`, integrationId: policyId, credentialId: "linear", name: "Linear",
+    kind: "linear", available: true, isDefault: false, preferenceSet: false };
+  await page.route("**/api/v1/team-permissions", route => {
+    if (route.request().method() === "PUT") {
+      assert.deepEqual(route.request().postDataJSON(), { scope: current.scope, isDefault: true });
+      current = { ...current, preferenceSet: true, isDefault: true };
+      return route.fulfill({ json: { ok: true } });
+    }
+    return route.fulfill({ json: [current] });
+  });
   await page.route("**/api/v1/apps", route => route.fulfill({ json: [] }));
   await page.route("**/api/v1/integrations", route => route.fulfill({ json: {
     exeConnections: [], ampConnections: [], cloudflareTail: { installations: [] }, linear: { organizationName: "Workspace" }, clickup: null,
@@ -173,19 +178,19 @@ test("Settings navigation keeps the Settings tab active and shares integration p
   assert.deepEqual(await dashboard.locator(".border-factorize-500").allTextContents(), ["Settings"]);
   await settings.getByRole("link", { name: "Permissions", exact: true }).click();
   await page.getByRole("heading", { name: "Permissions", exact: true }).waitFor();
-  await page.getByRole("button", { name: "Create permission preset", exact: true }).click();
-  await page.getByRole("checkbox", { name: "Linear integration access", exact: true }).waitFor();
+  await page.getByRole("combobox", { name: "Linear default preference", exact: true }).waitFor();
 
   await settings.getByRole("link", { name: "Integrations", exact: true }).click();
-  const linearPolicy = page.getByRole("checkbox", { name: "Linear available by default", exact: true });
+  const linearPolicy = page.getByRole("combobox", { name: "Linear default preference", exact: true });
   await linearPolicy.waitFor();
-  assert.equal(await linearPolicy.isChecked(), true);
+  await page.getByText("Make this integration a default for new connections?", { exact: false }).waitFor();
+  await linearPolicy.selectOption("default");
   assert.deepEqual(await dashboard.locator('[aria-current="page"]').allTextContents(), ["Settings"]);
   assert.deepEqual(await dashboard.locator(".border-factorize-500").allTextContents(), ["Settings"]);
 
   await settings.getByRole("link", { name: "Permissions", exact: true }).click();
-  await page.getByRole("button", { name: "Create permission preset", exact: true }).click();
-  await page.getByRole("checkbox", { name: "Linear integration access", exact: true }).waitFor();
+  await page.getByRole("combobox", { name: "Linear default preference", exact: true }).waitFor();
+  assert.equal(await page.getByRole("combobox", { name: "Linear default preference", exact: true }).inputValue(), "default");
   await context.close();
 });
 
