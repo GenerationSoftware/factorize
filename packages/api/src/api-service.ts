@@ -28,7 +28,8 @@ import { apiPolicyInput, integrationRef, integrationScopePattern, requestApiInpu
 import { integrationStatus, exeConnection, accessToken, createdAccessToken, clientPermissionsUpdate, clientNameInput, authorizedClient } from "./settings-contracts";
 import { namedOption, providerOptions, githubRepository, githubInstallation, tailIntegration } from "./editor-contracts";
 import { z } from "zod";
-import { permissionPreset, permissionPresetInput, permissionPresetList } from "./settings-contracts";
+import { teamPermissionList, teamPermissionUpdate } from "./settings-contracts";
+import { permissionKey, standardPermissions, teamPermissionPreferences } from "./team-permission-defaults";
 import { eventContextCatalog } from "./trigger-context";
 import type { Env, OAuthProps } from "./types";
 import { type TriggerInput, type FireTriggerInput, triggerConditionsTestSchema } from "./trigger-schemas";
@@ -580,8 +581,8 @@ export class ApiService {
   private vmGrantView(row: VmGrant) {
     return {
       id: row.id, providerId: row.provider_id, provider: row.provider_kind === "fly" ? "fly.io" : "exe.dev",
-      vm: row.vm, app: row.vm_app || null, scopes: row.scopes, presetId: row.preset_id,
-      presetName: row.preset_name ?? null, revision: row.revision,
+      vm: row.vm, app: row.vm_app || null, scopes: row.scopes,
+      revision: row.revision,
       createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString(),
     };
   }
@@ -645,46 +646,34 @@ export class ApiService {
     if (!result.rowCount) throw new ServiceError(404, "not_found", "Authorization not found.");
     return { name };
   }
-  private async validatePermissionScopes(input: string[]) {
-    const { integrations } = await listAgentPolicies(this.env, this.auth.tenantId);
-    const allowed = new Set([...AGENT_SCOPES, ...integrations.filter(row => row.available && row.policy !== "disabled").map(row => row.requiredScope)]);
-    if (input.some(scope => !allowed.has(scope))) throw new ServiceError(400, "invalid_request", "One or more permission scopes are unsupported or unavailable.");
-    return [...new Set(input)];
-  }
-  async listPermissionPresets() {
+  async listTeamPermissions() {
     await this.authorizeOwnerSession("team:read");
-    const rows = await databaseFor(this.env).pool.query<any>("SELECT id,name,scopes,is_default,revision,created_at,updated_at FROM app.permission_presets WHERE tenant_id=$1 ORDER BY lower(name),id", [this.auth.tenantId]);
-    return publicValue(permissionPresetList, rows.rows.map(row => ({ id: row.id, name: row.name, scopes: row.scopes, isDefault: row.is_default, revision: row.revision, createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString() })));
-  }
-  async createPermissionPreset(input: unknown) {
-    await this.authorizeOwnerSession("team:write");
-    const parsed = permissionPresetInput.parse(input), scopes = await this.validatePermissionScopes(parsed.scopes), id = crypto.randomUUID();
-    const row = (await databaseFor(this.env).pool.query<any>("INSERT INTO app.permission_presets(tenant_id,id,name,scopes) VALUES($1,$2,$3,$4) RETURNING id,name,scopes,is_default,revision,created_at,updated_at", [this.auth.tenantId,id,parsed.name,scopes])).rows[0];
-    return publicValue(permissionPreset, { id: row.id, name: row.name, scopes: row.scopes, isDefault: row.is_default, revision: row.revision, createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString() });
-  }
-  async updatePermissionPreset(id: string, input: unknown) {
-    await this.authorizeOwnerSession("team:write");
-    const parsed = permissionPresetInput.extend({ expectedRevision: z.number().int().positive() }).parse(input), scopes = await this.validatePermissionScopes(parsed.scopes);
-    const result = await databaseFor(this.env).pool.query<any>("UPDATE app.permission_presets SET name=$3,scopes=$4,revision=revision+1,updated_at=now() WHERE tenant_id=$1 AND id=$2 AND revision=$5 RETURNING id,name,scopes,is_default,revision,created_at,updated_at", [this.auth.tenantId,id,parsed.name,scopes,parsed.expectedRevision]);
-    if (!result.rowCount) throw new ServiceError(409,"conflict","Permission preset changed or no longer exists.");
-    const row = result.rows[0];
-    return publicValue(permissionPreset, { id: row.id, name: row.name, scopes: row.scopes, isDefault: row.is_default, revision: row.revision, createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString() });
-  }
-  async setDefaultPermissionPreset(id: string) {
-    await this.authorizeOwnerSession("team:write");
-    await databaseFor(this.env).transaction(async client => {
-      const selected = await client.query("SELECT id FROM app.permission_presets WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [this.auth.tenantId,id]);
-      if (!selected.rowCount) throw new ServiceError(404,"not_found","Permission preset not found.");
-      await client.query("UPDATE app.permission_presets SET is_default=false,updated_at=now() WHERE tenant_id=$1 AND is_default", [this.auth.tenantId]);
-      await client.query("UPDATE app.permission_presets SET is_default=true,updated_at=now() WHERE tenant_id=$1 AND id=$2", [this.auth.tenantId,id]);
+    const tenant = this.auth.tenantId;
+    const [preferences, { integrations }] = await Promise.all([
+      teamPermissionPreferences(databaseFor(this.env).pool, tenant), listAgentPolicies(this.env, tenant),
+    ]);
+    const permission = (scope: string, name: string, available: boolean, integration?: {id:string;kind:string;credentialId:string}) => ({
+      scope, name, integrationId: integration?.id ?? null, kind: integration?.kind ?? null,
+      credentialId: integration?.credentialId ?? null, available, isDefault: preferences.get(permissionKey(scope)) === true,
+      preferenceSet: !integration || preferences.has(permissionKey(scope)),
     });
-    return { ok: true };
+    return publicValue(teamPermissionList, [
+      ...standardPermissions.map(scope => permission(scope, scope, true)),
+      ...integrations.map(row => permission(row.requiredScope, row.name, row.available && row.policy !== "disabled", row)),
+    ]);
   }
-  async deletePermissionPreset(id: string) {
+  async updateTeamPermission(input: unknown) {
     await this.authorizeOwnerSession("team:write");
-    const result = await databaseFor(this.env).pool.query("DELETE FROM app.permission_presets WHERE tenant_id=$1 AND id=$2 RETURNING id", [this.auth.tenantId,id]);
-    if (!result.rowCount) throw new ServiceError(404,"not_found","Permission preset not found.");
-    return { id, deleted: true };
+    const { scope, isDefault } = teamPermissionUpdate.parse(input);
+    const tenant = this.auth.tenantId;
+    if (!standardPermissions.includes(scope)) {
+      const { integrations } = await listAgentPolicies(this.env, tenant);
+      if (!integrations.some(row => row.requiredScope === scope && row.available && row.policy !== "disabled"))
+        throw new ServiceError(409, "conflict", "Integration availability changed. Reload permissions.");
+    }
+    await databaseFor(this.env).pool.query(`INSERT INTO app.team_permission_defaults (tenant_id,permission,enabled)
+      VALUES($1,$2,$3) ON CONFLICT (tenant_id,permission) DO UPDATE SET enabled=excluded.enabled`, [tenant, permissionKey(scope), isDefault]);
+    return { ok: true };
   }
   async updateClientPermissions(grantId: string, input: unknown) {
     await this.authorizeOwnerSession("triggers:write");
@@ -710,7 +699,7 @@ export class ApiService {
     const integrationOverrides = { ...client.integrationOverrides };
     for (const integration of integrations) {
       if (scopes.includes(integration.requiredScope)) delete integrationOverrides[integration.id];
-      else if (edit.integrationOverrides?.[integration.id] === false || (integration.available && integration.policy !== "disabled")) integrationOverrides[integration.id] = false;
+      else if (edit.integrationOverrides?.[integration.id] === false || client.scopes.includes(integration.requiredScope)) integrationOverrides[integration.id] = false;
     }
     const result = await databaseFor(this.env).transaction(async sql => {
       await lockOAuthPolicy(sql, this.auth);
@@ -750,7 +739,8 @@ export class ApiService {
       const row = byGrant.get(grant.id), grantedScopes = normalizeScopes(grant.scope);
       const integrationOverrides = row?.integration_overrides ?? initialIntegrationOverrides(grant.metadata?.initialIntegrationDenials);
       const baseScopes = row?.scope_overrides ?? grantedScopes.filter(scope => !row?.disabled_scopes.includes(scope));
-      const baselineScopes = integrations.filter(integration => integration.policy === "baseline" && integration.available).map(integration => integration.requiredScope);
+      const baselineScopes = grant.metadata?.explicitIntegrationScopes === true || !baseScopes.includes("proxy:use") ? []
+        : integrations.filter(integration => integration.policy === "baseline" && integration.available).map(integration => integration.requiredScope);
       const scopes = [...new Set([...baseScopes,...baselineScopes])].filter(scope => {
         const id = scope.match(integrationScopePattern)?.[1];
         return !row?.disabled_scopes.includes(scope) && (!id || integrationOverrides[id] !== false);

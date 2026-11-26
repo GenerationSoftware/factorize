@@ -24,9 +24,13 @@ Scopes are independent; write does not imply read. Integration-specific scopes
 are granted separately. Owner-only operations require an interactive browser
 session.
 
-Owners can edit the effective scopes of an existing MCP connection in Settings;
-saved scope additions and removals apply immediately. Team permission presets
-can preselect scopes during new client authorization.
+Owners can edit the saved permissions for an existing MCP connection in
+Settings. Removals restrict access immediately; adding scopes requires fresh
+authorization and never increases a previously issued token's scope.
+Workspace permissions marked Default are preselected for new browser
+connections. They do not change existing grants. Reconnecting shows the
+saved selection and distinguishes newly requested permissions; the client
+must include all scopes it wants to retain or add when requesting step-up.
 
 ## OAuth clients
 

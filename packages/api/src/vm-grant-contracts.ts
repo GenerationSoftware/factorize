@@ -26,8 +26,6 @@ export const vmGrantView = z.object({
   vm: z.string(),
   app: z.string().nullable(),
   scopes: z.array(z.string()),
-  presetId: z.uuid().nullable(),
-  presetName: z.string().nullable(),
   revision: z.number().int().positive(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),

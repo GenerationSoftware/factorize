@@ -7,7 +7,7 @@ const parsed = { responseType: "code", clientId: "client", redirectUri: "https:/
 const queryWithScope = { authorizationQuery: "client_id=client&scope=fixture" };
 const deniedId = "18a2410e-ea09-4fe0-af8a-719c0c91e6e2";
 const integrationScope = `integration:${deniedId}:1`;
-function fixture(defaultPreset?: string[], reconnect?: { approved: string[]; saved: string[]; denied?: boolean; revision?: number }) {
+function fixture(defaultScopes?: string[], reconnect?: { approved: string[]; saved: string[]; denied?: boolean; revision?: number }) {
   const values = new Map<string, string>();
   const used = new Set<string>();
   const query = vi.fn(async (sql: string, args: unknown[]) => {
@@ -17,7 +17,9 @@ function fixture(defaultPreset?: string[], reconnect?: { approved: string[]; sav
     }] : [] };
     if (sql.includes("FROM app.agent_integrations")) return { rows: [{ id: deniedId, epoch: 1, available: true, policy: "baseline", name: "Fixture integration", description: null }] };
     if (sql.includes("FROM app.oauth_connections")) return { rows: [] };
-    if (sql.startsWith("SELECT scopes FROM app.permission_presets")) return { rows: defaultPreset ? [{ scopes: defaultPreset }] : [] };
+    if (sql.includes("FROM app.team_permission_defaults")) return { rows: (defaultScopes ?? []).map(scope => ({
+      permission: scope === integrationScope ? "integration:" + deniedId : scope, enabled: true,
+    })) };
     if (sql.startsWith("INSERT INTO app.oauth_consent_previews") ||
         sql.startsWith("DELETE FROM app.oauth_consent_previews")) return { rows: [] };
     if (!sql.startsWith("UPDATE app.oauth_consent_previews")) throw new Error(`Unexpected consent query: ${sql}`);
@@ -36,7 +38,7 @@ describe("static consent support", () => {
   it("binds expiring decisions to owner, tenant and session version; enforces requested scopes and current registered redirects", async () => {
     const { env, oauth } = fixture(), preview = (await consentPreview(env, session, queryWithScope))!;
     expect(preview.clientName).toBe("External client");
-    expect(preview.selectedScopes).toEqual(preview.scopes);
+    expect(preview.selectedScopes).toEqual([]);
     const input = { request: preview.request, signature: preview.signature, decision: "allow" as const, scopes: ["team:read", "triggers:read", "integrations:read"] };
     for (const modified of [{ ...session, tenantId: "other" }, { ...session, userId: "other" }, { ...session, sessionVersion: 3 }]) expect(await consentDecision(env, modified, input)).toBeNull();
     expect(await consentDecision(env, session, { ...input, scopes: ["team:write", "triggers:write", "integrations:write"] })).toBeNull();
@@ -47,7 +49,7 @@ describe("static consent support", () => {
     oauth.lookupClient.mockResolvedValue({ clientId: "client", clientName: "External client", redirectUris: ["https://other.test/callback"], tokenEndpointAuthMethod: "none" });
     expect(await consentDecision(env, session, input)).toBeNull();
   });
-  it("issues the approved default preset scopes", async () => {
+  it("issues exactly the team defaults shown as selected", async () => {
     const { env, oauth } = fixture(["team:read"]);
     const preview = (await consentPreview(env, session, queryWithScope))!;
     expect(preview.selectedScopes).toEqual(["team:read"]);
@@ -66,6 +68,28 @@ describe("static consent support", () => {
       vi.advanceTimersByTime(601_000); expect(await consentDecision(env, session, input)).toBeNull();
     } finally { vi.useRealTimers(); }
   });
+  it("applies integration defaults only inside the requested scope ceiling", async () => {
+    const { env, oauth } = fixture(["team:read", integrationScope]);
+    oauth.parseAuthRequest.mockResolvedValue({ ...parsed, scope: ["team:read"] });
+    const none = await consentPreview(env, session, { authorizationQuery: "client_id=client&scope=" });
+    expect(none.scopes).toEqual([]);
+    expect(none.selectedScopes).toEqual([]);
+    const omitted = await consentPreview(env, session, { authorizationQuery: "client_id=client" });
+    expect(omitted.scopes).toContain(integrationScope);
+    expect(omitted.selectedScopes).toEqual(["team:read", integrationScope]);
+    oauth.parseAuthRequest.mockResolvedValue({ ...parsed, scope: ["team:read"] });
+    const limited = await consentPreview(env, session, queryWithScope);
+    expect(limited.selectedScopes).toEqual(["team:read"]);
+  });
+
+  it("carries forward an earlier baseline grant but does not apply a new team default during step-up", async () => {
+    const { env, oauth } = fixture(["team:write"], { approved: ["proxy:use"], saved: ["proxy:use"] });
+    oauth.parseAuthRequest.mockResolvedValue({ ...parsed, scope: ["proxy:use", "team:write", integrationScope] });
+    const preview = await consentPreview(env, session, queryWithScope);
+    expect(preview.selectedScopes).toEqual(["proxy:use", integrationScope]);
+    expect(preview.newScopes).toEqual(["team:write"]);
+  });
+
   it("carries saved scope additions into a new owner-approved grant without replacing the old grant", async () => {
     const reconnect = { approved: ["team:read"], saved: ["team:read", "triggers:write"] };
     const { env, oauth } = fixture(["integrations:read"], reconnect);
@@ -88,11 +112,43 @@ describe("static consent support", () => {
     const selectable = (await consentPreview(env, session, { authorizationQuery: "client_id=client" }))!;
     expect(selectable.scopes).toEqual(expect.arrayContaining(["team:read", "triggers:read", "triggers:write"]));
     expect(selectable.selectedScopes).toEqual(["team:read", "triggers:write"]);
+    expect(selectable.newScopes).toEqual([]);
+    expect(selectable.grantedScopes).toEqual(["team:read"]);
     const chosen = ["team:read", "triggers:read", "triggers:write"];
     await consentDecision(env, session, { request: selectable.request, signature: selectable.signature, decision: "allow", scopes: chosen });
     expect(oauth.completeAuthorization).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
       request: expect.objectContaining({ scope: [] }), scope: chosen, props: expect.objectContaining({ scopes: chosen }),
     }));
+  });
+
+  it("does not import permissions from a different redirect or merge peer grants", async () => {
+    const { env, oauth } = fixture(["triggers:write"], { approved: ["team:read"], saved: ["team:read"] });
+    const { items: [original] } = await oauth.listUserGrants();
+    oauth.listUserGrants.mockResolvedValue({ items: [
+      { ...original, id: "wrong-redirect", redirectUri: "https://client.test/other", createdAt: original.createdAt+2, scope: ["triggers:write"] },
+      original,
+      { ...original, id: "older-copy", createdAt: original.createdAt-1, scope: ["integrations:read"] },
+    ] });
+    const preview = await consentPreview(env, session, queryWithScope);
+    expect(preview.selectedScopes).toEqual(["team:read"]);
+    expect(preview.newScopes).toContain("triggers:write");
+    expect(preview.grantedScopes).toEqual(["team:read"]);
+  });
+
+  it("does not infer legacy baseline scopes when multiple copies match the same redirect", async () => {
+    const { env, oauth } = fixture(undefined, { approved: ["proxy:use"], saved: ["proxy:use"] });
+    oauth.parseAuthRequest.mockResolvedValue({ ...parsed, scope: ["proxy:use", integrationScope] });
+    const before = await consentPreview(env, session, queryWithScope);
+    expect(before.selectedScopes).toEqual(["proxy:use", integrationScope]);
+    const { items: [original] } = await oauth.listUserGrants();
+    oauth.listUserGrants.mockResolvedValue({ items: [
+      original, { ...original, id: "older-copy", createdAt: original.createdAt-1 },
+    ] });
+    expect(await consentDecision(env, session, { request: before.request, signature: before.signature,
+      decision: "allow", scopes: before.selectedScopes })).toBeNull();
+    const preview = await consentPreview(env, session, queryWithScope);
+    expect(preview.selectedScopes).toEqual(["proxy:use"]);
+    expect(preview.newScopes).toEqual([integrationScope]);
   });
 
   it("carries an explicit integration block through reconnect until the owner selects its scope", async () => {
@@ -101,15 +157,16 @@ describe("static consent support", () => {
     const unchanged = (await consentPreview(env, session, queryWithScope))!;
     expect(unchanged.scopes).toContain(integrationScope);
     expect(unchanged.selectedScopes).toEqual(["proxy:use"]);
+    expect(unchanged.blockedScopes).toEqual([integrationScope]);
     await consentDecision(env, session, { request: unchanged.request, signature: unchanged.signature, decision: "allow", scopes: unchanged.selectedScopes });
     expect(oauth.completeAuthorization).toHaveBeenNthCalledWith(1, expect.objectContaining({
-      scope: ["proxy:use"], metadata: { tenantId: session.tenantId, initialIntegrationDenials: [deniedId] },
+      scope: ["proxy:use"], metadata: { tenantId: session.tenantId, explicitIntegrationScopes: true, initialIntegrationDenials: [deniedId] },
       props: expect.objectContaining({ initialIntegrationDenials: [deniedId] }),
     }));
     const changed = (await consentPreview(env, session, queryWithScope))!;
     await consentDecision(env, session, { request: changed.request, signature: changed.signature, decision: "allow", scopes: changed.scopes });
     expect(oauth.completeAuthorization).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      scope: ["proxy:use", integrationScope], metadata: { tenantId: session.tenantId },
+      scope: ["proxy:use", integrationScope], metadata: { tenantId: session.tenantId, explicitIntegrationScopes: true },
     }));
   });
 

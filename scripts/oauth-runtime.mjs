@@ -183,7 +183,7 @@ export async function checkOAuth({ read: send, stream, db, tenantId, userId, coo
   const permissionsPath = '/api/v1/access/authorizations/' + connection.grantId + '/permissions';
   const change = (edit, headers = owner) => send(permissionsPath, 'PUT', JSON.stringify(edit), {...headers, 'Content-Type':'application/json'});
   const integrationKey = 'integration:' + integrationId + ':1';
-  const edit = {scopes: ['team:read', 'integrations:read', integrationKey], expectedRevision: 0};
+  const edit = {scopes: ['team:read', 'integrations:read', integrationKey], integrationOverrides: {[deniedIntegrationId]: false}, expectedRevision: 0};
   assert.equal((await change(edit, restBearer)).status, 403);
   assert.equal((await change({...edit, scopes: [...edit.scopes, 'unknown:scope']})).status, 400);
   const saved = await change(edit);
@@ -196,6 +196,20 @@ export async function checkOAuth({ read: send, stream, db, tenantId, userId, coo
   assert.match(blocked.headers['www-authenticate'], /insufficient_scope.*scope="triggers:read"/);
   const reflect = async (credentials = bearer) => (await rpc('tools/call', {name:'get_api_reflection',arguments:{}}, 10, credentials)).result.structuredContent;
   assert.equal((await reflect()).integrations.find(row => row.id === integrationId).access, 'requestable');
+
+  const upgrade = await json('/mcp', { jsonrpc: '2.0', id: 18, method: 'tools/call',
+    params: { name: 'request_api', arguments: { integration: integrationId, method: 'GET', path: '/' } } },
+    { ...bearer, Accept: 'application/json, text/event-stream', 'MCP-Protocol-Version': '2026-07-28', 'Mcp-Method': 'tools/call' });
+  assert.equal(upgrade.status, 403, upgrade.text);
+  assert.match(upgrade.headers['www-authenticate'], /insufficient_scope/);
+  assert.ok(upgrade.headers['www-authenticate'].includes('scope="proxy:use ' + integrationKey + '"'));
+  const metadataUrl = new URL(/resource_metadata="([^"]+)"/.exec(upgrade.headers['www-authenticate'])[1]);
+  assert.equal(metadataUrl.protocol, 'https:');
+  assert.equal(metadataUrl.pathname, '/.well-known/oauth-protected-resource/mcp');
+  // Wrangler rewrites localhost URLs; verify the advertised document itself.
+  const resource = await send(metadataUrl.pathname, 'GET');
+  assert.equal(resource.status, 200, resource.text);
+  assert.equal(resource.json.resource, origin + '/mcp');
 
   // Newly selected scopes are carried by a freshly authorized credential.
   const freshVerifier = randomBytes(32).toString('base64url');
@@ -212,6 +226,7 @@ export async function checkOAuth({ read: send, stream, db, tenantId, userId, coo
   assert.equal(freshPreview.status, 200, freshPreview.text);
   assert.equal(freshPreview.json.reconnect, true);
   assert.deepEqual(freshPreview.json.selectedScopes, edit.scopes);
+  assert.deepEqual(freshPreview.json.newScopes, [integrationKey, 'proxy:use']);
   const freshConsent = await json('/api/v1/oauth/consent/decision', {
     request: freshPreview.json.request, signature: freshPreview.json.signature, decision: 'allow', scopes: [...freshPreview.json.selectedScopes, 'proxy:use'],
   }, freshOwner);
@@ -227,6 +242,14 @@ export async function checkOAuth({ read: send, stream, db, tenantId, userId, coo
   const reflected = await reflect(freshBearer);
   assert.equal(reflected.integrations.find(row => row.id === deniedIntegrationId).access, 'unavailable');
   assert.equal((await reflect(freshBearer)).integrations.find(row => row.id === integrationId).access, 'granted');
+  const originalRefresh = await form('/oauth/token', {
+    grant_type: 'refresh_token', client_id: clientId, refresh_token: exchange.json.refresh_token, resource: origin+'/mcp',
+  });
+  assert.equal(originalRefresh.status, 200, originalRefresh.text);
+  const refreshedOriginal = { Authorization: 'Bearer ' + originalRefresh.json.access_token };
+  assert.equal((await reflect(refreshedOriginal)).integrations.find(row => row.id === integrationId).access, 'requestable');
+  assert.ok(!originalRefresh.json.scope?.split(' ').includes(integrationKey));
+
   assert.equal((await change({scopes: originalScopes, expectedRevision: 1})).status, 200);
   assert.equal((await reflect()).integrations.find(row => row.id === integrationId).access, 'unavailable');
   assert.deepEqual((await rpc('tools/call', {name:'list_triggers',arguments:{}}, 11)).result.structuredContent.items, []);

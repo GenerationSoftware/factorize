@@ -56,12 +56,14 @@ describe.skipIf(!url)("VM grant persistence and delegation", () => {
         [f.tenantId, preset],
       );
       const auth = { ...f.auth, scopes: ["vms:edit", "triggers:read"] };
-      await expect(resolveVmPermissions(f.db.pool, auth, { presetId: preset, scopes: ["triggers:read"] })).rejects.toMatchObject({ name: "ZodError" });
-      const snapshot = await resolveVmPermissions(f.db.pool, auth, { presetId: preset });
+      await expect(resolveVmPermissions(f.db.pool, auth, { presetId: preset, scopes: ["triggers:read"] } as never)).rejects.toMatchObject({ name: "ZodError" });
+      await expect(() => resolveVmPermissions(f.db.pool, auth, { presetId: preset } as never)).rejects.toMatchObject({ name: "ZodError" });
+      const snapshot = await resolveVmPermissions(f.db.pool, auth, { scopes: ["triggers:read"] });
       const repository = new VmGrantRepository(f.db.pool, f.tenantId);
       const unrelated = new VmGrantRepository(f.db.pool, f.otherTenant);
       const target = { provider_id: provider, provider_kind: "fly" as const, provider_epoch: 1, vm: "machine", vm_app: "app" };
-      const reserve = (key: string) => repository.reserve(target, key, snapshot.scopes, snapshot.presetId, "actor");
+      // Model an existing snapshot originally created from a preset.
+      const reserve = (key: string) => repository.reserve(target, key, snapshot.scopes, preset, "actor");
       const results = await Promise.all([reserve("first"), reserve("second")]);
       const grants = results.filter(result => result.created);
       expect(grants).toHaveLength(1);

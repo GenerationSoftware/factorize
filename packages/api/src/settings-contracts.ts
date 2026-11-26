@@ -18,9 +18,10 @@ export const authorizedClient = z.object({ availableScopes: z.array(z.string()),
 export const accessToken = z.object({ id: z.string(), name: z.string(), scopes: z.array(z.enum(ACCESS_SCOPES)), created_at: timestamp, expires_at: timestamp, last_used_at: timestamp.nullable().optional(), revoked_at: timestamp.nullable().optional() });
 export const createdAccessToken = accessToken.extend({ token: z.string() });
 export const okResult = z.object({ ok: z.boolean() });
-export const permissionPresetInput = z.object({ name: z.string().trim().min(1).max(100), scopes: z.array(z.string()).max(100), expectedRevision: z.number().int().positive().optional() }).strict();
-export const permissionPreset = z.object({ id: z.uuid(), name: z.string(), scopes: z.array(z.string()), isDefault: z.boolean(), revision: z.number().int().positive(), createdAt: timestamp, updatedAt: timestamp });
-export const permissionPresetList = z.array(permissionPreset);
+export const teamPermission = z.object({ scope: z.string(), name: z.string(), isDefault: z.boolean(),
+  integrationId: z.uuid().nullable(), kind: z.string().nullable(), credentialId: z.string().nullable(), preferenceSet: z.boolean(), available: z.boolean() });
+export const teamPermissionList = z.array(teamPermission);
+export const teamPermissionUpdate = z.strictObject({ scope: z.string().min(1).max(200), isDefault: z.boolean() });
 export const savedExe = okResult.extend({ connectionId: z.string() });
 export const savedAmp = okResult.extend({ connectionId: z.string() });
 export const savedTail = z.object({ integrationId: z.string(), name: z.string(), status: z.literal("connected"), secretConfigured: z.literal(true), generatedSecret: z.string().optional() });

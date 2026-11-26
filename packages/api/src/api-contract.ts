@@ -8,7 +8,7 @@ import {queryApiResponseInput,queryApiResponseResult} from "./agent-api-contract
 import { apiReflection, apiPolicyList, apiPolicyInput, requestApiInput, requestApiResponse, readApiResponseInput, apiResponseChunk } from "./agent-api-contracts";
 import { queryOf } from "./query-params";
 import { consentPreviewInput, consentPreviewResponse, consentDecisionInput, consentDecisionResponse } from "./consent-api";
-import { exeConnection, integrationStatus, clientPermissionsUpdate, clientNameInput, authorizedClient, accessToken, createdAccessToken, savedExe, savedAmp, okResult, permissionPreset, permissionPresetInput, permissionPresetList } from "./settings-contracts";
+import { exeConnection, integrationStatus, clientPermissionsUpdate, clientNameInput, authorizedClient, accessToken, createdAccessToken, savedExe, savedAmp, okResult, teamPermissionList, teamPermissionUpdate } from "./settings-contracts";
 import { eventAvailabilityResponse, namedOption, providerOptions, githubInstallation, githubRepository, tailIntegration } from "./editor-contracts";
 import { triggerResponse, triggerUpdateInput } from "./trigger-contracts";
 import { z } from "zod";
@@ -584,11 +584,12 @@ export const API_ROUTES: RouteContract[] = [
     description: "Factorize immediately denies access under this grant. The VM keeps running. Retrying the same revocation is safe.",
     responses: { "200": { description: "VM grant revoked", content: { "application/json": { schema: jsonSchema(vmRevokeResult, "output") } } } },
   }, (service, { params }) => service.revokeVmPermissions(params.grantId), { parameters: vmGrantRef }),
-  route("GET", "/api/v1/permission-presets", "team:read", {summary:"List team permission presets",responses:{"200":{description:"Permission presets",content:{"application/json":{schema:jsonSchema(permissionPresetList,"output")}}}}}, service=>service.listPermissionPresets(), {ownerSession:true}),
-  route("POST", "/api/v1/permission-presets", "team:write", {summary:"Create a team permission preset",responses:{"201":{description:"Created",content:{"application/json":{schema:jsonSchema(permissionPreset,"output")}}}}}, (service,{body})=>service.createPermissionPreset(body), {ownerSession:true,body:permissionPresetInput}),
-  route("PUT", "/api/v1/permission-presets/{presetId}", "team:write", {summary:"Update a team permission preset",responses:{"200":{description:"Updated",content:{"application/json":{schema:jsonSchema(permissionPreset,"output")}}}}}, (service,{params,body})=>service.updatePermissionPreset(params.presetId,body), {ownerSession:true,parameters:z.object({presetId:z.uuid()}),body:permissionPresetInput.extend({expectedRevision:z.number().int().positive()})}),
-  route("POST", "/api/v1/permission-presets/{presetId}/default", "team:write", {summary:"Set the team default permission preset",responses:{"200":{description:"Default updated",content:{"application/json":{schema:jsonSchema(okResult,"output")}}}}}, (service,{params})=>service.setDefaultPermissionPreset(params.presetId), {ownerSession:true,parameters:z.object({presetId:z.uuid()})}),
-  route("DELETE", "/api/v1/permission-presets/{presetId}", "team:write", {summary:"Delete a team permission preset",responses:{"200":{description:"Deleted"}}}, (service,{params})=>service.deletePermissionPreset(params.presetId), {ownerSession:true,parameters:z.object({presetId:z.uuid()})}),
+  route("GET", "/api/v1/team-permissions", "team:read", {
+    summary: "List workspace consent defaults", responses: { "200": { description: "Team permission defaults", content: { "application/json": { schema: jsonSchema(teamPermissionList, "output") } } } },
+  }, service => service.listTeamPermissions(), { ownerSession: true }),
+  route("PUT", "/api/v1/team-permissions", "team:write", {
+    summary: "Change one workspace consent default", responses: { "200": { description: "Default updated", content: { "application/json": { schema: jsonSchema(okResult, "output") } } } },
+  }, (service, { body }) => service.updateTeamPermission(body), { ownerSession: true, body: teamPermissionUpdate }),
   route("DELETE", "/api/v1/access/authorizations/{grantId}", "triggers:write", {summary:"Revoke one isolated OAuth connection", description:"Other connections, including copies of the same client, retain their approvals.",responses:{"200":{description:"Authorization revoked",content:{"application/json":{schema:jsonSchema(z.object({revoked:z.number().int()}),"output")}}}}}, (service,{params})=>service.revokeOAuthAuthorization(params.grantId), {ownerSession:true}),
   route(
     "DELETE",

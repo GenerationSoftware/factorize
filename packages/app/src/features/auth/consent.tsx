@@ -18,7 +18,12 @@ export function ConsentScreen() {
     retry: false,
   });
   const data = preview.data;
-  const scopes = data && selection?.request === data.request ? selection.scopes : (data?.selectedScopes ?? data?.scopes ?? []);
+  const scopes = data && selection?.request === data.request ? selection.scopes : (data?.selectedScopes ?? []);
+  const stepUp = data?.scopes.filter(scope => data.newScopes?.includes(scope)) ?? [];
+  const groups = stepUp.length && data ? [
+    { title: "Existing and optional permissions", scopes: data.scopes.filter(scope => !stepUp.includes(scope)) },
+    { title: "New permissions requested", scopes: stepUp },
+  ] : [{ title: null, scopes: data?.scopes ?? [] }];
   const decision = useMutation({
     retry: false,
     mutationFn: async (value: "allow" | "deny") => {
@@ -42,16 +47,25 @@ export function ConsentScreen() {
       {!!data.unavailableSavedScopes?.length && <p role="status">The client did not request these saved permissions: {data.unavailableSavedScopes.join(", ")}. To grant them, update the client’s scope request and reconnect again.</p>}
       <fieldset disabled={decision.isPending || decision.isSuccess || decision.isError}>
         <legend>Permissions</legend>
-        {data.scopes.map(scope => {
+        {groups.map(group => <div key={group.title ?? "permissions"} className="mb-3">
+          {group.title && group.scopes.length > 0 && <h2 className="text-sm font-semibold">{group.title}</h2>}
+          {group.scopes.map(scope => {
           const integration = data.integrationLabels?.find(label => label.scope === scope);
           return <Label className="block" key={scope}>
             <Input aria-label={scope} type="checkbox" checked={scopes.includes(scope)} onChange={e => setSelection({
               request: data.request,
               scopes: e.target.checked ? [...scopes, scope] : scopes.filter(s => s !== scope),
             })} />
-            {integration?.name ?? scope}{integration?.description && <span className="block text-sm">{integration.description}</span>}
+            {integration?.name ?? scope}
+            {data.reconnect && <span className="ml-2 text-xs">
+              {data.newScopes?.includes(scope) ? "New permission requested"
+                : data.grantedScopes?.includes(scope) ? "Already granted" : "Optional permission"}
+              {data.blockedScopes?.includes(scope) && " (blocked on current connection)"}
+            </span>}
+            {integration?.description && <span className="block text-sm">{integration.description}</span>}
           </Label>;
-        })}
+          })}
+        </div>)}
       </fieldset>
       <p>Request expires {data.expiresAt}.</p>
       <Button variant="primary" disabled={decision.isPending || decision.isSuccess || decision.isError} onClick={() => decision.mutate("allow")}>Allow</Button>

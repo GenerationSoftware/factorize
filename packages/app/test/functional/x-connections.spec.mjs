@@ -20,7 +20,7 @@ test("X settings guides app callback setup, validated permissions, and starts ow
     if (path.includes("providers/github/installations")) return route.fulfill({ json: [] });
     if (path === "/api/v1/model-accounts") return route.fulfill({ json: { accounts: [], revision: 0 } });
     if (path === "/api/v1/integrations/bearer") return route.fulfill({ json: { integrations: [], revision: 0 } });
-    if (path === "/api/v1/integration-api-policies") return route.fulfill({ json: { integrations: [] } });
+    if (path === "/api/v1/team-permissions") return route.fulfill({ json: [] });
     if (path === "/api/v1/x/connections" && route.request().method() === "GET") return route.fulfill({ json: { connections: connected ? [{ id: connectionId, name: "My account", clientId: "client-123", scopes: ["tweet.read", "users.read", "offline.access", "tweet.write"], accountId: "12345", accountHandle: "verified_user", grantedScopes: ["tweet.read", "users.read", "offline.access", "tweet.write"], status: "connected", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }] : [] } });
     if (path === "/api/v1/x/connections" && route.request().method() === "POST") {
       submitted = route.request().postDataJSON();
@@ -66,7 +66,7 @@ test("X settings explains terminal authorization failures and offers an explicit
     if (path.includes("providers/github/installations")) return route.fulfill({ json: [] });
     if (path === "/api/v1/model-accounts") return route.fulfill({ json: { accounts: [], revision: 0 } });
     if (path === "/api/v1/integrations/bearer") return route.fulfill({ json: { integrations: [], revision: 0 } });
-    if (path === "/api/v1/integration-api-policies") return route.fulfill({ json: { integrations: [] } });
+    if (path === "/api/v1/team-permissions") return route.fulfill({ json: [] });
     if (path === "/api/v1/x/connections") return route.fulfill({ json: { connections: [{ id: connectionId, name: "Work account", clientId: "client-123", scopes: ["tweet.read", "users.read", "offline.access"], accountId: "123", accountHandle: "work_user", grantedScopes: ["tweet.read", "users.read", "offline.access"], status: "reconnect_required", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }] } });
     if (path.endsWith("/authorize")) { authorizeCalls++; return route.fulfill({ json: { authorizationUrl: "https://x.com/i/oauth2/authorize?state=fresh" } }); }
     return route.fulfill({ json: {} });
@@ -94,7 +94,7 @@ test("X owner can test safely and replace app credentials before same-account re
     if (path.includes("providers/github/installations")) return route.fulfill({ json: [] });
     if (path === "/api/v1/model-accounts") return route.fulfill({ json: { accounts: [], revision: 0 } });
     if (path === "/api/v1/integrations/bearer") return route.fulfill({ json: { integrations: [], revision: 0 } });
-    if (path === "/api/v1/integration-api-policies") return route.fulfill({ json: { integrations: [] } });
+    if (path === "/api/v1/team-permissions") return route.fulfill({ json: [] });
     if (path === `/api/v1/x/connections/${connectionId}/test`) { tested++; return route.fulfill({ json: { status: "failed", accountHandle: "work_user", message: "X could not verify the connection. Try again later." } }); }
     if (path === `/api/v1/x/connections/${connectionId}/credentials` && route.request().method() === "PUT") { replacement = route.request().postDataJSON(); return route.fulfill({ json: { id: connectionId, name: "Work account", clientId: replacement.clientId, scopes: ["tweet.read", "users.read", "offline.access"], accountId: "123", accountHandle: "work_user", grantedScopes: [], status: "reconnect_required", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } }); }
     if (path === `/api/v1/x/connections/${connectionId}/authorize`) return route.fulfill({ json: { authorizationUrl: "https://x.com/i/oauth2/authorize?state=replacement" } });

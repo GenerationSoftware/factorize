@@ -11,7 +11,7 @@ describe.skipIf(!url)("cookie protocol APIs against PostgreSQL", { timeout: 30_0
     const f = await loadingFixture(url!);
     try {
       const parsed = { responseType: "code", clientId: "client", redirectUri: "https://external.test/callback", scope: ["team:read", "triggers:read", "integrations:read"], state: "state", codeChallenge: "challenge", codeChallengeMethod: "S256", resource: f.env.APP_ORIGIN + "/mcp", issuer: f.env.APP_ORIGIN };
-      await f.db.pool.query("INSERT INTO app.permission_presets(tenant_id,id,name,scopes,is_default) VALUES($1,$2,'Read only',ARRAY['triggers:read'],true)",[f.tenantId,crypto.randomUUID()]);
+      await f.db.pool.query("INSERT INTO app.team_permission_defaults(tenant_id,permission,enabled) VALUES($1,'triggers:read',true)",[f.tenantId]);
       const oauth = { listUserGrants: async () => ({ items: [] }), parseAuthRequest: async () => parsed, lookupClient: async () => ({ clientId: "client", clientName: "CLI", redirectUris: [parsed.redirectUri] }), completeAuthorization: vi.fn(async (_input: unknown) => ({ redirectTo: parsed.redirectUri + "?code=issued" })) };
       f.env.OAUTH_PROVIDER = oauth as any;
       const request = (path: string, body: unknown, cookie = f.cookie) => protectedApiFetch(new Request(f.env.APP_ORIGIN + path, { method: "POST", headers: { Cookie: cookie, Origin: f.env.APP_ORIGIN, "Content-Type": "application/json" }, body: JSON.stringify(body) }), f.env, null, {} as ExecutionContext);

@@ -10,17 +10,17 @@ test.beforeAll(async ({ origin: appOrigin, browser: chromium }) => {
 async function setup() { const context = await browser.newContext(), page = await context.newPage(); page.setDefaultTimeout(10000); await page.route("**/api/v1/session", route => route.fulfill({ json: { authenticated: true, user: { id: "owner", email: "owner@example.test" }, team: { id: "tenant", name: "Workspace" }, capabilities: [], expiresAt: "2026-10-10T00:00:00Z" } })); return { context, page }; }
 test("consent refresh preserves OAuth query, scope selection and server-owned redirect", async () => {
   const { context, page } = await setup(); const previews = []; let decision;
-  await page.route("**/api/v1/oauth/consent/preview", route => { previews.push(route.request().postDataJSON()); return route.fulfill({ json: { clientName: "External CLI", scopes: ["team:read", "triggers:read", "integrations:read", "triggers:write"], request: "signed-request", signature: "signature", expiresAt: "2026-10-09T12:00:00Z" } }); });
+  await page.route("**/api/v1/oauth/consent/preview", route => { previews.push(route.request().postDataJSON()); return route.fulfill({ json: { clientName: "External CLI", scopes: ["team:read", "triggers:read", "integrations:read", "triggers:write"], selectedScopes: ["team:read", "triggers:read", "integrations:read", "triggers:write"], request: "signed-request", signature: "signature", expiresAt: "2026-10-09T12:00:00Z" } }); });
   await page.route("**/api/v1/oauth/consent/decision", route => { decision = route.request().postDataJSON(); return route.fulfill({ json: { redirectTo: origin + "/completed?code=issued" } }); });
   await page.goto(origin + "/authorize?client_id=client&state=original&code_challenge=challenge"); await page.getByRole("heading", { name: "Authorize External CLI" }).waitFor(); await page.reload(); await page.getByLabel("triggers:write").uncheck(); await page.getByRole("button", { name: "Allow", exact: true }).click(); await page.waitForURL("**/completed?code=issued");
   assert.equal(previews.at(-1).authorizationQuery, "client_id=client&state=original&code_challenge=challenge"); assert.deepEqual(decision, { request: "signed-request", signature: "signature", decision: "allow", scopes: ["team:read", "triggers:read", "integrations:read"] }); await context.close();
 });
-for (const presetScopes of [["team:read"], []]) {
-  test(`Allow submits the displayed preset selection (${presetScopes.join(", ") || "empty"}) without any checkbox changes`, async () => {
+for (const defaultScopes of [["team:read"], []]) {
+  test(`Allow submits the displayed default selection (${defaultScopes.join(", ") || "empty"}) without any checkbox changes`, async () => {
     const { context, page } = await setup();
     try {
       await page.route("**/api/v1/oauth/consent/preview", route => route.fulfill({ json: {
-        clientName: "External CLI", scopes: ["team:read", "triggers:write"], selectedScopes: presetScopes,
+        clientName: "External CLI", scopes: ["team:read", "triggers:write"], selectedScopes: defaultScopes,
         request: "signed-request", signature: "signature", expiresAt: "2026-10-09T12:00:00Z",
       } }));
       let decision;
@@ -31,11 +31,11 @@ for (const presetScopes of [["team:read"], []]) {
 
       await page.goto(origin + "/authorize?client_id=client&state=original&code_challenge=challenge");
       await page.getByRole("heading", { name: "Authorize External CLI" }).waitFor();
-      assert.equal(await page.getByLabel("team:read", { exact: true }).isChecked(), presetScopes.includes("team:read"));
+      assert.equal(await page.getByLabel("team:read", { exact: true }).isChecked(), defaultScopes.includes("team:read"));
       assert.equal(await page.getByLabel("triggers:write", { exact: true }).isChecked(), false);
       await page.getByRole("button", { name: "Allow", exact: true }).click();
       await page.waitForURL("**/completed?code=issued");
-      assert.deepEqual(decision, { request: "signed-request", signature: "signature", decision: "allow", scopes: presetScopes });
+      assert.deepEqual(decision, { request: "signed-request", signature: "signature", decision: "allow", scopes: defaultScopes });
     } finally {
       await context.close();
     }
@@ -93,6 +93,34 @@ test("failed reconnect approval reloads the review and never submits a new conse
     assert.deepEqual(approvals.map(({ request, scopes }) => [request, scopes]), [
       ["request-1", ["team:read", "triggers:write"]], ["request-2", ["team:read"]],
     ]);
+  } finally {
+    await context.close();
+  }
+});
+
+test("reconnect separates granted, requested, blocked and optional permissions without prechecking step-up", async () => {
+  const { context, page } = await setup();
+  const blocked = "integration:18a2410e-ea09-4fe0-af8a-719c0c91e6e2:1";
+  let decision;
+  try {
+    await page.route("**/api/v1/oauth/consent/preview", route => route.fulfill({ json: {
+      clientName: "External CLI", reconnect: true, scopes: ["team:read", blocked, "triggers:write"],
+      selectedScopes: ["team:read"], grantedScopes: ["team:read"], newScopes: [blocked],
+      blockedScopes: [blocked], request: "signed-request", signature: "signature", expiresAt: "2026-10-09T12:00:00Z",
+    } }));
+    await page.route("**/api/v1/oauth/consent/decision", route => {
+      decision = route.request().postDataJSON();
+      return route.fulfill({ json: { redirectTo: origin + "/completed?code=issued" } });
+    });
+    await page.goto(origin + "/authorize?client_id=client&state=original&code_challenge=challenge");
+    await page.getByRole("heading", { name: "Reconnect External CLI" }).waitFor();
+    await page.getByText("Already granted", { exact: true }).waitFor();
+    await page.getByText("New permission requested (blocked on current connection)", { exact: false }).waitFor();
+    await page.getByText("Optional permission", { exact: true }).waitFor();
+    assert.equal(await page.getByLabel(blocked, { exact: true }).isChecked(), false);
+    await page.getByRole("button", { name: "Allow", exact: true }).click();
+    await page.waitForURL("**/completed?code=issued");
+    assert.deepEqual(decision.scopes, ["team:read"]);
   } finally {
     await context.close();
   }

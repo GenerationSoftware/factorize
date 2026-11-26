@@ -2,11 +2,10 @@ import { test, expect } from "./fixtures.mjs";
 
 const id = "30000000-0000-4000-8000-000000000011";
 const providerId = "30000000-0000-4000-8000-000000000012";
-const presetId = "30000000-0000-4000-8000-000000000013";
 const timestamp = "2026-01-01T00:00:00.000Z";
 const grant = {
   id, providerId, provider: "fly.io", vm: "machine-1", app: "orders", scopes: ["triggers:read"],
-  presetId, presetName: "Events", revision: 1, createdAt: timestamp, updatedAt: timestamp,
+  revision: 1, createdAt: timestamp, updatedAt: timestamp,
 };
 
 async function session(page, capabilities) {
@@ -39,19 +38,16 @@ test("edit refreshes a stale grant, saves explicit scopes, and revokes permissio
   await session(page, ["team:read", "vms:read", "vms:edit"]);
   let active = { ...grant };
   await page.route("**/api/v1/vms", route => route.fulfill({ json: active ? [active] : [] }));
-  await page.route("**/api/v1/permission-presets", route => route.fulfill({ json: [{
-    id: presetId, name: "Events", scopes: ["triggers:read"], revision: 1, isDefault: false, createdAt: timestamp, updatedAt: timestamp,
-  }] }));
   await page.route("**/api/v1/vms/grants", route => {
     expect(route.request().method()).toBe("POST");
     const change = route.request().postDataJSON();
     if (change.target.expectedRevision === 1) {
-      expect(change).toEqual({ target: { kind: "existing", grantId: id, expectedRevision: 1 }, permissions: { presetId } });
+      expect(change).toEqual({ target: { kind: "existing", grantId: id, expectedRevision: 1 }, permissions: { scopes: ["triggers:read"] } });
       active = { ...active, revision: 2, scopes: ["integrations:read"] };
       return route.fulfill({ status: 409, json: { error: { message: "The VM grant changed. Refresh it and retry." } } });
     }
     expect(change).toEqual({ target: { kind: "existing", grantId: id, expectedRevision: 2 }, permissions: { scopes: ["integrations:read", "vms:read"] } });
-    active = { ...active, revision: 3, scopes: change.permissions.scopes, presetId: null, presetName: null };
+    active = { ...active, revision: 3, scopes: change.permissions.scopes };
     return route.fulfill({ json: active });
   });
   await page.route(`**/api/v1/vms/grants/${id}`, route => {
@@ -61,7 +57,7 @@ test("edit refreshes a stale grant, saves explicit scopes, and revokes permissio
   });
   await page.goto(origin + "/workloads/" + id);
   await page.getByRole("button", { name: "Edit permissions" }).click();
-  await page.getByLabel("Permission source").selectOption({ label: "Events" });
+  await page.getByLabel("Permission scopes").fill("triggers:read");
   await page.getByRole("button", { name: "Save permissions" }).click();
   await expect(page.getByRole("alert")).toHaveText("The VM grant changed. Refresh it and retry.");
   await expect(page.getByText("integrations:read", { exact: true })).toBeVisible();

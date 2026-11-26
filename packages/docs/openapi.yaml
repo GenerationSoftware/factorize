@@ -3620,6 +3620,21 @@ paths:
                     type: array
                     items:
                       type: string
+                  newScopes:
+                    default: []
+                    type: array
+                    items:
+                      type: string
+                  grantedScopes:
+                    default: []
+                    type: array
+                    items:
+                      type: string
+                  blockedScopes:
+                    default: []
+                    type: array
+                    items:
+                      type: string
                   unavailableSavedScopes:
                     type: array
                     items:
@@ -3654,6 +3669,9 @@ paths:
                   - clientName
                   - scopes
                   - selectedScopes
+                  - newScopes
+                  - grantedScopes
+                  - blockedScopes
                   - unavailableSavedScopes
                   - reconnect
                   - request
@@ -5574,16 +5592,6 @@ paths:
                       type: array
                       items:
                         type: string
-                    presetId:
-                      anyOf:
-                        - type: string
-                          format: uuid
-                          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
-                        - type: "null"
-                    presetName:
-                      type:
-                        - string
-                        - "null"
                     revision:
                       type: integer
                       exclusiveMinimum: 0
@@ -5603,8 +5611,6 @@ paths:
                     - vm
                     - app
                     - scopes
-                    - presetId
-                    - presetName
                     - revision
                     - createdAt
                     - updatedAt
@@ -5677,16 +5683,6 @@ paths:
                     type: array
                     items:
                       type: string
-                  presetId:
-                    anyOf:
-                      - type: string
-                        format: uuid
-                        pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
-                      - type: "null"
-                  presetName:
-                    type:
-                      - string
-                      - "null"
                   revision:
                     type: integer
                     exclusiveMinimum: 0
@@ -5717,8 +5713,6 @@ paths:
                   - vm
                   - app
                   - scopes
-                  - presetId
-                  - presetName
                   - revision
                   - createdAt
                   - updatedAt
@@ -5803,28 +5797,18 @@ paths:
                         - expectedRevision
                       additionalProperties: false
                 permissions:
-                  anyOf:
-                    - type: object
-                      properties:
-                        presetId:
-                          type: string
-                          format: uuid
-                          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
-                      required:
-                        - presetId
-                      additionalProperties: false
-                    - type: object
-                      properties:
-                        scopes:
-                          maxItems: 100
-                          type: array
-                          items:
-                            type: string
-                            minLength: 1
-                            maxLength: 200
-                      required:
-                        - scopes
-                      additionalProperties: false
+                  type: object
+                  properties:
+                    scopes:
+                      maxItems: 100
+                      type: array
+                      items:
+                        type: string
+                        minLength: 1
+                        maxLength: 200
+                  required:
+                    - scopes
+                  additionalProperties: false
               required:
                 - target
                 - permissions
@@ -5889,12 +5873,12 @@ paths:
             type: string
             format: uuid
             pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
-  /api/v1/permission-presets:
+  /api/v1/team-permissions:
     get:
-      summary: List team permission presets
+      summary: List workspace consent defaults
       responses:
         "200":
-          description: Permission presets
+          description: Team permission defaults
           content:
             application/json:
               schema:
@@ -5902,34 +5886,39 @@ paths:
                 items:
                   type: object
                   properties:
-                    id:
+                    scope:
                       type: string
-                      format: uuid
-                      pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
                     name:
                       type: string
-                    scopes:
-                      type: array
-                      items:
-                        type: string
                     isDefault:
                       type: boolean
-                    revision:
-                      type: integer
-                      exclusiveMinimum: 0
-                      maximum: 9007199254740991
-                    createdAt:
-                      type: string
-                    updatedAt:
-                      type: string
+                    integrationId:
+                      anyOf:
+                        - type: string
+                          format: uuid
+                          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                        - type: "null"
+                    kind:
+                      type:
+                        - string
+                        - "null"
+                    credentialId:
+                      type:
+                        - string
+                        - "null"
+                    preferenceSet:
+                      type: boolean
+                    available:
+                      type: boolean
                   required:
-                    - id
+                    - scope
                     - name
-                    - scopes
                     - isDefault
-                    - revision
-                    - createdAt
-                    - updatedAt
+                    - integrationId
+                    - kind
+                    - credentialId
+                    - preferenceSet
+                    - available
                   additionalProperties: false
         "400":
           $ref: "#/components/responses/Error400"
@@ -5951,254 +5940,15 @@ paths:
         Requires the team:read scope.
 
         An interactive owner session is required; bearer tokens cannot call this operation.
-      operationId: get_api_v1_permission_presets
+      operationId: get_api_v1_team_permissions
       tags:
-        - permission-presets
+        - team-permissions
       security:
         - cookieAuth: []
       x-required-scope: team:read
       x-owner-session-required: true
-    post:
-      summary: Create a team permission preset
-      responses:
-        "201":
-          description: Created
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  id:
-                    type: string
-                    format: uuid
-                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
-                  name:
-                    type: string
-                  scopes:
-                    type: array
-                    items:
-                      type: string
-                  isDefault:
-                    type: boolean
-                  revision:
-                    type: integer
-                    exclusiveMinimum: 0
-                    maximum: 9007199254740991
-                  createdAt:
-                    type: string
-                  updatedAt:
-                    type: string
-                required:
-                  - id
-                  - name
-                  - scopes
-                  - isDefault
-                  - revision
-                  - createdAt
-                  - updatedAt
-                additionalProperties: false
-        "400":
-          $ref: "#/components/responses/Error400"
-        "401":
-          $ref: "#/components/responses/Error401"
-        "403":
-          $ref: "#/components/responses/Error403"
-        "404":
-          $ref: "#/components/responses/Error404"
-        "409":
-          $ref: "#/components/responses/Error409"
-        "415":
-          $ref: "#/components/responses/Error415"
-        "429":
-          $ref: "#/components/responses/Error429"
-        "500":
-          $ref: "#/components/responses/Error500"
-        "503":
-          $ref: "#/components/responses/Error503"
-      description: |-
-        Requires the team:write scope.
-
-        An interactive owner session is required; bearer tokens cannot call this operation.
-      operationId: post_api_v1_permission_presets
-      tags:
-        - permission-presets
-      security:
-        - cookieAuth: []
-      x-required-scope: team:write
-      x-owner-session-required: true
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                name:
-                  type: string
-                  minLength: 1
-                  maxLength: 100
-                scopes:
-                  maxItems: 100
-                  type: array
-                  items:
-                    type: string
-                expectedRevision:
-                  type: integer
-                  exclusiveMinimum: 0
-                  maximum: 9007199254740991
-              required:
-                - name
-                - scopes
-              additionalProperties: false
-  /api/v1/permission-presets/{presetId}:
     put:
-      summary: Update a team permission preset
-      responses:
-        "200":
-          description: Updated
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  id:
-                    type: string
-                    format: uuid
-                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
-                  name:
-                    type: string
-                  scopes:
-                    type: array
-                    items:
-                      type: string
-                  isDefault:
-                    type: boolean
-                  revision:
-                    type: integer
-                    exclusiveMinimum: 0
-                    maximum: 9007199254740991
-                  createdAt:
-                    type: string
-                  updatedAt:
-                    type: string
-                required:
-                  - id
-                  - name
-                  - scopes
-                  - isDefault
-                  - revision
-                  - createdAt
-                  - updatedAt
-                additionalProperties: false
-        "400":
-          $ref: "#/components/responses/Error400"
-        "401":
-          $ref: "#/components/responses/Error401"
-        "403":
-          $ref: "#/components/responses/Error403"
-        "404":
-          $ref: "#/components/responses/Error404"
-        "409":
-          $ref: "#/components/responses/Error409"
-        "415":
-          $ref: "#/components/responses/Error415"
-        "429":
-          $ref: "#/components/responses/Error429"
-        "500":
-          $ref: "#/components/responses/Error500"
-        "503":
-          $ref: "#/components/responses/Error503"
-      description: |-
-        Requires the team:write scope.
-
-        An interactive owner session is required; bearer tokens cannot call this operation.
-      operationId: put_api_v1_permission_presets_presetId
-      tags:
-        - permission-presets
-      security:
-        - cookieAuth: []
-      x-required-scope: team:write
-      x-owner-session-required: true
-      parameters:
-        - name: presetId
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                name:
-                  type: string
-                  minLength: 1
-                  maxLength: 100
-                scopes:
-                  maxItems: 100
-                  type: array
-                  items:
-                    type: string
-                expectedRevision:
-                  type: integer
-                  exclusiveMinimum: 0
-                  maximum: 9007199254740991
-              required:
-                - name
-                - scopes
-                - expectedRevision
-              additionalProperties: false
-    delete:
-      summary: Delete a team permission preset
-      responses:
-        "200":
-          description: Deleted
-          content:
-            application/json:
-              schema:
-                type: object
-        "400":
-          $ref: "#/components/responses/Error400"
-        "401":
-          $ref: "#/components/responses/Error401"
-        "403":
-          $ref: "#/components/responses/Error403"
-        "404":
-          $ref: "#/components/responses/Error404"
-        "409":
-          $ref: "#/components/responses/Error409"
-        "429":
-          $ref: "#/components/responses/Error429"
-        "500":
-          $ref: "#/components/responses/Error500"
-        "503":
-          $ref: "#/components/responses/Error503"
-      description: |-
-        Requires the team:write scope.
-
-        An interactive owner session is required; bearer tokens cannot call this operation.
-      operationId: delete_api_v1_permission_presets_presetId
-      tags:
-        - permission-presets
-      security:
-        - cookieAuth: []
-      x-required-scope: team:write
-      x-owner-session-required: true
-      parameters:
-        - name: presetId
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
-  /api/v1/permission-presets/{presetId}/default:
-    post:
-      summary: Set the team default permission preset
+      summary: Change one workspace consent default
       responses:
         "200":
           description: Default updated
@@ -6222,6 +5972,8 @@ paths:
           $ref: "#/components/responses/Error404"
         "409":
           $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
         "429":
           $ref: "#/components/responses/Error429"
         "500":
@@ -6232,21 +5984,30 @@ paths:
         Requires the team:write scope.
 
         An interactive owner session is required; bearer tokens cannot call this operation.
-      operationId: post_api_v1_permission_presets_presetId_default
+      operationId: put_api_v1_team_permissions
       tags:
-        - permission-presets
+        - team-permissions
       security:
         - cookieAuth: []
       x-required-scope: team:write
       x-owner-session-required: true
-      parameters:
-        - name: presetId
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                scope:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+                isDefault:
+                  type: boolean
+              required:
+                - scope
+                - isDefault
+              additionalProperties: false
   /api/v1/access/authorizations/{grantId}:
     delete:
       summary: Revoke one isolated OAuth connection

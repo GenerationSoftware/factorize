@@ -50,7 +50,7 @@ it.skipIf(!database)("redirects and saves fresh Cloudflare consent, refreshes an
       { method, headers: { Cookie: cookie, Origin: f.env.APP_ORIGIN } }), f.env, {} as ExecutionContext);
     const call = (policy: {id:string;epoch:number}, method: string, path: string, extra: Record<string,unknown> = {}, grant = true) =>
       mcpRequest(f.env, { ...f.auth, authMethod: "oauth", oauthGrantId: "fixture-grant", oauthClientId: "fixture-client",
-        oauthExpiresAt: Date.now()/1000 + 600, scopes: ["proxy:use", ...(grant ? [`integration:${policy.id}:${policy.epoch}`] : [])] })(
+        oauthExpiresAt: Date.now()/1000 + 600, explicitIntegrationScopes: true, scopes: ["proxy:use", ...(grant ? [`integration:${policy.id}:${policy.epoch}`] : [])] })(
       "tools/call", { name: "request_api", arguments: { method, path, integration: policy.id, execution: "sync", ...extra } });
     const legacy = await (await api("GET", url)).json() as { connections: unknown[] };
     expect(legacy.connections).toEqual([{ id: old, name: "Legacy account", connected: false, reconnectRequired: true }]);
@@ -138,7 +138,9 @@ it.skipIf(!database)("redirects and saves fresh Cloudflare consent, refreshes an
     expect(write.status).toBe(200);
     expect(write.body).toContain('"method":"PUT"');
     expect(JSON.stringify(write.headers)).not.toMatch(/set-cookie|x-api-token/i);
-    expect((await call(fresh,"GET","/accounts/two/widgets")).message.result.structuredContent.status).toBe(403);
+    const upstreamForbidden = await call(fresh,"GET","/accounts/two/widgets");
+    expect(upstreamForbidden.status).toBe(200);
+    expect(upstreamForbidden.message.result.structuredContent.status).toBe(403);
     expect((await call(fresh,"GET","/accounts/one/widgets?redirect=1")).message.result.isError).toBe(true);
 
     vi.spyOn(Date,"now").mockReturnValue(Date.now()+301000);

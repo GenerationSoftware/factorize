@@ -62,6 +62,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("browser-only sign-out", ()
         response_type: "code", client_id, redirect_uri: redirect, state: "fixture-state", scope: "triggers:read",
         code_challenge: createHash("sha256").update(verifier).digest("base64url"), code_challenge_method: "S256", resource,
       }).toString();
+      await f.db.pool.query("INSERT INTO app.team_permission_defaults(tenant_id,permission,enabled) VALUES($1,'triggers:read',true)", [f.tenantId]);
       const previewResult = await json("/api/v1/oauth/consent/preview", { authorizationQuery: query }, browser);
       expect(previewResult.status).toBe(200);
       const { request, signature, selectedScopes: scopes } = await previewResult.json() as { request: string; signature: string; selectedScopes: string[] };

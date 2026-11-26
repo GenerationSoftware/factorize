@@ -22,7 +22,6 @@ export type VmGrant = VmTarget & {
   created_by: string;
   scopes: string[];
   preset_id: string | null;
-  preset_name?: string | null;
   revision: number;
   machine_key: string | null;
   issuer: string | null;
@@ -46,8 +45,7 @@ export class VmGrantRepository {
 
   async list() {
     const { rows } = await this.db.query<VmGrant>(
-      `SELECT g.*,p.name AS preset_name FROM app.vm_permission_grants g
-       LEFT JOIN app.permission_presets p ON p.tenant_id=g.tenant_id AND p.id=g.preset_id
+      `SELECT g.* FROM app.vm_permission_grants g
        WHERE g.tenant_id=$1 AND g.activated_at IS NOT NULL AND g.revoked_at IS NULL ORDER BY g.created_at DESC, g.id`,
       [this.tenantId],
     );

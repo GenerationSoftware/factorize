@@ -1,4 +1,5 @@
-import { integrationConsentLabels } from "./agent-api";
+import { selectedTeamDefaults, teamPermissionPreferences } from "./team-permission-defaults";
+import { integrationConsentLabels, listAgentPolicies } from "./agent-api";
 import { isIntegrationScope } from "./agent-api-contracts";
 import { databaseFor } from "./postgres/database";
 import { connectionFor, matchesRegisteredRedirect, originalBrowser } from "./oauth-continuation";
@@ -11,7 +12,7 @@ import { integrationForScope, lockOAuthPolicy, reconnectPreferences, type Reconn
 import { AGENT_SCOPES, normalizeScopes } from "./access-tokens";
 export const consentPreviewInput = z.object({ authorizationQuery: z.string().min(1).max(8192) }).strict();
 export const consentDecisionInput = z.object({ request: z.string().min(1).max(16384), signature: z.string().min(1).max(256), decision: z.enum(["allow", "deny"]), scopes: z.array(z.string()) }).strict();
-export const consentPreviewResponse = z.object({ clientName: z.string(), scopes: z.array(z.string()), selectedScopes: z.array(z.string()), unavailableSavedScopes: z.array(z.string()), reconnect: z.boolean(), request: z.string(), signature: z.string(), expiresAt: z.string(), integrationLabels: z.array(z.object({ scope: z.string(), name: z.string(), description: z.string().nullable() })).optional() });
+export const consentPreviewResponse = z.object({ clientName: z.string(), scopes: z.array(z.string()), selectedScopes: z.array(z.string()), newScopes: z.array(z.string()).default([]), grantedScopes: z.array(z.string()).default([]), blockedScopes: z.array(z.string()).default([]), unavailableSavedScopes: z.array(z.string()), reconnect: z.boolean(), request: z.string(), signature: z.string(), expiresAt: z.string(), integrationLabels: z.array(z.object({ scope: z.string(), name: z.string(), description: z.string().nullable() })).optional() });
 export const consentDecisionResponse = z.object({ redirectTo: z.string() });
 const supported: readonly string[] = AGENT_SCOPES;
 export class ConsentPreviewError extends Error {}
@@ -21,6 +22,7 @@ type ConsentEnvelope = {
   nonce: string;
   connection?: string;
   allowedScopes?: string[];
+  preselectedScopes?: string[];
   policyVersion: ReconnectRevision | null;
 };
 const encode = (value: unknown) => btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(value))));
@@ -48,27 +50,32 @@ export async function consentPreview(env: Env, session: Session, input: z.infer<
   if (!client || !matchesRegisteredRedirect(parsed.redirectUri, client.redirectUris) || parsed.responseType !== "code" || !parsed.codeChallenge || parsed.codeChallengeMethod !== "S256") {
     throw new ConsentPreviewError("The client registration or callback could not be verified. Start Reconnect again from your MCP client.");
   }
-  if (parsed.scope.some(scope => !supported.includes(scope) && !isIntegrationScope(scope))) {
+  const scopedRequest = url.searchParams.has("scope");
+  const requestedScopes = scopedRequest && !url.searchParams.get("scope")?.trim() ? [] : parsed.scope;
+  if (scopedRequest && requestedScopes.some(scope => !supported.includes(scope) && !isIntegrationScope(scope))) {
     throw new ConsentPreviewError("The client requested an unsupported Factorize permission. Update the scope request in your MCP client, then reconnect.");
   }
-  const scopedRequest = url.searchParams.has("scope");
   // Omitted scope means Factorize can offer its ordinary owner-selectable
   // scopes. An explicit scope parameter is always an upper bound, even if empty.
-  const scopes = normalizeScopes(scopedRequest ? parsed.scope : supported);
+  const { integrations } = await listAgentPolicies(env, session.tenantId);
+  const available = integrations.filter(row => row.available && row.policy !== "disabled").map(row => row.requiredScope);
+  const scopes = normalizeScopes(scopedRequest ? requestedScopes : [...supported, ...available])
+    .filter(scope => !isIntegrationScope(scope) || available.includes(scope));
   const integrationLabels = await integrationConsentLabels(env, session.tenantId, scopes);
   const preferences = await reconnectPreferences(env, session, parsed);
-  const defaultPreset = preferences ? undefined : (await databaseFor(env).pool.query<{scopes:string[]}>(
-    "SELECT scopes FROM app.permission_presets WHERE tenant_id=$1 AND is_default=true", [session.tenantId],
-  )).rows[0];
-  const preferredScopes = preferences?.preferredScopes ?? defaultPreset?.scopes ?? (scopedRequest ? scopes : []);
+  const preferredScopes = preferences?.preferredScopes ?? selectedTeamDefaults(scopes,
+    await teamPermissionPreferences(databaseFor(env).pool, session.tenantId));
   const selectedScopes = scopes.filter(scope => preferredScopes.includes(scope));
+  const grantedScopes = scopes.filter(scope => preferences?.grantedScopes.includes(scope));
+  const newScopes = scopedRequest && preferences ? scopes.filter(scope => !grantedScopes.includes(scope)) : [];
+  const blockedScopes = scopes.filter(scope => preferences?.deniedIntegrations.includes(integrationForScope(scope) ?? ""));
   const unavailableSavedScopes = preferences?.preferredScopes.filter(scope => !scopes.includes(scope)) ?? [];
   const expiresAt = Math.min(session.exp, Math.floor(Date.now() / 1000) + 600, connection ? Math.floor(connection.expires_at.getTime() / 1000) : Infinity);
   await databaseFor(env).pool.query("DELETE FROM app.oauth_consent_previews WHERE expires_at<now()-interval '1 day'");
   const nonce = crypto.randomUUID();
   await databaseFor(env).pool.query("INSERT INTO app.oauth_consent_previews(id,expires_at) VALUES ($1,$2)", [nonce, new Date(expiresAt * 1000)]);
-  const request = encode({ parsed, expiresAt, nonce, connection: connectionId ?? undefined, allowedScopes: scopes, policyVersion: preferences?.version ?? null } satisfies ConsentEnvelope);
-  return { integrationLabels, clientName: client.clientName ?? "this client", scopes, selectedScopes, unavailableSavedScopes,
+  const request = encode({ parsed, expiresAt, nonce, connection: connectionId ?? undefined, allowedScopes: scopes, preselectedScopes: selectedScopes, policyVersion: preferences?.version ?? null } satisfies ConsentEnvelope);
+  return { integrationLabels, clientName: client.clientName ?? "this client", scopes, selectedScopes, newScopes, grantedScopes, blockedScopes, unavailableSavedScopes,
     reconnect: !!preferences, request, signature: await hmac(binding(request, session), env.SESSION_SIGNING_SECRET), expiresAt: new Date(expiresAt * 1000).toISOString() };
 }
 export async function consentDecision(env: Env, session: Session, input: z.infer<typeof consentDecisionInput>) {
@@ -93,12 +100,13 @@ export async function consentDecision(env: Env, session: Session, input: z.infer
       // new review must display the latest settings before consent can proceed.
       if (envelope.policyVersion === undefined ||
           envelope.policyVersion?.grantId !== current?.version.grantId ||
-          envelope.policyVersion?.revision !== current?.version.revision) return null;
+          envelope.policyVersion?.revision !== current?.version.revision ||
+          envelope.policyVersion?.ambiguous !== current?.version.ambiguous) return null;
       const selectedIntegrations = new Set(issuedScopes.map(integrationForScope));
       for (const id of current?.deniedIntegrations ?? []) initialIntegrationDenials.add(id);
-      // An unchecked integration is an explicit denial even when the global
-      // baseline could otherwise grant it via proxy:use alone.
-      for (const scope of allowed) {
+      // Leaving a new, initially unchecked option off is not a block. Removing
+      // a preselected integration is a deliberate denial.
+      for (const scope of envelope.preselectedScopes ?? []) {
         const id = integrationForScope(scope);
         if (id && !selectedIntegrations.has(id)) initialIntegrationDenials.add(id);
       }
@@ -113,8 +121,8 @@ export async function consentDecision(env: Env, session: Session, input: z.infer
     if (input.decision === "deny") { const redirect = new URL(parsed.redirectUri); redirect.searchParams.set("error", "access_denied"); redirect.searchParams.set("state", parsed.state); if (parsed.issuer) redirect.searchParams.set("iss", parsed.issuer); return { redirectTo: redirect.toString() }; }
     await integrationConsentLabels(env, session.tenantId, issuedScopes);
     const denied = initialIntegrationDenials.size ? { initialIntegrationDenials: [...initialIntegrationDenials] } : {};
-    const props: OAuthProps = { tenantId: session.tenantId, userId: session.userId, sessionVersion: session.sessionVersion, scopes: issuedScopes, authMethod: "oauth", ...denied };
-    const { redirectTo } = await env.OAUTH_PROVIDER!.completeAuthorization({ request: parsed, userId: session.userId, metadata: { tenantId: session.tenantId, ...denied }, scope: issuedScopes, props, revokeExistingGrants: false });
+    const props: OAuthProps = { tenantId: session.tenantId, userId: session.userId, sessionVersion: session.sessionVersion, scopes: issuedScopes, authMethod: "oauth", explicitIntegrationScopes: true, ...denied };
+    const { redirectTo } = await env.OAUTH_PROVIDER!.completeAuthorization({ request: parsed, userId: session.userId, metadata: { tenantId: session.tenantId, explicitIntegrationScopes: true, ...denied }, scope: issuedScopes, props, revokeExistingGrants: false });
     return { redirectTo };
   });
 }

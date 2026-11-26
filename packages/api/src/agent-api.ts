@@ -90,7 +90,7 @@ export class AgentApiService {
     const row = (await this.database.pool.query<AgentIntegration>("SELECT * FROM app.agent_integrations WHERE tenant_id=$1 AND id=$2", [this.auth.tenantId, integration])).rows[0];
     if (!row || row.policy==="disabled") throw forbidden();
     if (identity.kind === "vm" && (!row.available || !identity.scopes.includes(requiredIntegrationScope(row)))) throw forbidden();
-    const access = connectionAccess(row, identity.scopes, identity.policy);
+    const access = connectionAccess(row, identity.scopes, identity.policy, this.auth.explicitIntegrationScopes);
     if (access === "blocked") throw forbidden();
     if (access === "requestable") throw new AgentApiError(403, "insufficient_scope", "Approve this integration before making the request.", requiredIntegrationScope(row));
     return {identity, integration: row};
