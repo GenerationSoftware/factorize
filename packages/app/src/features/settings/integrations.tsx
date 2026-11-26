@@ -11,8 +11,10 @@ import { messageOf } from "../auth/session";
 import { useBearerIntegrations } from "./bearer-integrations";
 import { useFlyIntegration } from "./fly";
 import { useXConnections } from "./x-connections";
-import { IntegrationPoliciesProvider } from "./api-policies";
+import { IntegrationDefaultPrompt, IntegrationPoliciesProvider } from "./api-policies";
 import { IntegrationRow, ProviderTile, type IntegrationAction } from "./integration-ui";
+import { Table, tableCellClasses, tableHeadClasses } from "../../shared/ui";
+import { defaultColumn } from "./permissions";
 import { Dialog } from "../../shared/dialog";
 
 type Kind = "exe" | "amp" | "cloudflareTail" | "github";
@@ -50,18 +52,18 @@ function IntegrationsContent() {
   const pending = status.isPending || github.isPending || fly.pending || bearer.pending || x.pending || cloudflare.pending;
   return <>
     {[status.error, github.error].filter(Boolean).map((error, i) => <p role="alert" key={i}>{error?.message}</p>)}
-    <section aria-labelledby="your-integrations-heading"><h2 id="your-integrations-heading" className="text-xl font-bold">Installed Integrations</h2><p className="mb-4 mt-1 text-sm text-slate-600 dark:text-slate-400">Manage workspace connections. Default API access applies to connected MCP clients; other access requires approval.</p>
+    <section aria-labelledby="your-integrations-heading"><h2 id="your-integrations-heading" className="text-xl font-bold">Installed Integrations</h2><p className="mb-4 mt-1 text-sm text-slate-600 dark:text-slate-400">Manage workspace connections. Defaults only preselect integrations for new connections.</p>
       {pending && <p role="status">Loading integrations…</p>}
       {!count && !pending && <p className="rounded-xl border border-dashed border-stone-300 p-5 dark:border-slate-700">No integrations added yet. Choose a provider below to get started.</p>}
-      {Boolean(count) && <div role="list" aria-label="Installed Integrations" className="rounded-xl border border-stone-200 bg-white dark:border-slate-800 dark:bg-slate-900">
-        {data?.linear && <IntegrationRow kind="linear" credentialId="linear" name="Linear" detail={data.linear.organizationName ?? data.linear.viewerEmail ?? "Connected account"} actions={[{label: "Reconnect Linear", href: "/auth/linear"}]} />}
-        {data?.clickup && <IntegrationRow kind="clickup" credentialId="clickup" name="ClickUp" detail={data.clickup.teamName ?? "Connected workspace"} actions={[{label: "Reconnect ClickUp", href: "/auth/clickup"}]} />}
-        {github.data?.map(i => <IntegrationRow key={i.installationId} kind="github" credentialId={String(i.installationId)} name={`GitHub · ${i.accountLogin}`} detail={i.accountType} connected={i.state === "active"} status={i.state === "active" ? "Connected" : `Needs attention · ${i.state}`} actions={[{label: "Manage on GitHub", href: "https://github.com/settings/installations", external: true}, ...actions("github", String(i.installationId))]}>{result(`github:${i.installationId}`)}</IntegrationRow>)}
-        {data?.exeConnections.map(c => <IntegrationRow key={c.connectionId} kind="exe" credentialId={c.connectionId} name={`exe.dev · ${c.connectionId}`} detail="Account connection" actions={actions("exe", c.connectionId, () => open("Edit exe.dev integration", <IntegrationForm kind="exe" connectionId={c.connectionId} />))}>{result(`exe:${c.connectionId}`)}</IntegrationRow>)}
-        {data?.ampConnections.map(c => <IntegrationRow key={c.connectionId} kind="amp" credentialId={c.connectionId} name={`Amp · ${c.project}`} detail="Project connection" actions={actions("amp", c.connectionId, () => open("Edit Amp integration", <IntegrationForm kind="amp" connectionId={c.connectionId} initialName={c.project} initialApiBaseUrl={c.apiBaseUrl} />))}>{result(`amp:${c.connectionId}`)}</IntegrationRow>)}
+      {Boolean(count) && <><IntegrationDefaultPrompt /><Table aria-label="Installed integrations" className="table-fixed"><thead className={tableHeadClasses}><tr><th scope="col" className={tableCellClasses}>Integration</th><th scope="col" className={defaultColumn}>Available by Default</th></tr></thead><tbody>
+        {data?.linear && <IntegrationRow kind="linear" credentialId="linear" name="Linear" detail={[data.linear.organizationName, data.linear.viewerEmail].filter(Boolean).join(" · ")} actions={[{label: "Reconnect Linear", href: "/auth/linear"}]} />}
+        {data?.clickup && <IntegrationRow kind="clickup" credentialId="clickup" name="ClickUp" detail={data.clickup.teamName ?? undefined} actions={[{label: "Reconnect ClickUp", href: "/auth/clickup"}]} />}
+        {github.data?.map(i => <IntegrationRow key={i.installationId} kind="github" credentialId={String(i.installationId)} name="GitHub" detail={`${i.accountLogin} · ${i.accountType} · #${i.installationId}`} status={i.state === "active" ? undefined : `Needs attention · ${i.state}`} actions={[{label: "Manage on GitHub", href: "https://github.com/settings/installations", external: true}, ...actions("github", String(i.installationId))]}>{result(`github:${i.installationId}`)}</IntegrationRow>)}
+        {data?.exeConnections.map(c => <IntegrationRow key={c.connectionId} kind="exe" credentialId={c.connectionId} name="exe.dev" detail={c.connectionId} actions={actions("exe", c.connectionId, () => open("Edit exe.dev integration", <IntegrationForm kind="exe" connectionId={c.connectionId} />))}>{result(`exe:${c.connectionId}`)}</IntegrationRow>)}
+        {data?.ampConnections.map(c => <IntegrationRow key={c.connectionId} kind="amp" credentialId={c.connectionId} name="Amp" detail={c.project} actions={actions("amp", c.connectionId, () => open("Edit Amp integration", <IntegrationForm kind="amp" connectionId={c.connectionId} initialName={c.project} initialApiBaseUrl={c.apiBaseUrl} />))}>{result(`amp:${c.connectionId}`)}</IntegrationRow>)}
         {fly.rows}{bearer.rows}{x.rows}{cloudflare.rows}
-        {data?.cloudflareTail.installations.map(c => <IntegrationRow key={c.integrationId} kind="tail" credentialId={c.integrationId} name={`Legacy Cloudflare Tail · ${c.name}`} connected={false} status="Retired" detail={`Referenced by ${c.referencedTriggerCount} ${c.referencedTriggerCount === 1 ? "trigger" : "triggers"}`} actions={actions("cloudflareTail", c.integrationId)}>{result(`cloudflareTail:${c.integrationId}`)}</IntegrationRow>)}
-      </div>}
+        {data?.cloudflareTail.installations.map(c => <IntegrationRow key={c.integrationId} kind="tail" credentialId={c.integrationId} name="Cloudflare Tail" status="Retired" detail={`${c.name} · Referenced by ${c.referencedTriggerCount} ${c.referencedTriggerCount === 1 ? "trigger" : "triggers"}`} actions={actions("cloudflareTail", c.integrationId)}>{result(`cloudflareTail:${c.integrationId}`)}</IntegrationRow>)}
+      </tbody></Table></>}
       {feedback && !feedback.error && feedback.message === "Integration disconnected." && <p role="status">Integration disconnected.</p>}
       {fly.feedback}{bearer.feedback}{x.feedback}{cloudflare.feedback}
     </section>

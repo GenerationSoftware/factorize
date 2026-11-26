@@ -1,52 +1,59 @@
+import { useId, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "factorize-api-client";
-import { Label, Select } from "../../shared/ui";
+import { Input, Table, tableCellClasses, tableHeadClasses, tableRowClasses } from "../../shared/ui";
 import { SettingsLayout } from "./navigation";
 import { messageOf } from "../auth/session";
 
 const path = "/api/v1/team-permissions";
 const key = ["settings", "team-permissions"];
 export function useTeamPermissions() {
-  const cache = useQueryClient();
-  const query = useQuery({ queryKey: key, queryFn: async ({ signal }) => {
+  return useQuery({ queryKey: key, queryFn: async ({ signal }) => {
     const { data, error } = await api.GET(path, { signal });
     if (!Array.isArray(data) || error) throw new Error(error ? messageOf(error) : "Could not load team permissions.");
     return data;
   }});
-  const change = useMutation({ retry: false, mutationFn: async (body: {scope:string;isDefault:boolean}) => {
-    const { error } = await api.PUT(path, { body });
+}
+export type TeamPermission = NonNullable<ReturnType<typeof useTeamPermissions>["data"]>[number];
+export const defaultColumn = `${tableCellClasses} w-32 text-center sm:w-40`;
+
+export function DefaultCheckbox({ row, name = row.name }: { row: TeamPermission; name?: string }) {
+  const cache = useQueryClient();
+  const detail = useId();
+  const [optimistic, setOptimistic] = useState<boolean | null>(null);
+  // Each row owns its pending state and rollback; another row can save meanwhile.
+  const change = useMutation({ retry: false, mutationFn: async (isDefault: boolean) => {
+    await cache.cancelQueries({ queryKey: key, exact: true });
+    const { error } = await api.PUT(path, { body: { scope: row.scope, isDefault } });
     if (error) throw new Error(messageOf(error));
-  }, onSuccess: (_, change) => {
-    cache.setQueryData<typeof query.data>(key, rows => rows?.map(row => row.scope === change.scope
-      ? { ...row, isDefault: change.isDefault, preferenceSet: true } : row));
-    return cache.invalidateQueries({ queryKey: key });
-  }});
-  return { query, change };
+  }, onSuccess: (_, isDefault) => {
+    cache.setQueryData<TeamPermission[]>(key, rows => rows?.map(item => item.scope === row.scope
+      ? { ...item, isDefault, preferenceSet: true } : item));
+  }, onSettled: () => setOptimistic(null) });
+  const status = change.error?.message || (!row.available ? "Integration unavailable" : null);
+  return <div aria-busy={optimistic !== null}>
+    <label className="mx-auto flex size-10 items-center justify-center rounded has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-factorize-600">
+      <Input type="checkbox" className="mr-0" aria-label={`${name}: Available by Default`} aria-describedby={status ? detail : undefined}
+        checked={optimistic ?? row.isDefault} disabled={optimistic !== null || !row.available}
+        onChange={event => { const checked = event.currentTarget.checked; setOptimistic(checked); change.mutate(checked); }} />
+    </label>
+    {status && <p id={detail} className="break-words text-xs" role={change.error ? "alert" : undefined}>{status}</p>}
+  </div>;
 }
-export type TeamPermission = NonNullable<ReturnType<typeof useTeamPermissions>["query"]["data"]>[number];
-export function PermissionChoice({ row, settings }: {row:TeamPermission;settings:ReturnType<typeof useTeamPermissions>}) {
-  const pending = settings.change.isPending && settings.change.variables.scope === row.scope ? settings.change.variables : null;
-  const value = pending ? (pending.isDefault ? "default" : "not-default")
-    : !row.preferenceSet ? "" : row.isDefault ? "default" : "not-default";
-  return <>
-    <Label className="flex flex-wrap items-center gap-2">{row.name}
-      <Select value={value} aria-label={row.name + " default preference"} disabled={settings.change.isPending || !row.available}
-        onChange={event => settings.change.mutate({ scope: row.scope, isDefault: event.target.value === "default" })}>
-        {!row.preferenceSet && <option value="" disabled>Choose a default preference</option>}
-        <option value="default">Default</option><option value="not-default">Not default</option>
-      </Select>
-    </Label>
-    {!row.available && <p className="text-xs">Integration unavailable</p>}
-    {settings.change.variables?.scope === row.scope && settings.change.error && <p role="alert">{settings.change.error.message}</p>}
-  </>;
-}
+
 export function Permissions() {
-  const settings = useTeamPermissions();
+  const query = useTeamPermissions();
+  const native = query.data?.filter(row => row.integrationId === null);
   return <SettingsLayout title="Permissions">
     <p className="mb-5">Defaults preselect permissions for new connections. They do not grant access or change existing permissions.</p>
-    {settings.query.error && <p role="alert">{settings.query.error.message}</p>}
-    {settings.query.isPending && <p role="status">Loading permissions...</p>}
-    <ul className="divide-y rounded-xl border dark:border-slate-800">{settings.query.data?.map(row =>
-      <li key={row.scope} className="p-4"><PermissionChoice row={row} settings={settings}/></li>)}</ul>
+    {query.error && <p role="alert">{query.error.message}</p>}
+    {query.isPending && <p role="status">Loading permissions…</p>}
+    {native && <Table aria-label="Factorize permissions">
+      <thead className={tableHeadClasses}><tr><th scope="col" className={tableCellClasses}>Permission</th><th scope="col" className={defaultColumn}>Available by Default</th></tr></thead>
+      <tbody>{native.map(row => <tr key={row.scope} className={tableRowClasses}>
+        <th scope="row" className={`${tableCellClasses} break-words font-medium`}>{row.name}</th>
+        <td className={defaultColumn}><DefaultCheckbox row={row} /></td>
+      </tr>)}</tbody>
+    </Table>}
   </SettingsLayout>;
 }

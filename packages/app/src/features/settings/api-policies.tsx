@@ -1,26 +1,26 @@
-import { createContext, useContext, useEffect, type ReactNode } from "react";
-import { PermissionChoice, useTeamPermissions } from "./permissions";
+import { createContext, useContext, type ReactNode } from "react";
+import { DefaultCheckbox, useTeamPermissions } from "./permissions";
 
-const Context = createContext<ReturnType<typeof useTeamPermissions> | null>(null);
+const Context = createContext<Pick<ReturnType<typeof useTeamPermissions>, "data" | "isPending"> | null>(null);
 export function IntegrationPoliciesProvider({children}: {children: ReactNode}) {
-  const settings = useTeamPermissions();
-  return <Context.Provider value={settings}>{settings.query.error && <p role="alert">Team permissions: {settings.query.error.message}</p>}{children}</Context.Provider>;
+  const { data, isPending, error } = useTeamPermissions();
+  return <Context.Provider value={{ data, isPending }}>
+    {error && <p role="alert">Team permissions: {error.message}</p>}
+    {children}
+  </Context.Provider>;
 }
 
-export function IntegrationPolicy({kind, credentialId}: {kind: string; credentialId: string}) {
-  const settings = useContext(Context);
-  const row = settings?.query.data?.find(row => row.kind === kind && row.credentialId === credentialId);
-  const refetch = settings?.query.refetch;
-  const loaded = !!settings?.query.data;
-  // A provider may finish adding a connection on this page without
-  // invalidating the team list it did not know about.
-  useEffect(() => {
-    if (loaded && !row && kind !== "tail") void refetch?.();
-  }, [loaded, !!row, kind, credentialId, refetch]);
-  if (kind === "tail") return <span className="text-xs text-slate-500">Inbound webhook</span>;
-  if (!settings || settings.query.isPending || !row) return null;
-  return <div className="text-xs">
-    {!row.preferenceSet && row.available && <p>Make this integration a default for new connections? This only preselects it during consent; it does not grant access.</p>}
-    <PermissionChoice row={row} settings={settings} />
-  </div>;
+export function IntegrationDefaultPrompt() {
+  const query = useContext(Context);
+  if (!query?.data?.some(row => row.integrationId && row.available && !row.preferenceSet)) return null;
+  return <p className="mb-3 text-sm">Make a new integration available by default? Check its box below to preselect it during consent. This does not grant access.</p>;
+}
+
+export function IntegrationPolicy({kind, credentialId, name}: {kind: string; credentialId: string; name: string}) {
+  const query = useContext(Context);
+  const row = query?.data?.find(row => row.kind === kind && row.credentialId === credentialId);
+  if (row) return <DefaultCheckbox key={row.scope} row={row} name={name} />;
+  if (kind === "tail") return <span className="text-xs text-slate-600 dark:text-slate-400">Inbound webhook</span>;
+  if (query?.isPending) return <span aria-label="Loading default" role="status">…</span>;
+  return <span className="text-xs text-slate-600 dark:text-slate-400" aria-label="Default not available">—</span>;
 }
