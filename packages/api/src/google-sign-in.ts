@@ -8,11 +8,11 @@ import { databaseFor, type DatabaseClient } from "./postgres/database";
 import { AuthRepository } from "./postgres/auth-repository";
 import { createJwksResolver } from "./vm-oidc";
 import type { Env } from "./types";
+import { requestGoogleIdToken } from "./google-token";
 
 export const googleCallbackPath = "/oauth/google/sign-in/callback";
 const cookieName = (env: Env) => new URL(env.APP_ORIGIN).protocol === "https:" ? "__Host-factorize_google_attempt" : "factorize_google_attempt";
 const maxAge = 600;
-const tokenUrl = "https://oauth2.googleapis.com/token";
 const authorizationUrl = "https://accounts.google.com/o/oauth2/v2/auth";
 const jwksUri = "https://www.googleapis.com/oauth2/v3/certs";
 const encoder = new TextEncoder();
@@ -93,18 +93,10 @@ function decodePart(input: string) {
   return Uint8Array.from(atob(padded), char => char.charCodeAt(0));
 }
 async function exchangeGoogleCode(env: Env, attempt: Attempt, code: string) {
-  const token = await googleCallbackStage("token_transport", () => fetch(tokenUrl, {
-    method: "POST", redirect: "error", signal: AbortSignal.timeout(10_000),
-    body: new URLSearchParams({
-      grant_type: "authorization_code", code, client_id: env.GOOGLE_SIGN_IN_CLIENT_ID!, client_secret: env.GOOGLE_SIGN_IN_CLIENT_SECRET!,
-      redirect_uri: redirectUri(env), code_verifier: attempt.verifier!,
-    }),
-  }));
-  if (!token.ok) {
-    const { error } = await token.json().then(value => z.object({ error: z.unknown().optional() }).parse(value)).catch(() => ({ error: undefined }));
-    throw new GoogleCallbackFailure(error === "invalid_client" ? "token_invalid_client" : error === "invalid_grant" ? "token_invalid_grant" : "token_rejected");
-  }
-  const { id_token } = await googleCallbackStage("token_response", async () => z.object({ id_token: z.string().min(1).max(16384) }).parse(await token.json()));
+  const id_token = await requestGoogleIdToken({
+    grant_type: "authorization_code", code, client_id: env.GOOGLE_SIGN_IN_CLIENT_ID!, client_secret: env.GOOGLE_SIGN_IN_CLIENT_SECRET!,
+    redirect_uri: redirectUri(env), code_verifier: attempt.verifier!,
+  });
   const { header, claims, parts } = await googleCallbackStage("id_token_shape", () => {
     const parts = id_token.split(".");
     if (parts.length !== 3) throw new Error("Invalid Google identity token.");
