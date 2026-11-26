@@ -1,0 +1,36 @@
+---
+title: Use a connected API
+description: Discover an authorized integration and make a read-only test request.
+---
+
+Human setup: follow [Use an API](/quickstart#use-an-api). Use a disposable
+project or a test API; do not guess which production resources to query.
+
+1. Call `get_api_reflection`. Choose an integration whose access is
+   `granted` and use its ID and request example. Reflection is discovery,
+   not authorization to call an integration marked `requestable` or
+   `unavailable`. For an OAuth client, API calls require `proxy:use` and
+   applicable integration access. When the connection needs an explicit
+   integration scope, use the exact scope reported by Factorize; ask the
+   human to review consent rather than requesting unrelated permissions.
+2. Call `request_api` with `integration`, `method`, and an integration-relative
+   `path`. Use a request that the provider documents as read-only; some
+   providers use a POST for a read (GraphQL, for example). Never attach
+   a provider authorization header or paste credentials into a tool call.
+3. For a queued operation, poll `get_api_operation`; polling does not repeat
+   the call. If the response is retained, read only what you need with
+   `query_api_response` or `read_api_response`. Distinguish provider HTTP
+   status from the Factorize operation completing.
+
+For an isolated fixture, reflect a test integration pointing to a mock
+service that returns `{"hello":"factorize"}` from `GET /sample`. Substitute
+the integration ID actually returned by reflection:
+
+```json request_api
+{"integration":"11111111-1111-4111-8111-111111111111","method":"GET","path":"/sample","execution":"sync"}
+```
+
+Expect HTTP 200 and the fixture's message. Do not delete anything at the
+provider. Have the owner remove temporary client or integration access if it
+is no longer needed. See [MCP tools](/mcp/tools#integration-apis) or the
+[REST contract](/api/reference).

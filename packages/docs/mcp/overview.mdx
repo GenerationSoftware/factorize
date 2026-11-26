@@ -1,34 +1,36 @@
 ---
 title: Connect your agent
-description: Authorize an MCP client to discover Events and subscribe to occurrences.
+description: Authorize a remote MCP client and control what it may do.
 ---
 
-Use Factorize's remote Streamable HTTP endpoint:
+Use Factorize's remote Streamable HTTP endpoint in your MCP client:
 
 ```text
 https://app.factorize.sh/mcp
 ```
 
-Configure the endpoint in your MCP client and complete its OAuth flow. Authorize
-`triggers:read` to discover Events and read occurrences. Authorize
-`triggers:write` to create Events and Triggers, configure sources, and fire a
-manual Trigger. Other scopes apply only to their corresponding integrations or
-application operations.
+Factorize uses OAuth. Sign in, review the scopes shown, and approve only the
+permissions needed for the task. A team can mark permissions as defaults for
+new consent. Defaults are suggestions, not changes to existing grants; explicit
+a new connection stays within an explicit client scope request. To replace an
+existing credential, start Reconnect in your client and select that same
+connection in the Factorize consent page. You can approve its available saved
+permissions even when the client requests fewer at sign-in. The response lists
+the actual scopes issued. A client that separately narrows the token request
+or rejects the returned scopes may still need changes. Existing tokens never
+gain permissions.
 
-Ask your client to call `list_events` and `list_triggers`. An empty list is a
-successful connection to a workspace without configured Events or Triggers.
-
-## Event subscriptions
-
-MCP clients can subscribe to an Event occurrence resource. When a Trigger
-publishes a validated occurrence, the server sends a resource-updated
-notification. Read the resource to obtain the durable occurrence data. A client
-that reconnects can use `list_event_occurrences` or the corresponding REST
-endpoint to recover stored occurrences.
+In [Factorize](https://app.factorize.sh), review access in **Clients**
+and approved services in **Integrations**. You can change or revoke client
+access there. You do not need to paste a service credential into MCP.
 
 ## Built-in workflow skills
 
-Factorize publishes built-in MCP Skills with workflow guidance. Use
-`skills/list` to discover the catalog and `skills/get` to get the
-`manage-triggers` manifest. Read its resource for instructions on managing
-Events and Triggers.
+Use `skills/list` to discover `use-an-api`, `grant-vm-access`, and
+`manage-triggers`. Use `skills/get` for the returned manifest, then read its
+advertised resource URI. Rediscover the catalog after an update rather than
+pinning an old versioned URI. Clients that do not expose these methods can
+follow the [same recipes](/quickstart) in this guide.
+
+See [MCP tools](/mcp/tools) for the registered inventory and
+[REST reference](/api/reference) for the generated OpenAPI contract.

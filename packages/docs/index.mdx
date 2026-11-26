@@ -1,19 +1,18 @@
 ---
-title: Factorize with your agent
-description: Connect your agent, define Events, and publish durable occurrences through Triggers.
+title: Factorize
+description: A development environment for your agent.
 ---
 
-Factorize stores versioned Event definitions, input Triggers, and durable Event
-occurrences. MCP subscribers receive notifications when an occurrence is
-available and can read it later.
+Factorize is a development environment for your agent. Connect the services it
+needs, approve just the access it should have, and see and revoke that access
+in [Factorize](https://app.factorize.sh).
 
-Start at [app.factorize.sh](https://app.factorize.sh), connect an MCP client to
-`https://app.factorize.sh/mcp`, create an Event and attach one or more Triggers.
+- **Use an API.** Your agent calls the APIs of connected services through MCP.
+  Factorize uses the credentials you connected without handing them to the agent.
+- **Give a VM access.** Give a supported workload its own scoped Factorize
+  access, separate from the agent connection.
+- **React to an event.** Use webhook or schedule Triggers, optionally combining
+  inputs and authorized lookups before publishing an Event occurrence.
+  Factorize publishes; the subscriber decides what to do with the occurrence.
 
-<CardGroup cols={2}>
-  <Card title="Connect your agent" icon="plug" href="/mcp/overview">Authorize a remote MCP client</Card>
-  <Card title="First Event" icon="bolt" href="/quickstart">Create an Event, fire a Trigger, and read the occurrence</Card>
-</CardGroup>
-
-See [concepts](/concepts) for the Event model and [self-hosting](/self-hosting/deployment)
-for deployment information.
+[Try one of the three pathways](/quickstart) or [look up MCP and REST](/mcp/tools).

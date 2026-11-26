@@ -1,0 +1,37 @@
+---
+title: Give a VM access
+description: Grant and revoke isolated Factorize access for an existing workload.
+---
+
+Human setup: follow [Give a VM access](/quickstart#give-a-vm-access).
+Use a disposable running Fly.io Machine, not a shared workload, and confirm
+its team and exact identity. Factorize VM enrollment currently requires a
+deployment with Fly.io VM grants enabled. Exe.dev provider-native integration
+bindings are separate, not Factorize VM grants.
+
+1. The authorizing client needs `vms:edit` to grant or revoke and `vms:read`
+   to check its grants. It must also have the scopes it delegates. Some tools
+   that discover provider connections additionally need `integrations:read`.
+   Use the authorized provider connection's ID, not a provider credential.
+2. Call `grant_vm_permissions` with a stable enrollment request key, the
+   existing Machine target, and explicit `permissions.scopes`: only `triggers:read` here. This example
+   is an isolated Fly.io fixture; substitute the actual provider connection,
+   Machine ID, and app name. Use the live tool schema for other target fields.
+3. From inside the test VM, authenticate using the returned audience, the
+   provider's identity proof, and the enrolled guest key. See [VM
+   authentication](/mcp/tools#authenticate-from-an-enrolled-machine) for the
+   signed Fly.io example. Do not copy the private key out of the guest or
+   substitute the human's token. Call `list_events` from the VM or
+   `GET /api/v1/events`; an empty list is valid. Use `list_vms` from the
+   authorizing client to confirm the exact grant.
+4. Call `revoke_vm_permissions` with that grant ID and check that it no longer
+   appears in the active list. This does not stop or delete the VM.
+
+```json grant_vm_permissions
+{"target":{"kind":"machine","providerId":"11111111-1111-4111-8111-111111111111","vm":"1234abcd","app":"factorize-test","requestKey":"hello-factorize-v1"},"permissions":{"scopes":["triggers:read"]}}
+```
+
+To edit rather than enroll, use target `kind: "existing"`, the grant ID, and
+`expectedRevision` from `list_vms`. Do not add provider APIs to a VM grant
+unless the owner also approves the required API and integration scopes.
+See [MCP tools](/mcp/tools#vm-permissions) and [REST reference](/api/reference).

@@ -13,60 +13,78 @@
     "dark": "/logo-dark.svg"
   },
   "navigation": {
-    "groups": [
+    "tabs": [
       {
-        "group": "Get started",
-        "pages": [
-          "index",
-          "mcp/overview",
-          "quickstart"
-        ]
-      },
-      {
-        "group": "Work with your agent",
-        "pages": [
-          "work/triggers"
-        ]
-      },
-      {
-        "group": "Automate triggers",
-        "pages": [
-          "integrations/events",
-          "integrations/github",
-          "integrations/clickup",
-          "integrations/oauth"
-        ]
-      },
-      {
-        "group": "Troubleshooting",
-        "pages": [
-          "troubleshooting/connection",
-          "troubleshooting/events"
-        ]
-      },
-      {
-        "group": "Reference",
-        "pages": [
-          "mcp/tools",
-          "concepts",
-          "api/reference",
-          "api/authentication",
-          "api/discovery",
-          "api/openapi",
+        "tab": "Guides",
+        "groups": [
           {
-            "group": "REST operations",
-            "openapi": "/openapi.yaml"
+            "group": "Get started",
+            "pages": [
+              "index",
+              "quickstart",
+              "mcp/overview"
+            ]
+          },
+          {
+            "group": "Work with your agent",
+            "pages": [
+              "work/use-an-api",
+              "work/vm-access",
+              "work/triggers"
+            ]
+          },
+          {
+            "group": "Event sources",
+            "pages": [
+              "integrations/events",
+              "integrations/github",
+              "integrations/clickup",
+              "integrations/oauth"
+            ]
+          },
+          {
+            "group": "Troubleshooting",
+            "pages": [
+              "troubleshooting/connection",
+              "troubleshooting/events"
+            ]
+          },
+          {
+            "group": "Reference",
+            "pages": [
+              "mcp/tools",
+              "concepts",
+              "api/reference",
+              "api/authentication",
+              "api/discovery",
+              "api/openapi",
+              {
+                "group": "REST operations",
+                "openapi": "/openapi.yaml"
+              }
+            ]
           }
         ]
       },
       {
-        "group": "Self-hosting",
-        "pages": [
-          "self-hosting/deployment",
-          "self-hosting/configuration",
-          "self-hosting/operations"
+        "tab": "Operators",
+        "groups": [
+          {
+            "group": "Self-hosting",
+            "pages": [
+              "self-hosting/deployment",
+              "self-hosting/configuration",
+              "self-hosting/operations"
+            ]
+          }
         ]
       }
     ]
-  }
+  },
+  "redirects": [
+    {
+      "source": "/self-hosting",
+      "destination": "/self-hosting/deployment"
+    }
+  ]
 }
