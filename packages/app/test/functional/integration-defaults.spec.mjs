@@ -51,6 +51,20 @@ test("installed integrations distinguish instances and save defaults independent
     await expect(table.getByRole("columnheader")).toHaveText(["Integration", "Available by Default"]);
     await expect(firstRow.getByText("GitHub", { exact: true })).toBeVisible();
     await expect(firstRow.getByText("same-org · Organization · #101", { exact: true })).toBeVisible();
+    const availableGitHub = page.getByRole("list", { name: "Available integration providers" })
+      .getByRole("listitem").filter({ has: page.getByRole("link", { name: "Add GitHub integration" }) });
+    const typography = locator => locator.evaluate(element => {
+      const style = getComputedStyle(element);
+      return { fontSize: style.fontSize, fontWeight: style.fontWeight, lineHeight: style.lineHeight, color: style.color };
+    });
+    const availableTitle = await typography(availableGitHub.getByText("GitHub", { exact: true }));
+    const installedTitle = await typography(firstRow.getByText("GitHub", { exact: true }));
+    const installedSubtitle = await typography(firstRow.getByText(/same-org.*#101/));
+    const availableSubtitle = await typography(availableGitHub.getByText("Connect repositories and pull requests.", { exact: true }));
+    expect(availableTitle).toMatchObject({ fontSize: "16px", fontWeight: "600" });
+    expect(installedTitle).toEqual(availableTitle);
+    expect(installedSubtitle).toMatchObject({ fontSize: "14px", fontWeight: "400" });
+    expect(availableSubtitle).toEqual(installedSubtitle);
     await expect(table.getByRole("row").filter({ hasText: "test-exe-account" }).getByText("exe.dev", { exact: true })).toBeVisible();
     await expect(unavailable.getByText("Needs attention · suspended")).toBeVisible();
     await expect(unavailable.getByRole("checkbox")).toBeDisabled();
