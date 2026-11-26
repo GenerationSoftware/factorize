@@ -34,7 +34,7 @@ it.skipIf(!url)("preserves blocked integrations through a connection permission 
     const read = async () => {
       const response = await fetch("/api/v1/access/authorized-clients", "GET");
       expect(response.status, await response.clone().text()).toBe(200);
-      const [client] = await response.json() as { scopes: string[]; availableScopes: string[]; revision: number; integrationOverrides: Record<string, string | false> }[];
+      const [client] = await response.json() as { scopes: string[]; availableScopes: string[]; revision: number; pendingScopes: string[] }[];
       return client;
     };
     const save = async (body: object) => {
@@ -43,24 +43,24 @@ it.skipIf(!url)("preserves blocked integrations through a connection permission 
     };
 
     const initial = await read();
-    expect(initial).toMatchObject({ scopes: readScopes, revision: 1, integrationOverrides: blocked });
+    expect(initial).toMatchObject({ scopes: readScopes, revision: 1, pendingScopes: [] });
     expect(initial.availableScopes).toEqual(expect.arrayContaining([linearScope, githubScope]));
     await save({ scopes: initial.scopes, expectedRevision: initial.revision });
     const saved = await read();
-    expect(saved).toMatchObject({ scopes: readScopes, revision: 2, integrationOverrides: blocked });
+    expect(saved).toMatchObject({ scopes: readScopes, revision: 2, pendingScopes: [] });
 
     const updatedScopes = [...saved.scopes, "team:write"];
     await save({ scopes: updatedScopes, expectedRevision: saved.revision });
     const edited = await read();
-    expect(edited).toMatchObject({ scopes: updatedScopes, revision: 3, integrationOverrides: blocked });
+    expect(edited).toMatchObject({ scopes: updatedScopes, revision: 3, pendingScopes: ["team:write"] });
 
     await save({
       scopes: [...edited.scopes, linearScope], expectedRevision: edited.revision,
-      integrationOverrides: { [linear]: linearScope },
     });
     const reenabled = await read();
     expect(reenabled).toMatchObject({ scopes: [...updatedScopes, linearScope], revision: 4 });
-    expect(reenabled.integrationOverrides).toEqual({ [github]: false });
+    expect(reenabled.pendingScopes).toEqual(["team:write", linearScope]);
+    expect(reenabled.scopes).not.toContain(githubScope);
   } finally {
     await f.cleanup();
   }
@@ -102,17 +102,18 @@ it.skipIf(!url)("renames only the selected connection and preserves policy befor
     const response = await rename(grantId, "  Release assistant  ");
     expect(response.status, await response.clone().text()).toBe(200);
     expect(await response.json()).toEqual({ name: "Release assistant" });
-    expect(await clients()).toEqual([
-      expect.objectContaining({ grantId, clientName: "Release assistant", appName: "Registered app", ownerUsername: "actual-owner", scopes: ["proxy:use"], revision: 0, integrationOverrides: { [integrationId]: false }, authorizationDate: new Date(now * 1000).toISOString(), expiresAt: new Date((now + 86400) * 1000).toISOString() }),
+    expect(await clients()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ grantId, clientName: "Release assistant", appName: "Registered app", ownerUsername: "actual-owner", scopes: ["proxy:use"], revision: 0, pendingScopes: [], authorizationDate: new Date(now * 1000).toISOString(), expiresAt: new Date((now + 86400) * 1000).toISOString() }),
       expect.objectContaining({ grantId: "sibling", clientName: "Registered app", ownerUsername: "actual-owner", expiresAt: null }),
-    ]);
+      expect.objectContaining({ grantId: "expired-grant", credentialScopes: [] }),
+    ]));
     expect((await request("/api/v1/access/authorized-clients", undefined, { ...f.auth, authMethod: "oauth" })).status).toBe(403);
 
     const permissions = await request(`/api/v1/access/authorizations/${grantId}/permissions`, { scopes: ["team:read"], expectedRevision: 0 });
     expect(permissions.status, await permissions.text()).toBe(200);
     expect((await rename(grantId, "Updated name")).status).toBe(200);
     expect(await clients()).toContainEqual(expect.objectContaining({
-      grantId, clientName: "Updated name", scopes: ["team:read"], revision: 1, integrationOverrides: { [integrationId]: false },
+      grantId, clientName: "Updated name", scopes: ["team:read"], revision: 1, pendingScopes: ["team:read"],
     }));
   } finally {
     await f.cleanup();

@@ -1,3 +1,4 @@
+import { adoptLegacyCredential } from "./oauth-installations";
 import { cloudflareCallback, cloudflareOAuthCallback, pruneCloudflareOAuth } from "./cloudflare-oauth";
 import { mcpOAuthChallenge, withRefreshAdmission } from "./mcp-oauth-auth";
 import { pruneTotp } from "./totp";
@@ -17,7 +18,6 @@ import { consentDecision } from "./consent-api";
 import { addDeviceMetadata, DEVICE_GRANT, deviceAuthorization, deviceClientRegistration, deviceToken, deviceVerification } from "./device-oauth";
 import type { Env, OAuthProps } from "./types";
 import { AGENT_SCOPES, ACCESS_SCOPES, authenticateAccessToken, normalizeScopes } from "./access-tokens";
-import { effectiveConnectionScopes } from "./oauth-connection-settings";
 import { databaseFor } from "./postgres/database";
 import { IdentityRepository } from "./postgres/identity-repository";
 import { oidcApiAuth, oidcRequest } from "./oidc-provider";
@@ -76,7 +76,7 @@ const defaultHandler: ExportedHandler<Env> = {
       const form = await request.formData();
       const decision = form.get("decision");
       if (decision !== "allow" && decision !== "deny") return new Response("Invalid decision", { status: 400 });
-      const result = await consentDecision(env, session, { request: String(form.get("request") ?? ""), signature: String(form.get("signature") ?? ""), decision, scopes: form.getAll("scope").map(String) as any });
+      const result = await consentDecision(env, session, { request: String(form.get("request") ?? ""), signature: String(form.get("signature") ?? ""), decision, scopes: form.getAll("scope").map(String) as any }, request);
       return result ? Response.redirect(result.redirectTo, 302) : new Response("Invalid, expired, or already completed consent request. Restart from your client.", { status: 400 });
     } catch (error) { if (error instanceof AuthorizationError) return oauthError(error); throw error; }
   },
@@ -133,9 +133,8 @@ const backend = { async fetch(request: Request, env: Env, ctx: ExecutionContext)
     if (!token || token.audience !== env.APP_ORIGIN+"/mcp" || !props || props.userId !== token.userId || token.expiresAt <= Date.now()/1000)
       return Response.json({error:{code:"invalid_token"}},{status:401});
     const tokenScopes = normalizeScopes(token.scope).filter(scope => normalizeScopes(props.scopes).includes(scope));
-    const effective = await effectiveConnectionScopes(env, { ...props, authMethod: "oauth", oauthGrantId: token.grantId }, tokenScopes);
-    if (!effective.includes("proxy:use")) return Response.json({error:{code:"insufficient_scope"}},{status:403, headers:{"WWW-Authenticate":'Bearer error="insufficient_scope", scope="proxy:use"'}});
-    return protectedApiFetch(request,apiEnv,{...props,authMethod:"oauth",scopes:effective,oauthGrantId:token.grantId,oauthClientId:token.grant.clientId,oauthExpiresAt:token.expiresAt},ctx);
+    if (!props.oauthInstallationId) await adoptLegacyCredential(apiEnv, props, token.grantId, token.grant.clientId);
+    return protectedApiFetch(request,apiEnv,{...props,authMethod:"oauth",scopes:tokenScopes,oauthGrantId:token.grantId,oauthClientId:token.grant.clientId,oauthExpiresAt:token.expiresAt},ctx);
   }
   if (isBrowserAuthOperation(request.method, url.pathname)) return protectedApiFetch(request, apiEnv, null, ctx);
   if (url.pathname.startsWith("/api/v1") && !request.headers.has("Authorization")) {
@@ -153,12 +152,18 @@ const backend = { async fetch(request: Request, env: Env, ctx: ExecutionContext)
   if (url.pathname === "/oauth/device_authorization") return deviceAuthorization(request, env, getOAuthApi(providerOptions(env), env), oauthScopes);
   if (url.pathname === "/oauth/register") return deviceClientRegistration(request, env, oauth, ctx);
   if (url.pathname === "/oauth/token" && request.method === "POST") {
-    const clone = request.clone();
-    const form = await clone.formData().catch(() => null);
-    if (form?.get("grant_type") === DEVICE_GRANT) return deviceToken(request, env, oauth, ctx);
-    return withRefreshAdmission(env, tokenExchangeCallback =>
-      new OAuthProvider<Env>({ ...providerOptions(env), tokenExchangeCallback }).fetch(request, env, ctx),
-      form?.get("grant_type") === "refresh_token");
+    const exchange = async (credentialRequest: Request, credentialEnv: Env, execution: ExecutionContext) => {
+      const form = await credentialRequest.clone().formData().catch(() => null);
+      const redirect = form?.get("redirect_uri");
+      return withRefreshAdmission(credentialEnv, tokenExchangeCallback =>
+        new OAuthProvider<Env>({ ...providerOptions(credentialEnv), tokenExchangeCallback }).fetch(credentialRequest, credentialEnv, execution),
+        form?.get("grant_type") === "refresh_token", typeof redirect === "string" ? redirect : null);
+    };
+    const form = await request.clone().formData().catch(() => null);
+    if (form?.get("grant_type") === DEVICE_GRANT) return deviceToken(request, env, { fetch: exchange }, ctx);
+    const response = await exchange(request, env, ctx);
+    if (response.ok && form?.get("grant_type") === "authorization_code") ctx.waitUntil(wakeMcpDeliveries(env).catch(() => {}));
+    return response;
   }
   const response = await oauth.fetch(request, env, ctx);
   if (url.pathname === "/mcp" && response.status === 401) {
@@ -178,6 +183,12 @@ export default {
     await wakeMcpDeliveries(env).catch(() => {});
     const db = databaseFor(env);
     await pruneRevokedMcpSubscriptions(db);
+    await db.pool.query(`DELETE FROM app.oauth_installation_issuances WHERE id IN
+      (SELECT id FROM app.oauth_installation_issuances WHERE expires_at<now()-interval '1 day' ORDER BY expires_at LIMIT 1000)`);
+    await db.pool.query(`DELETE FROM app.oauth_installations WHERE (tenant_id,id) IN (
+      SELECT i.tenant_id,i.id FROM app.oauth_installations i WHERE i.active_grant_id IS NULL AND i.created_at<now()-interval '1 day'
+        AND NOT EXISTS (SELECT 1 FROM app.oauth_installation_issuances p WHERE (p.tenant_id,p.installation_id)=(i.tenant_id,i.id))
+      ORDER BY i.created_at LIMIT 1000)`);
     // Retire expired VM proofs and incomplete enrollments.
     await clearExpiredGoogleSignIns(db.pool);
     await pruneCloudflareOAuth(db.pool);

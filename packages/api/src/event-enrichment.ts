@@ -4,7 +4,7 @@ import { AgentApiError } from "./agent-api-error";
 import { requiredIntegrationScope } from "./agent-integration-access";
 import { requestApiInput } from "./agent-api-contracts";
 import { normalizeScopes } from "./access-tokens";
-import { applyConnectionScopes } from "./oauth-connection-settings";
+import { getOAuthInstallation } from "./oauth-installations";
 import { databaseFor } from "./postgres/database";
 import type { EventEnrichment, InputMapping } from "./event-enrichment-contracts";
 import type { Env, OAuthProps } from "./types";
@@ -14,7 +14,7 @@ type StepResult = { name: string; outcome: "ok" | "failed"; status?: number };
 export type Evaluation = { state: "matched" | "excluded" | "failed"; stage: string | null; reason: string | null;
   input?: Record<string, Scalar>; steps: StepResult[] };
 export type EvaluatorAuthority = Pick<OAuthProps, "userId" | "sessionVersion"> & {
-  clientId: string; grantId: string; scopes: string[];
+  clientId: string; grantId: string; installationId?: string; scopes: string[];
 };
 
 // One ingress/scheduler batch has a finite request count and wall-clock
@@ -76,21 +76,26 @@ function deadline<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
 async function currentAuth(env: Env, tenantId: string, authority: EvaluatorAuthority, signal: AbortSignal): Promise<OAuthProps> {
   const provider = env.OAUTH_PROVIDER;
   if (!provider) throw new Error("Evaluator authority unavailable");
+  const sql = databaseFor(env).pool;
+  const installation = await deadline(getOAuthInstallation(sql, tenantId, authority.userId, authority.installationId ?? authority.grantId), signal);
+  if (authority.installationId && !installation || installation && (installation.revoked_at || installation.client_id !== authority.clientId ||
+      installation.active_session_version !== authority.sessionVersion || !installation.active_grant_id)) throw new Error("Evaluator authority unavailable");
+  const grantId = installation?.active_grant_id ?? authority.grantId;
   let cursor: string | undefined;
   for (let page = 0; page < 10; page++) {
     signal.throwIfAborted();
     const listing = await deadline(provider.listUserGrants(authority.userId, { limit: 100, cursor }), signal);
-    const grant = listing.items.find(item => item.id === authority.grantId);
+    const grant = listing.items.find(item => item.id === grantId);
     if (grant) {
       if (grant.userId !== authority.userId || grant.clientId !== authority.clientId || grant.metadata?.tenantId !== tenantId
           || (grant.expiresAt && grant.expiresAt <= Date.now()/1000)) break;
-      const { inspectOAuthGrant } = await import("./mcp-oauth-auth");
-      const inspection = await deadline(inspectOAuthGrant(databaseFor(env).pool, { tenantId, ...authority }, grant.id), signal);
+      const { inspectOAuthGrant, scopesForOAuthCredential } = await import("./mcp-oauth-auth");
+      const inspection = await deadline(inspectOAuthGrant(sql, { tenantId, ...authority, oauthClientId: authority.clientId, oauthInstallationId: installation?.id }, grant.id), signal);
       if (inspection.reason) break;
       const liveScopes = new Set(normalizeScopes(grant.scope));
-      const scopes = applyConnectionScopes(authority.scopes.filter(scope => liveScopes.has(scope)), inspection.policy);
+      const scopes = scopesForOAuthCredential(authority.scopes.filter(scope => liveScopes.has(scope)), inspection).filter(scope => authority.scopes.includes(scope));
       if (!scopes.includes("proxy:use") || !scopes.includes("triggers:write")) break;
-      return { ...authority, tenantId, scopes, authMethod: "oauth", oauthClientId: authority.clientId, oauthGrantId: grant.id,
+      return { ...authority, tenantId, scopes, authMethod: "oauth", oauthClientId: authority.clientId, oauthGrantId: grant.id, oauthInstallationId: installation?.id,
         oauthExpiresAt: Date.now()/1000 + 15, explicitIntegrationScopes: true,
         initialIntegrationDenials: Array.isArray(grant.metadata?.initialIntegrationDenials) ? grant.metadata.initialIntegrationDenials : [] };
     }
@@ -109,7 +114,7 @@ export async function authorizeEnrichment(env: Env, auth: OAuthProps, config: Ev
     for (const step of config.extraDataUrls) requestApiInput.parse({ integration: step.integration, method: step.method, path: renderPath(step.path,null) });
   } catch { throw new AgentApiError(400, "invalid_request", "The Event match rule or a lookup request template is invalid."); }
   const authority = { userId: auth.userId, sessionVersion: auth.sessionVersion, clientId: auth.oauthClientId,
-    grantId: auth.oauthGrantId, scopes: ["triggers:write", "proxy:use"] };
+    grantId: auth.oauthGrantId, ...(auth.oauthInstallationId ? { installationId: auth.oauthInstallationId } : {}), scopes: ["triggers:write", "proxy:use"] };
   try {
     const agent = new AgentApiService(env,{...auth,explicitIntegrationScopes:true});
     for (const step of config.extraDataUrls) {

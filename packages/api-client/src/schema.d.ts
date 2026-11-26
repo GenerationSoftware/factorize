@@ -1347,8 +1347,8 @@ export interface paths {
         };
         get?: never;
         /**
-         * Set an OAuth connection’s effective scopes and integration access
-         * @description Interactive owner session required. Removing permissions takes effect immediately. A scope not carried by the current token requires a fresh OAuth authorization and token.
+         * Save the selected permissions for one OAuth connection
+         * @description The authenticated owner sets the connection policy. Removals take effect immediately; additions need a fresh authorization for this same connection. This never enlarges an existing bearer or refresh credential.
          *
          *     Requires the triggers:write scope.
          *
@@ -1495,8 +1495,10 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Revoke an authorized OAuth client
-         * @description Requires the triggers:write scope.
+         * Revoke a client only when it has one connection
+         * @description If this app has several connections, use the exact connection endpoint instead.
+         *
+         *     Requires the triggers:write scope.
          *
          *     An interactive owner session is required; bearer tokens cannot call this operation.
          */
@@ -4625,6 +4627,15 @@ export interface operations {
             content: {
                 "application/json": {
                     authorizationQuery: string;
+                    target?: {
+                        /** @constant */
+                        kind: "installation";
+                        id: string;
+                    } | {
+                        /** @constant */
+                        kind: "legacy";
+                        id: string;
+                    };
                 };
             };
         };
@@ -4642,11 +4653,20 @@ export interface operations {
                         /** @default [] */
                         newScopes: string[];
                         /** @default [] */
+                        savedOutsideRequestedScopes: string[];
+                        /** @default [] */
                         grantedScopes: string[];
                         /** @default [] */
                         blockedScopes: string[];
                         unavailableSavedScopes: string[];
                         reconnect: boolean;
+                        targets: {
+                            /** @enum {string} */
+                            kind: "installation" | "legacy";
+                            id: string;
+                            name: string;
+                            createdAt: string;
+                        }[];
                         request: string;
                         signature: string;
                         expiresAt: string;
@@ -5432,6 +5452,8 @@ export interface operations {
                         appName?: string;
                         ownerUsername?: string;
                         scopes: string[];
+                        credentialScopes: string[];
+                        pendingScopes: string[];
                         authorizationDate: string;
                         expiresAt: string | null;
                         lastUsedAt: string | null;
@@ -5912,7 +5934,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Revoked grants */
+            /** @description Revoked one OAuth connection */
             200: {
                 headers: {
                     [name: string]: unknown;

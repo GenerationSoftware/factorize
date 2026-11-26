@@ -112,6 +112,7 @@ export function ClientPage() {
         <div><dt className="font-semibold">Authorized</dt><dd><ConnectionDate value={client.authorizationDate} /></dd></div>
         <div><dt className="font-semibold">Expires</dt><dd><ConnectionDate value={client.expiresAt} /></dd></div>
       </dl>
+      {!!client.pendingScopes?.length && <p className="mb-4" role="status">Some saved permissions are not active. Start Reconnect in your MCP client and choose this existing connection. Factorize will show available saved permissions for you to confirm, even if the client asked for fewer.</p>}
       <div className="mb-4 flex flex-wrap gap-2">
         <Button onClick={() => setEditing(true)}>Edit permissions</Button><RenameConnection client={client} /><RevokeConnection client={client} />
       </div>

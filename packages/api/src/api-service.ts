@@ -3,7 +3,8 @@ import { enrichmentRun } from "./event-enrichment-contracts";
 import { readOccurrenceSummaries } from "./postgres/occurrence-summary-repository";
 import { eventOccurrenceSummaryPage, subscriptionOccurrenceSummaryPage, parseOccurrenceSummaryCursor } from "./event-contracts";
 import { cloudflareState, disconnectCloudflare, startCloudflare } from "./cloudflare-oauth";
-import { initialIntegrationOverrides, lockOAuthPolicy } from "./oauth-reconnect";
+import { integrationForScope, lockOAuthPolicy } from "./oauth-reconnect";
+import { installationScopes, listLegacyOAuthGrants, listOAuthInstallations, materializeLegacyOAuthInstallation } from "./oauth-installations";
 import { deleteMcpGrantSubscriptions, lockMcpEventGrant } from "./postgres/mcp-event-outbox";
 import { eventPayloadSchema, occurrenceEventName, occurrenceInputSchema, type ReadEventOccurrencesInput, type subscribeEventInput, type unsubscribeEventInput, type setProcessingAcknowledgmentsInput, type acknowledgeEventsInput } from "./mcp-event-contracts";
 import { subscribeMcpEvent, unsubscribeMcpEvent, getProcessingAcknowledgments, setProcessingAcknowledgments, acknowledgeEvents, replayUnacknowledgedEvents } from "./mcp-event-subscriptions";
@@ -26,7 +27,7 @@ import { AgentApiService, listAgentPolicies } from "./agent-api";
 import {ProxyPayloads,createPayloadInput,appendPayloadInput,finalizePayloadInput,attachmentInput} from "./proxy-payloads";
 import {ProxyOperations,operationRef,operationRead} from "./proxy-operations";
 import {queryApiResponseInput} from "./agent-api-contracts";
-import { apiPolicyInput, integrationRef, integrationScopePattern, requestApiInput, readApiResponseInput } from "./agent-api-contracts";
+import { apiPolicyInput, integrationRef, requestApiInput, readApiResponseInput } from "./agent-api-contracts";
 import { integrationStatus, exeConnection, accessToken, createdAccessToken, clientPermissionsUpdate, clientNameInput, authorizedClient } from "./settings-contracts";
 import { namedOption, providerOptions, githubRepository, githubInstallation, tailIntegration } from "./editor-contracts";
 import { z } from "zod";
@@ -644,25 +645,26 @@ export class ApiService {
 
   async renameMcpClient(input: unknown) {
     const { name } = clientNameInput.parse(input);
-    if (this.auth.authMethod !== "oauth") throw new ServiceError(403, "forbidden", "An OAuth connection is required.");
-    const identity = await this.agentApi().identity();
-    await databaseFor(this.env).pool.query("UPDATE app.agent_identities SET display_name=$3 WHERE tenant_id=$1 AND id=$2", [this.auth.tenantId, identity.id, name]);
+    if (this.auth.authMethod !== "oauth" || !this.auth.oauthGrantId) throw new ServiceError(403, "forbidden", "An OAuth connection is required.");
+    await databaseFor(this.env).transaction(async sql => {
+      const id = this.auth.oauthInstallationId ?? this.auth.oauthGrantId!;
+      await lockOAuthPolicy(sql, this.auth);
+      await lockMcpEventGrant(sql, this.auth.tenantId, id);
+      const connection = await materializeLegacyOAuthInstallation(this.env, sql, this.auth, id);
+      if (!connection || connection.active_grant_id !== this.auth.oauthGrantId) throw new ServiceError(403, "forbidden", "An active OAuth connection is required.");
+      await sql.query("UPDATE app.oauth_installations SET display_name=$4 WHERE tenant_id=$1 AND user_id=$2 AND id=$3", [this.auth.tenantId, this.auth.userId, id, name]);
+    });
     return { name };
   }
   async renameAuthorizedClient(grantId: string, input: unknown) {
     await this.authorizeOwnerSession("triggers:write");
     const { name } = clientNameInput.parse(input);
-    const client = (await this.listAuthorizedClients()).find(client => client.grantId === grantId);
-    if (!client) throw new ServiceError(404, "not_found", "Authorization not found.");
-    // If this connection has never used its token, materialize its identity
-    // with the same initial integration blocks as the request path.
-    const result = await databaseFor(this.env).pool.query(`
-      INSERT INTO app.agent_identities AS i(tenant_id,kind,subject,user_id,session_version,display_name,integration_overrides)
-      VALUES($1,'oauth',$2,$3,$4,$5,$6)
-      ON CONFLICT(tenant_id,kind,subject) DO UPDATE SET display_name=excluded.display_name
-      WHERE i.revoked_at IS NULL AND i.user_id=excluded.user_id
-      RETURNING display_name`, [this.auth.tenantId, grantId, this.auth.userId, this.auth.sessionVersion, name, JSON.stringify(client.integrationOverrides)]);
-    if (!result.rowCount) throw new ServiceError(404, "not_found", "Authorization not found.");
+    await databaseFor(this.env).transaction(async sql => {
+      await lockOAuthPolicy(sql, this.auth);
+      await lockMcpEventGrant(sql, this.auth.tenantId, grantId);
+      if (!await materializeLegacyOAuthInstallation(this.env, sql, this.auth, grantId)) throw new ServiceError(404, "not_found", "Authorization not found.");
+      await sql.query("UPDATE app.oauth_installations SET display_name=$4 WHERE tenant_id=$1 AND user_id=$2 AND id=$3", [this.auth.tenantId, this.auth.userId, grantId, name]);
+    });
     return { name };
   }
   async listTeamPermissions() {
@@ -697,102 +699,84 @@ export class ApiService {
   async updateClientPermissions(grantId: string, input: unknown) {
     await this.authorizeOwnerSession("triggers:write");
     const edit = clientPermissionsUpdate.parse(input);
-    const client = (await this.listAuthorizedClients()).find(client => client.grantId === grantId);
-    if (!client) throw new ServiceError(404, "not_found", "Authorization not found.");
     const { integrations } = await listAgentPolicies(this.env, this.auth.tenantId);
-    let scopes = edit.scopes ?? client.scopes.filter(scope => !edit.disabledScopes?.includes(scope as any));
-    for (const [id, approval] of Object.entries(edit.integrationOverrides ?? {})) {
-      const integration = integrations.find(row => row.id === id);
-      if (!integration || (approval !== false && approval !== integration.requiredScope)) throw new ServiceError(409,"conflict","Integration availability changed. Reload permissions.");
-      scopes = approval === false ? scopes.filter(scope => scope.match(integrationScopePattern)?.[1] !== id) : [...scopes, approval];
-    }
-    // A previously denied integration needs an explicit approval for its current epoch.
-    // A full scope snapshot alone might come from an older or stale permissions editor.
-    scopes = scopes.filter(scope => {
-      const id = scope.match(integrationScopePattern)?.[1];
-      return !id || client.integrationOverrides[id] !== false || edit.integrationOverrides?.[id] === scope;
-    });
-    if (scopes.some(scope => !client.availableScopes.includes(scope) && !client.scopes.includes(scope))) throw new ServiceError(400, "invalid_request", "Scope is outside this authorization.");
-    const currentScopes = new Set(integrations.filter(row => row.available && row.policy !== "disabled").map(row => row.requiredScope));
-    if (scopes.some(scope => scope.startsWith("integration:") && !currentScopes.has(scope) && !client.scopes.includes(scope))) throw new ServiceError(409, "conflict", "Integration availability changed. Reload permissions.");
-    const integrationOverrides = { ...client.integrationOverrides };
-    for (const integration of integrations) {
-      if (scopes.includes(integration.requiredScope)) delete integrationOverrides[integration.id];
-      else if (edit.integrationOverrides?.[integration.id] === false || client.scopes.includes(integration.requiredScope)) integrationOverrides[integration.id] = false;
-    }
-    const result = await databaseFor(this.env).transaction(async sql => {
+    const available = new Set<string>([...AGENT_SCOPES, ...integrations.filter(row => row.available && row.policy !== "disabled").map(row => row.requiredScope)]);
+    await databaseFor(this.env).transaction(async sql => {
       await lockOAuthPolicy(sql, this.auth);
-      return sql.query(`
-      INSERT INTO app.agent_identities AS i(tenant_id,kind,subject,user_id,session_version,disabled_scopes,scope_overrides,integration_overrides,permissions_revision)
-      SELECT $1,'oauth',$2,$3,$4,'{}',$5,$6,1 WHERE coalesce($7::integer,0)=0 OR EXISTS
-        (SELECT 1 FROM app.agent_identities WHERE tenant_id=$1 AND kind='oauth' AND subject=$2)
-      ON CONFLICT(tenant_id,kind,subject) DO UPDATE SET disabled_scopes='{}',scope_overrides=excluded.scope_overrides,
-        integration_overrides=excluded.integration_overrides,permissions_revision=i.permissions_revision+1
-      WHERE i.revoked_at IS NULL AND i.user_id=excluded.user_id AND ($7 IS NULL OR i.permissions_revision=$7)
-      RETURNING permissions_revision`, [this.auth.tenantId, grantId, this.auth.userId, this.auth.sessionVersion, [...new Set(scopes)], JSON.stringify(integrationOverrides), edit.expectedRevision ?? client.revision]);
+      await lockMcpEventGrant(sql, this.auth.tenantId, grantId);
+      const row = await materializeLegacyOAuthInstallation(this.env, sql, this.auth, grantId);
+      if (!row) throw new ServiceError(404, "not_found", "Authorization not found.");
+      if (edit.expectedRevision !== undefined && edit.expectedRevision !== row.policy_revision) throw new ServiceError(409, "conflict", "Connection permissions changed. Reload permissions.");
+      let scopes = edit.scopes ?? row.selected_scopes.filter(scope => !edit.disabledScopes?.includes(scope as any));
+      // Older clients can explicitly disable an integration; new clients submit only the checkbox snapshot.
+      for (const [id, approval] of Object.entries(edit.integrationOverrides ?? {})) {
+        const integration = integrations.find(value => value.id === id);
+        if (!integration || (approval !== false && approval !== integration.requiredScope)) throw new ServiceError(409, "conflict", "Integration availability changed. Reload permissions.");
+        scopes = approval === false ? scopes.filter(scope => integrationForScope(scope) !== id) : [...scopes, approval];
+      }
+      if (scopes.some(scope => !available.has(scope) && !row.selected_scopes.includes(scope))) throw new ServiceError(400, "invalid_request", "Scope is outside this authorization.");
+      const selected = [...new Set(scopes)];
+      // Remove scopes from the outstanding credential ceiling permanently. Rechecking
+      // a box later only changes desired policy; a fresh credential is still needed.
+      await sql.query(`UPDATE app.oauth_installations SET selected_scopes=$4,active_scopes=$5,legacy_implicit_scopes=$6,policy_revision=policy_revision+1
+        WHERE tenant_id=$1 AND user_id=$2 AND id=$3`, [this.auth.tenantId, this.auth.userId, grantId, selected,
+        row.active_scopes.filter(scope => selected.includes(scope)), row.legacy_implicit_scopes.filter(scope => selected.includes(scope))]);
     });
-    if (!result.rowCount) throw new ServiceError(409, "conflict", "Connection permissions changed. Reload permissions.");
     return { ok: true };
   }
   async listAuthorizedClients() {
     await this.authorizeOwnerSession("triggers:read");
     if (!this.env.OAUTH_PROVIDER) throw new ServiceError(503, "operation_failed", "OAuth management unavailable");
-    const grants: any[] = []; let cursor: string | undefined;
-    do { const page = await this.env.OAUTH_PROVIDER.listUserGrants(this.auth.userId, { limit: 100, cursor }); grants.push(...page.items.filter(grant => (grant.metadata as any)?.tenantId === this.auth.tenantId && (!grant.expiresAt || grant.expiresAt > Math.floor(Date.now() / 1000)))); cursor = page.cursor; } while (cursor);
-    if (!grants.length) return [];
-    // listUserGrants is scoped to the authenticated owner; do not read account
-    // information for another user or expose grants from another workspace.
     const db = databaseFor(this.env);
-    const [clients, settings, owner] = await Promise.all([
-      Promise.all([...new Set(grants.map(grant => grant.clientId))].map(async clientId => [clientId, await this.env.OAUTH_PROVIDER!.lookupClient(clientId)] as const)),
-      db.pool.query("SELECT subject,display_name,disabled_scopes,scope_overrides,integration_overrides,permissions_revision FROM app.agent_identities WHERE tenant_id=$1 AND user_id=$2 AND kind='oauth' AND subject=ANY($3)", [this.auth.tenantId, this.auth.userId, grants.map(g => g.id)]),
+    const legacy = await listLegacyOAuthGrants(this.env, this.auth);
+    // Materialize only exact old grants, never coalescing two installations of one OAuth client.
+    if (legacy.length) await db.transaction(async sql => {
+      await lockOAuthPolicy(sql, this.auth);
+      for (const grant of legacy) await materializeLegacyOAuthInstallation(this.env, sql, this.auth, grant.id, undefined, undefined, grant);
+    });
+    const [rows, owner, { integrations }] = await Promise.all([
+      listOAuthInstallations(db.pool, this.auth.tenantId, this.auth.userId),
       db.pool.query<{ username: string }>("SELECT username FROM app.auth_users WHERE id=$1", [this.auth.userId]),
+      listAgentPolicies(this.env, this.auth.tenantId),
     ]);
-    const byId = new Map(clients);
-    const ownerUsername = owner.rows[0]?.username;
-    const byGrant = new Map(settings.rows.map(row => [row.subject, row]));
-    const { integrations } = await listAgentPolicies(this.env, this.auth.tenantId);
+    const clientIds = [...new Set(rows.map(row => row.client_id))];
+    const byId = new Map(await Promise.all(clientIds.map(async clientId => [clientId, await this.env.OAUTH_PROVIDER!.lookupClient(clientId)] as const)));
     const globallyAvailable = [...AGENT_SCOPES, ...integrations.filter(row => row.available && row.policy !== "disabled").map(row => row.requiredScope)];
     const scopeLabels = Object.fromEntries(integrations.map(row => [row.requiredScope, `${row.name} integration access`]));
-    return publicValue(z.array(authorizedClient), grants.map(grant => {
-      const row = byGrant.get(grant.id), grantedScopes = normalizeScopes(grant.scope);
-      const integrationOverrides = row?.integration_overrides ?? initialIntegrationOverrides(grant.metadata?.initialIntegrationDenials);
-      const baseScopes = row?.scope_overrides ?? grantedScopes.filter(scope => !row?.disabled_scopes.includes(scope));
-      const baselineScopes = grant.metadata?.explicitIntegrationScopes === true || !baseScopes.includes("proxy:use") ? []
-        : integrations.filter(integration => integration.policy === "baseline" && integration.available).map(integration => integration.requiredScope);
-      const scopes = [...new Set([...baseScopes,...baselineScopes])].filter(scope => {
-        const id = scope.match(integrationScopePattern)?.[1];
-        return !row?.disabled_scopes.includes(scope) && (!id || integrationOverrides[id] !== false);
-      });
-      const availableScopes = [...new Set([...globallyAvailable, ...scopes])];
-      return { grantId: grant.id, clientId: grant.clientId, clientName: row?.display_name ?? byId.get(grant.clientId)?.clientName ?? grant.clientId, appName: byId.get(grant.clientId)?.clientName ?? grant.clientId,
-        availableScopes, scopeLabels, scopes, revision: row?.permissions_revision ?? 0,
-        integrationOverrides, ownerUsername, authorizationDate: new Date(grant.createdAt * 1000).toISOString(),
-        expiresAt: grant.expiresAt ? new Date(grant.expiresAt * 1000).toISOString() : null, lastUsedAt: null };
+    return publicValue(z.array(authorizedClient), rows.map(row => {
+      const appName = byId.get(row.client_id)?.clientName ?? row.client_id;
+      const inactive = (row.active_expires_at !== null && row.active_expires_at.getTime() <= Date.now()) || row.active_session_version !== this.auth.sessionVersion;
+      const credentialScopes = inactive ? [] : installationScopes(row).filter(scope => !integrationForScope(scope) || globallyAvailable.includes(scope));
+      const pendingScopes = row.selected_scopes.filter(scope => !credentialScopes.includes(scope));
+      return { grantId: row.id, clientId: row.client_id, clientName: row.display_name ?? appName, appName,
+        availableScopes: [...new Set([...globallyAvailable, ...row.selected_scopes])], scopeLabels, scopes: row.selected_scopes,
+        credentialScopes, pendingScopes, revision: row.policy_revision, integrationOverrides: {}, ownerUsername: owner.rows[0]?.username,
+        authorizationDate: row.created_at.toISOString(), expiresAt: row.active_expires_at?.toISOString() ?? null, lastUsedAt: null };
     }));
   }
   async revokeOAuthAuthorization(grantId: string) {
     await this.authorizeOwnerSession("triggers:write");
     if (!this.env.OAUTH_PROVIDER) throw new ServiceError(503,"operation_failed","OAuth management unavailable");
-    let cursor: string | undefined, found = false;
-    do { const page = await this.env.OAUTH_PROVIDER.listUserGrants(this.auth.userId,{limit:100,cursor}); found ||= page.items.some(grant=>grant.id===grantId && (grant.metadata as any)?.tenantId===this.auth.tenantId); cursor=page.cursor; } while(cursor && !found);
-    if(!found) throw new ServiceError(404,"not_found","Authorization not found");
-    await databaseFor(this.env).transaction(async sql => {
+    const activeGrant = await databaseFor(this.env).transaction(async sql => {
       await lockOAuthPolicy(sql, this.auth);
       await lockMcpEventGrant(sql, this.auth.tenantId, grantId);
+      const row = await materializeLegacyOAuthInstallation(this.env, sql, this.auth, grantId);
+      if (!row) throw new ServiceError(404,"not_found","Authorization not found");
+      await sql.query("UPDATE app.oauth_installations SET revoked_at=now(),policy_revision=policy_revision+1 WHERE tenant_id=$1 AND user_id=$2 AND id=$3", [this.auth.tenantId,this.auth.userId,grantId]);
       await deleteMcpGrantSubscriptions(sql, { tenant_id: this.auth.tenantId, user_id: this.auth.userId, grant_id: grantId });
-      await sql.query("INSERT INTO app.agent_identities(tenant_id,kind,subject,user_id,session_version,revoked_at) VALUES($1,'oauth',$2,$3,$4,now()) ON CONFLICT(tenant_id,kind,subject) DO UPDATE SET revoked_at=now()",[this.auth.tenantId,grantId,this.auth.userId,this.auth.sessionVersion]);
+      return row.active_grant_id;
     });
-    await this.env.OAUTH_PROVIDER.revokeGrant(grantId,this.auth.userId);
+    if (activeGrant) await this.env.OAUTH_PROVIDER.revokeGrant(activeGrant,this.auth.userId).catch(() => {
+      // The committed installation tombstone already stops resource/refresh use.
+      console.warn("factorize.oauth_provider_revocation_pending");
+    });
     return {revoked:1};
   }
   async revokeAuthorizedClient(clientId: string) {
     await this.authorizeOwnerSession("triggers:write");
-    if (!this.env.OAUTH_PROVIDER) throw new ServiceError(503,"operation_failed","OAuth management unavailable");
-    const grants: any[]=[]; let cursor: string | undefined;
-    do { const page=await this.env.OAUTH_PROVIDER.listUserGrants(this.auth.userId,{limit:100,cursor});grants.push(...page.items.filter(grant=>grant.clientId===clientId && (grant.metadata as any)?.tenantId===this.auth.tenantId));cursor=page.cursor; } while(cursor);
-    for (const grant of grants) await this.revokeOAuthAuthorization(grant.id);
-    return {revoked:grants.length};
+    const matching = (await this.listAuthorizedClients()).filter(row => row.clientId === clientId);
+    if (matching.length !== 1) throw new ServiceError(matching.length ? 409 : 404, matching.length ? "conflict" : "not_found", "Choose the exact connection to revoke.");
+    return this.revokeOAuthAuthorization(matching[0].grantId);
   }
   async listAccessTokens() { await this.authorizeOwnerSession("triggers:read"); return publicValue(z.array(accessToken), (await new AccessTokenRepository(databaseFor(this.env), this.auth.tenantId).list()).map(token => ({ ...token, created_at: new Date(token.created_at).toISOString(), expires_at: new Date(token.expires_at).toISOString(), last_used_at: token.last_used_at ? new Date(token.last_used_at).toISOString() : null, revoked_at: token.revoked_at ? new Date(token.revoked_at).toISOString() : null, scopes: normalizeScopes(token.scopes) }))); }
   async createAccessToken(input: any) { await this.authorizeOwnerSession("triggers:write"); const name = typeof input?.name === "string" ? input.name.trim() : "", requested: string[] = Array.isArray(input?.scopes) ? [...new Set<string>(input.scopes.filter((scope: unknown): scope is string => typeof scope === "string"))] : [], scopes = normalizeScopes(requested), expiryDays = Number(input?.expiryDays); if (!name || name.length > 100 || !requested.length || requested.some(scope => !ACCESS_SCOPES.includes(scope as any)) || !scopes.length || ![7, 30, 90].includes(expiryDays)) throw new ServiceError(400, "invalid_request", "A name, supported scopes, and expiryDays of 7, 30, or 90 are required."); const token = issueAccessToken(this.auth.tenantId), expiresAt = new Date(Date.now() + expiryDays * 86_400_000).toISOString(); const metadata = await new AccessTokenRepository(databaseFor(this.env), this.auth.tenantId).create({ name, scopes, expiresAt, digest: await accessTokenDigest(token), userId: this.auth.userId, sessionVersion: this.auth.sessionVersion }); if (!metadata) throw new ServiceError(401, "invalid_token", "The owner session is no longer active."); return publicValue(createdAccessToken, JSON.parse(JSON.stringify({ ...metadata, token }))); }

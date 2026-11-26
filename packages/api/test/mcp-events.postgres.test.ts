@@ -1,3 +1,4 @@
+import { pruneRevokedMcpSubscriptions } from "../src/postgres/mcp-event-outbox";
 import { createHmac } from "node:crypto";
 import { AlarmCoordinator } from "../src/alarm-coordinator";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -62,7 +63,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("MCP event webhook lifecycl
       },
       listUserGrants: async () => ({
         items: grantActive ? [{
-          id: auth.oauthGrantId, clientId: auth.oauthClientId, metadata: { tenantId: f.tenantId }, scope: auth.scopes,
+          id: auth.oauthGrantId, clientId: auth.oauthClientId, createdAt: 1_700_000_000, metadata: { tenantId: f.tenantId }, scope: auth.scopes,
         }] : [],
       }),
     } as unknown as NonNullable<typeof f.env.OAUTH_PROVIDER>;
@@ -304,7 +305,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("MCP event webhook lifecycl
     grantActive = false;
     await dispatchMcpEvents(f.env);
     grantActive = true;
-    expect((await detail(denied)).items).toMatchObject([{ status: "cancelled", lastOutcome: "authorization_inactive", httpStatus: null, attempts: 0 }]);
+    expect((await detail(denied)).items).toMatchObject([{ status: "pending", lastOutcome: "authorization_inactive", httpStatus: null, attempts: 0 }]);
 
     const retry = (await fire("retry")).occurrenceId;
     statuses.push(503);
@@ -457,6 +458,55 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("MCP event webhook lifecycl
     expect((await ack(id, [b])).structuredContent.acknowledged).toEqual([b]);
     expect((await replay(id, [a, b, c])).structuredContent.queued).toEqual([]);
     expect((await f.db.pool.query("SELECT 1 FROM app.event_occurrences WHERE tenant_id=$1", [f.tenantId])).rowCount).toBe(4);
+  });
+
+  it("retains pending deliveries, processing ACK and cooldown across an installation reconnect", async () => {
+    const anchor = auth.oauthGrantId!;
+    const id = (await subscribe()).message.result.id;
+    await configure(id, true);
+    const completed = (await fire("installation-completed")).occurrenceId;
+    const awaiting = (await fire("installation-awaiting")).occurrenceId;
+    await dispatchMcpEvents(f.env);
+    const cooldown = (await ack(id, [completed], 90)).structuredContent.cooldownUntil;
+    expect(cooldown).toEqual(expect.any(String));
+    const pending = (await fire("installation-pending")).occurrenceId;
+    const snapshot = async () => (await f.db.pool.query(`SELECT id,generation,ack_epoch,cooldown_until,expires_at
+      FROM app.mcp_event_subscriptions WHERE tenant_id=$1 AND id=$2`, [f.tenantId, id])).rows[0];
+    const before = await snapshot();
+
+    const next = { ...auth, oauthInstallationId: anchor, oauthGrantId: "installation-credential-2" };
+    const onlySelected = next.scopes.filter(scope => scope !== "triggers:read");
+    await f.db.pool.query(`INSERT INTO app.oauth_installations
+      (tenant_id,user_id,id,client_id,redirect_uri,active_grant_id,active_session_version,active_scopes,selected_scopes)
+      VALUES($1,$2,$3,$4,'https://client.example.test/callback',$5,$6,$7,$8)`,
+    [f.tenantId, auth.userId, anchor, auth.oauthClientId, next.oauthGrantId, next.sessionVersion, next.scopes, onlySelected]);
+    // Retiring the old credential is not revocation of the installation.
+    await f.db.pool.query(`INSERT INTO app.agent_identities (tenant_id,kind,subject,user_id,session_version,revoked_at)
+      VALUES($1,'oauth',$2,$3,$4,now())`, [f.tenantId, anchor, auth.userId, auth.sessionVersion]);
+    auth = next; // The provider fixture now returns the replacement credential only.
+    await pruneRevokedMcpSubscriptions(f.db);
+    expect(await dispatchMcpEvents(f.env)).toBe(0);
+    expect(await snapshot()).toEqual(before);
+    expect((await f.db.pool.query(`SELECT status,ack_state,recovery_attempts FROM app.mcp_event_deliveries
+      WHERE tenant_id=$1 AND subscription_id=$2 AND occurrence_id=$3`, [f.tenantId, id, awaiting])).rows)
+      .toEqual([{ status: "accepted", ack_state: "awaiting_ack", recovery_attempts: 0 }]);
+    expect(await outbox()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ occurrence_id: pending, status: "pending", attempts: 0 }),
+    ]));
+
+    await f.db.pool.query("UPDATE app.oauth_installations SET selected_scopes=active_scopes WHERE tenant_id=$1 AND id=$2", [f.tenantId, anchor]);
+    const updated = await processing("get_event_processing_acknowledgments", id);
+    expect(updated.structuredContent).toMatchObject({ enabled: true, cooldownUntil: cooldown });
+    expect((await ack(id, [awaiting])).structuredContent.acknowledged).toEqual([awaiting]);
+    expect(await snapshot()).toEqual(before);
+    const renewed = await request("events/subscribe", {
+      name, arguments: {}, delivery: { mode: "webhook", url: receiver, secret: secret(key) }, cursor: null,
+    }, next);
+    expect(renewed.message.result.id).toBe(id);
+    expect(await snapshot()).toMatchObject({ generation: before.generation, ack_epoch: before.ack_epoch, cooldown_until: before.cooldown_until });
+    await f.db.pool.query("UPDATE app.mcp_event_subscriptions SET cooldown_until=now()-interval '1 second' WHERE tenant_id=$1 AND id=$2", [f.tenantId, id]);
+    await dispatchMcpEvents(f.env);
+    expect(deliveries.find(delivery => delivery.id === pending)).toMatchObject({ subscriptionId: id });
   });
 
   it("serializes acknowledgments and policy disable with in-flight HTTP, and fences old generations", async () => {
@@ -750,9 +800,10 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("MCP event webhook lifecycl
     grantActive = false;
     await dispatchMcpEvents(f.env);
     expect(deliveries).toHaveLength(1);
-    expect(await outbox()).toEqual(expect.arrayContaining([stopped, expired, narrowed, revoked].map(event => ({
-      occurrence_id: event.occurrenceId, status: "cancelled", attempts: 0, http_status: null,
-    }))));
+    expect(await outbox()).toEqual(expect.arrayContaining([
+      ...[stopped, expired].map(event => ({ occurrence_id: event.occurrenceId, status: "cancelled", attempts: 0, http_status: null })),
+      ...[narrowed, revoked].map(event => ({ occurrence_id: event.occurrenceId, status: "pending", attempts: 0, http_status: null })),
+    ]));
     await new IdentityRepository(f.db, f.otherTenant).upsertOwner(f.userId, "owner@example.test");
     const other = { ...f.auth, tenantId: f.otherTenant };
     expect((await read({ occurrenceId: rotated.occurrenceId }, other)).isError).toBe(true);
@@ -764,7 +815,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("MCP event webhook lifecycl
     const otherGrant = { ...auth, oauthGrantId: "grant-same-client" };
     const grants = [auth, otherGrant];
     f.env.OAUTH_PROVIDER!.listUserGrants = async () => ({ items: grants.map(g => ({
-      id: g.oauthGrantId!, clientId: g.oauthClientId!, metadata: { tenantId: f.tenantId }, scope: g.scopes,
+      id: g.oauthGrantId!, clientId: g.oauthClientId!, createdAt: 1_700_000_000, metadata: { tenantId: f.tenantId }, scope: g.scopes,
     })) }) as any;
     f.env.OAUTH_PROVIDER!.revokeGrant = async (id, userId) => {
       expect([id,userId]).toEqual([auth.oauthGrantId,f.userId]);
@@ -808,7 +859,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("MCP event webhook lifecycl
   it("reconciles historical tombstones but preserves unconfirmed subscriptions during provider failures", async () => {
     const retired = { ...auth, oauthGrantId: "grant-tombstoned" };
     const list = vi.fn(async () => ({ items: [auth, retired].map(g => ({
-      id: g.oauthGrantId!, clientId: g.oauthClientId!, metadata: { tenantId: f.tenantId }, scope: g.scopes,
+      id: g.oauthGrantId!, clientId: g.oauthClientId!, createdAt: 1_700_000_000, metadata: { tenantId: f.tenantId }, scope: g.scopes,
     })) }));
     f.env.OAUTH_PROVIDER!.listUserGrants = list as any;
     const stopped = (await subscribe()).message.result.id;

@@ -1,3 +1,4 @@
+import { getOAuthInstallation, installationScopes } from "./oauth-installations";
 import { initialIntegrationOverrides } from "./oauth-reconnect";
 import { activeVmAuthorization } from "./vm-auth";
 import { connectionAccess, requiredIntegrationScope, type AgentIntegration, type ConnectionPolicy } from "./agent-integration-access";
@@ -59,7 +60,7 @@ export async function integrationConsentLabels(env: Env, tenantId: string, scope
 export class AgentApiService {
   constructor(private env: Env, private auth: OAuthProps) {}
   private get database() { return databaseFor(this.env); }
-  async identity() {
+  async identity(): Promise<{id: string; kind: "vm" | "oauth"; policy: ConnectionPolicy; scopes: string[]; explicit?: boolean}> {
     const auth = this.auth;
     if (auth.authMethod === "vm") {
       const scopes = await activeVmAuthorization(this.env, auth);
@@ -79,18 +80,24 @@ export class AgentApiService {
     if (auth.authMethod === "oauth" && auth.oauthGrantId && auth.oauthClientId && auth.oauthExpiresAt && auth.oauthExpiresAt > Date.now()/1000) {
       kind = "oauth"; subject = auth.oauthGrantId;
     } else throw invalidIdentity();
+    const installation = await getOAuthInstallation(this.database.pool, auth.tenantId, auth.userId, auth.oauthInstallationId ?? subject);
+    if (auth.oauthInstallationId && !installation || installation && (installation.revoked_at || installation.active_grant_id !== subject ||
+      installation.active_session_version !== auth.sessionVersion || installation.client_id !== auth.oauthClientId)) throw invalidIdentity();
     const row = (await this.database.pool.query<ConnectionPolicy & {id: string; user_id: string; session_version: number; revoked_at: Date | null}>(`INSERT INTO app.agent_identities(tenant_id,kind,subject,user_id,session_version,integration_overrides)
       VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(tenant_id,kind,subject) DO UPDATE SET subject=excluded.subject
       RETURNING id,user_id,session_version,revoked_at,integration_overrides,disabled_scopes`, [auth.tenantId, kind, subject, auth.userId, auth.sessionVersion, JSON.stringify(initialIntegrationOverrides(auth.initialIntegrationDenials))])).rows[0]!;
     if (row.revoked_at || row.user_id !== auth.userId || row.session_version !== auth.sessionVersion) throw invalidIdentity();
-    return {id: row.id, kind, policy: row, scopes: auth.scopes};
+    // Short-lived receipts remain tied to the exact credential. The durable
+    // connection changes only authorization, not ownership of transient data.
+    return {id: row.id, kind, policy: installation ? { disabled_scopes: [], integration_overrides: {} } : row,
+      scopes: installation ? installationScopes(installation, auth.scopes) : auth.scopes, explicit: !!installation };
   }
   async authorize(integration: string) {
     const identity = await this.identity();
     const row = (await this.database.pool.query<AgentIntegration>("SELECT * FROM app.agent_integrations WHERE tenant_id=$1 AND id=$2", [this.auth.tenantId, integration])).rows[0];
     if (!row || row.policy==="disabled") throw forbidden();
     if (identity.kind === "vm" && (!row.available || !identity.scopes.includes(requiredIntegrationScope(row)))) throw forbidden();
-    const access = connectionAccess(row, identity.scopes, identity.policy, this.auth.explicitIntegrationScopes);
+    const access = connectionAccess(row, identity.scopes, identity.policy, identity.explicit || this.auth.explicitIntegrationScopes);
     if (access === "blocked") throw forbidden();
     if (access === "requestable") throw new AgentApiError(403, "insufficient_scope", "Approve this integration before making the request.", requiredIntegrationScope(row));
     return {identity, integration: row};

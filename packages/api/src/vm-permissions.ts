@@ -1,3 +1,4 @@
+import { getOAuthInstallation, installationScopes } from "./oauth-installations";
 import { AGENT_SCOPES } from "./access-tokens";
 import { connectionAccess, requiredIntegrationScope, type AgentIntegration } from "./agent-integration-access";
 import { integrationScopePattern } from "./agent-api-contracts";
@@ -35,7 +36,10 @@ export async function resolveVmPermissions(db: DatabaseClient, auth: OAuthProps,
       (auth.authMethod === "vm" && (!auth.vmTokenExpiresAt || auth.vmTokenExpiresAt <= now))) throw forbidden();
   const { scopes: selected } = source;
 
-  const policy = auth.authMethod === "oauth" && auth.oauthGrantId
+  const installation = auth.authMethod === "oauth" && auth.oauthGrantId ? await getOAuthInstallation(db, auth.tenantId, auth.userId, auth.oauthInstallationId ?? auth.oauthGrantId, true) : null;
+  if (auth.oauthInstallationId && !installation || installation && (installation.revoked_at || installation.active_grant_id !== auth.oauthGrantId ||
+    installation.active_session_version !== auth.sessionVersion || installation.client_id !== auth.oauthClientId)) throw forbidden();
+  const policy = !installation && auth.authMethod === "oauth" && auth.oauthGrantId
     ? (await db.query<{ disabled_scopes: string[]; integration_overrides: Record<string, string | false>; scope_overrides: string[] | null; revoked_at: Date | null }>(
       "SELECT disabled_scopes,integration_overrides,scope_overrides,revoked_at FROM app.agent_identities WHERE tenant_id=$1 AND kind='oauth' AND subject=$2 AND user_id=$3 FOR SHARE",
       [auth.tenantId, auth.oauthGrantId, auth.userId],
@@ -51,7 +55,7 @@ export async function resolveVmPermissions(db: DatabaseClient, auth: OAuthProps,
     )).rows[0]?.scopes ?? []
     : undefined;
   const disabled = new Set(policy?.disabled_scopes);
-  const effective = new Set(auth.scopes.filter(scope =>
+  const effective = new Set((installation ? installationScopes(installation, auth.scopes) : auth.scopes).filter(scope =>
     !disabled.has(scope) && (policy?.scope_overrides == null || policy.scope_overrides.includes(scope))
     && (vmScopes === undefined || vmScopes.includes(scope))));
   if (!effective.has("vms:edit")) throw forbidden();
@@ -67,7 +71,7 @@ export async function resolveVmPermissions(db: DatabaseClient, auth: OAuthProps,
     const integration = integrations.get(scope);
     if (!integration || !integration.available || integration.policy === "disabled" || !effective.has("proxy:use")) throw forbidden();
     if (auth.authMethod === "oauth") {
-      if (connectionAccess(integration, [...effective], policy ?? { disabled_scopes: [], integration_overrides: initialIntegrationOverrides(auth.initialIntegrationDenials) }, auth.explicitIntegrationScopes) !== "granted") throw forbidden();
+      if (connectionAccess(integration, [...effective], policy ?? { disabled_scopes: [], integration_overrides: installation ? {} : initialIntegrationOverrides(auth.initialIntegrationDenials) }, !!installation || auth.explicitIntegrationScopes) !== "granted") throw forbidden();
     } else if (!effective.has(scope)) {
       throw forbidden();
     }

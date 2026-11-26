@@ -567,8 +567,8 @@ export const API_ROUTES: RouteContract[] = [
     responses: { "200": { description: "Connection renamed", content: { "application/json": { schema: jsonSchema(clientNameInput, "output") } } } },
   }, (service, { params, body }) => service.renameAuthorizedClient(params.grantId, body), { ownerSession: true, body: clientNameInput }),
   route("PUT", "/api/v1/access/authorizations/{grantId}/permissions", "triggers:write", {
-    summary: "Set an OAuth connection’s effective scopes and integration access",
-    description: "Interactive owner session required. Removing permissions takes effect immediately. A scope not carried by the current token requires a fresh OAuth authorization and token.",
+    summary: "Save the selected permissions for one OAuth connection",
+    description: "The authenticated owner sets the connection policy. Removals take effect immediately; additions need a fresh authorization for this same connection. This never enlarges an existing bearer or refresh credential.",
     responses: {"200": {description: "Permissions saved", content: {"application/json": {schema: jsonSchema(okResult, "output")}}}},
   }, (service, {params, body}) => service.updateClientPermissions(params.grantId, body), {ownerSession: true, body: clientPermissionsUpdate}),
   route("GET", "/api/v1/vms", "vms:read", {
@@ -597,8 +597,9 @@ export const API_ROUTES: RouteContract[] = [
     "/api/v1/access/authorized-clients/{clientId}",
     "triggers:write",
     {
-      summary: "Revoke an authorized OAuth client",
-      responses: { "200": { description: "Revoked grants" } },
+      summary: "Revoke a client only when it has one connection",
+      description: "If this app has several connections, use the exact connection endpoint instead.",
+      responses: { "200": { description: "Revoked one OAuth connection" } },
     },
     (service, { params }) => service.revokeAuthorizedClient(params.clientId),
     { ownerSession: true },

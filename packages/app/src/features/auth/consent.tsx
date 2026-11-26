@@ -4,13 +4,17 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { api } from "factorize-api-client";
 import { messageOf } from "./session";
 
+type ConnectionTarget = { kind: "installation" | "legacy"; id: string };
+const targetKey = (target?: ConnectionTarget) => target ? target.kind + ":" + target.id : "new";
+
 export function ConsentScreen() {
   const authorizationQuery = location.search.slice(1);
+  const [target, setTarget] = useState<ConnectionTarget>();
   const [selection, setSelection] = useState<{ request: string; scopes: string[] }>();
   const preview = useQuery({
-    queryKey: ["consent", authorizationQuery],
+    queryKey: ["consent", authorizationQuery, targetKey(target)],
     queryFn: async ({ signal }) => {
-      const { data, error } = await api.POST("/api/v1/oauth/consent/preview", { signal, body: { authorizationQuery } });
+      const { data, error } = await api.POST("/api/v1/oauth/consent/preview", { signal, body: { authorizationQuery, target } });
       if (!data || error) throw new Error(messageOf(error));
       return data;
     },
@@ -20,9 +24,11 @@ export function ConsentScreen() {
   const data = preview.data;
   const scopes = data && selection?.request === data.request ? selection.scopes : (data?.selectedScopes ?? []);
   const stepUp = data?.scopes.filter(scope => data.newScopes?.includes(scope)) ?? [];
-  const groups = stepUp.length && data ? [
-    { title: "Existing and optional permissions", scopes: data.scopes.filter(scope => !stepUp.includes(scope)) },
+  const saved = data?.savedOutsideRequestedScopes ?? [];
+  const groups = (stepUp.length || saved.length) && data ? [
+    { title: "Existing and optional permissions", scopes: data.scopes.filter(scope => !stepUp.includes(scope) && !saved.includes(scope)) },
     { title: "New permissions requested", scopes: stepUp },
+    { title: "Additional permissions you saved for this connection", scopes: saved },
   ] : [{ title: null, scopes: data?.scopes ?? [] }];
   const decision = useMutation({
     retry: false,
@@ -33,6 +39,11 @@ export function ConsentScreen() {
       location.assign(result.redirectTo);
     },
   });
+  const changeTarget = (next?: ConnectionTarget) => {
+    setSelection(undefined);
+    decision.reset();
+    setTarget(next);
+  };
   const reload = () => {
     setSelection(undefined);
     decision.reset();
@@ -42,9 +53,23 @@ export function ConsentScreen() {
     <h1 className="text-3xl font-semibold">{data?.reconnect ? "Reconnect" : "Authorize"} {data?.clientName ?? "a client"}</h1>
     {preview.isFetching && <p role="status">Validating authorization request…</p>}
     {preview.error && <p role="alert">{preview.error.message}</p>}
+    {preview.isError && target && <Button disabled={preview.isFetching} onClick={() => changeTarget()}>Choose another connection</Button>}
     {data && !preview.isError && !preview.isFetching && <>
+      {!!data.targets?.length && <fieldset className="mb-4" disabled={decision.isPending || decision.isSuccess}>
+        <legend>Which connection should receive the new authorization?</legend>
+        <Label className="block">
+          <Input type="radio" name="oauth-connection-target" checked={!target} onChange={() => changeTarget()} />
+          Create a separate connection
+        </Label>
+        {data.targets.map(choice => <Label className="block" key={targetKey(choice)}>
+          <Input type="radio" name="oauth-connection-target" checked={targetKey(target) === targetKey(choice)}
+            onChange={() => changeTarget({ kind: choice.kind, id: choice.id })} />
+          Reconnect {choice.name} ({new Date(choice.createdAt).toLocaleString()})
+        </Label>)}
+        <p className="text-sm">Only connections with this exact compatible client and callback are listed. Reconnect only the installation you started from. A successful reconnect replaces its credential and keeps its subscriptions. When in doubt, create a separate connection.</p>
+      </fieldset>}
       <p>{data.reconnect ? "Review your saved choices and select the permissions to grant to the new token. Existing tokens won’t gain permissions." : "Select the workspace permissions to grant to this client."} Write does not imply read. Trigger writes can cause future schedule or webhook processing.</p>
-      {!!data.unavailableSavedScopes?.length && <p role="status">The client did not request these saved permissions: {data.unavailableSavedScopes.join(", ")}. To grant them, update the client’s scope request and reconnect again.</p>}
+      {!!data.unavailableSavedScopes?.length && <p role="status">These saved permissions are not available in this request and will not be in the new token: {data.unavailableSavedScopes.join(", ")}. Your saved choices are unchanged. Check whether the integration is still connected and available.</p>}
       <fieldset disabled={decision.isPending || decision.isSuccess || decision.isError}>
         <legend>Permissions</legend>
         {groups.map(group => <div key={group.title ?? "permissions"} className="mb-3">
@@ -58,7 +83,7 @@ export function ConsentScreen() {
             })} />
             {integration?.name ?? scope}
             {data.reconnect && <span className="ml-2 text-xs">
-              {data.newScopes?.includes(scope) ? "New permission requested"
+              {saved.includes(scope) ? "Saved by you; not requested by the client" : data.newScopes?.includes(scope) ? "New permission requested"
                 : data.grantedScopes?.includes(scope) ? "Already granted" : "Optional permission"}
               {data.blockedScopes?.includes(scope) && " (blocked on current connection)"}
             </span>}

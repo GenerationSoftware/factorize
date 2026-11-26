@@ -8,7 +8,6 @@ test("saving client permissions keeps a blocked integration unchecked until expl
   const editedScopes = ["team:read", "team:write", "proxy:use"];
   let revision = 1;
   let scopes = initialScopes;
-  let denied = true;
   const edits = [];
   await page.route("**/api/v1/session", route => route.fulfill({ json: {
     authenticated: true, user: { id: "owner", email: "owner@example.test" },
@@ -18,7 +17,7 @@ test("saving client permissions keeps a blocked integration unchecked until expl
     grantId: "fixture-grant", clientId: "fixture-client", clientName: "Fixture client", ownerUsername: "owner-user",
     availableScopes: [...editedScopes, integrationScope], scopes, revision,
     scopeLabels: { [integrationScope]: "Linear integration access" },
-    integrationOverrides: denied ? { [integrationId]: false } : {},
+    credentialScopes: initialScopes, pendingScopes: scopes.filter(scope => !initialScopes.includes(scope)),
     authorizationDate: "2026-10-09T12:00:00Z", expiresAt: null, lastUsedAt: null,
   }] }));
   await page.route("**/api/v1/access/authorizations/fixture-grant/permissions", route => {
@@ -26,7 +25,6 @@ test("saving client permissions keeps a blocked integration unchecked until expl
     edits.push(edit);
     revision++;
     scopes = edit.scopes;
-    if (edit.integrationOverrides?.[integrationId] === integrationScope) denied = false;
     return route.fulfill({ json: { ok: true } });
   });
   await page.goto(origin + "/clients/fixture-grant");
@@ -55,8 +53,8 @@ test("saving client permissions keeps a blocked integration unchecked until expl
   await save();
   expect(edits.at(-1)).toEqual({
     scopes: [...editedScopes, integrationScope], expectedRevision: 3,
-    integrationOverrides: { [integrationId]: integrationScope },
   });
+  await expect(page.getByRole("status").filter({ hasText: "not active" })).toBeVisible();
 });
 
 

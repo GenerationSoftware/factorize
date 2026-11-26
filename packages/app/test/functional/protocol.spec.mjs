@@ -81,7 +81,7 @@ test("failed reconnect approval reloads the review and never submits a new conse
     });
     await page.goto(origin + "/authorize?client_id=client&state=fresh&code_challenge=challenge");
     await page.getByRole("heading", { name: "Reconnect External CLI" }).waitFor();
-    await page.getByRole("status").filter({ hasText: "The client did not request these saved permissions: triggers:read" }).waitFor();
+    await page.getByRole("status").filter({ hasText: "These saved permissions are not available in this request and will not be in the new token: triggers:read" }).waitFor();
     await page.getByLabel("triggers:write").check();
     await page.getByRole("button", { name: "Allow", exact: true }).click();
     await page.getByRole("alert").waitFor();
@@ -124,4 +124,41 @@ test("reconnect separates granted, requested, blocked and optional permissions w
   } finally {
     await context.close();
   }
+});
+
+
+test("explicitly chooses the existing compatible connection rather than inferring it", async () => {
+  const { context, page } = await setup();
+  try {
+    const requests = [];
+    let approval;
+    const target = { kind: "installation", id: "existing-1" };
+    await page.route("**/api/v1/oauth/consent/preview", route => {
+      const body = route.request().postDataJSON();
+      requests.push(body);
+      const reconnect = !!body.target;
+      return route.fulfill({json:{clientName:"External CLI", reconnect,
+        targets:[{...target, name:"Laptop client", createdAt:"2026-10-09T12:00:00Z"}],
+        scopes:["team:read","triggers:write"], selectedScopes:reconnect ? ["team:read", "triggers:write"] : [],
+        savedOutsideRequestedScopes:reconnect ? ["triggers:write"] : [],
+        unavailableSavedScopes:[], request:reconnect ? "reconnect-request" : "new-request", signature:"signed", expiresAt:"2026-10-09T12:00:00Z"}});
+    });
+    await page.route("**/api/v1/oauth/consent/decision", route => {
+      approval = route.request().postDataJSON();
+      return route.fulfill({json:{redirectTo:origin+"/completed?code=issued"}});
+    });
+    await page.goto(origin+"/authorize?client_id=client&connection=fixture");
+    await page.getByRole("radio", {name:"Create a separate connection"}).waitFor();
+    assert.equal(await page.getByRole("radio", {name:"Create a separate connection"}).isChecked(), true);
+    await page.getByRole("radio", {name:/Reconnect Laptop client/}).check();
+    await page.getByRole("heading", {name:"Reconnect External CLI"}).waitFor();
+    await page.getByRole("heading", {name:"Additional permissions you saved for this connection"}).waitFor();
+    assert.equal(await page.getByLabel("triggers:write").isChecked(), true);
+    await page.getByLabel("triggers:write").uncheck();
+    await page.getByRole("button", {name:"Allow", exact:true}).click();
+    await page.waitForURL("**/completed?code=issued");
+    assert.equal(requests[0].target, undefined);
+    assert.deepEqual(requests[1].target, target);
+    assert.deepEqual(approval, {request:"reconnect-request",signature:"signed",decision:"allow",scopes:["team:read"]});
+  } finally { await context.close(); }
 });

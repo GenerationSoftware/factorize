@@ -1,3 +1,5 @@
+import { lockOAuthPolicy } from "./oauth-reconnect";
+import { prepareOAuthIssuance } from "./oauth-installations";
 import { integrationConsentLabels } from "./agent-api";
 import { isIntegrationScope } from "./agent-api-contracts";
 import { staticApp } from "./static-app";
@@ -224,13 +226,17 @@ export async function decideDevice(env: Env, oauth: OAuthHelpers, session: { ten
   const normalized = normalizeUserCode(userCode);
   const code = normalized.length === 8 ? await deviceCodeForUser(env, normalized) : null;
   if (!code) return null;
-  const authorize = async (record: DeviceRecord | null, write: (record: DeviceRecord) => Promise<void>) => {
+  const authorize = async (record: DeviceRecord | null, write: (record: DeviceRecord) => Promise<void>, sql?: DatabaseClient) => {
     if (!record || record.status !== "pending" || record.expiresAt <= Math.floor(Date.now() / 1000)) return null;
     if (decision === "deny") { record.status = "denied"; await write(record); return { status: "denied" as const }; }
   await integrationConsentLabels(env, session.tenantId, record.scope);
-  const props: OAuthProps = { tenantId: session.tenantId, userId: session.userId, sessionVersion: session.sessionVersion, scopes: record.scope, authMethod: "oauth", explicitIntegrationScopes: true };
+    if (sql) await lockOAuthPolicy(sql, session);
+    const issued = sql ? await prepareOAuthIssuance(sql, { session, installationId: null, clientId: record.clientId,
+      redirectUri: record.redirectUri, policyRevision: null, selectedScopes: record.scope, credentialScopes: record.scope, expiresAt: record.expiresAt }) : null;
+    const binding = issued ? { oauthInstallationId: issued.installationId, oauthIssuanceId: issued.issuanceId } : {};
+    const props: OAuthProps = { ...binding, tenantId: session.tenantId, userId: session.userId, sessionVersion: session.sessionVersion, scopes: record.scope, authMethod: "oauth", explicitIntegrationScopes: true };
     const authRequest: AuthRequest = { responseType: "code", clientId: record.clientId, redirectUri: record.redirectUri, scope: record.scope, state: "", codeChallenge: record.codeChallenge, codeChallengeMethod: "S256", resource: record.resource, issuer: env.APP_ORIGIN };
-    const result = await oauth.completeAuthorization({ request: authRequest, userId: session.userId, metadata: { tenantId: session.tenantId, explicitIntegrationScopes: true }, scope: record.scope, props, revokeExistingGrants: false });
+    const result = await oauth.completeAuthorization({ request: authRequest, userId: session.userId, metadata: { tenantId: session.tenantId, explicitIntegrationScopes: true, ...(issued ? { oauthInstallationId: issued.installationId } : {}) }, scope: record.scope, props, revokeExistingGrants: false });
     record.authorizationCode = new URL(result.redirectTo).searchParams.get("code") ?? undefined;
     if (!record.authorizationCode) throw new Error("Incomplete device authorization");
     record.status = "approved"; await write(record); return { status: "approved" as const };
@@ -238,7 +244,7 @@ export async function decideDevice(env: Env, oauth: OAuthHelpers, session: { ten
   if (!env.DATABASE && !env.HYPERDRIVE) return authorize(await readDevice(env, code), record => writeDevice(env, code, normalized, record));
   return databaseFor(env).transaction(async client => {
     const row = (await client.query("SELECT record FROM app.oauth_device_authorizations WHERE device_code=$1 AND expires_at>now() FOR UPDATE", [code])).rows[0];
-    const result = await authorize(row?.record ?? null, async record => { await client.query("UPDATE app.oauth_device_authorizations SET record=$2,updated_at=now() WHERE device_code=$1", [code, JSON.stringify(record)]); });
+    const result = await authorize(row?.record ?? null, async record => { await client.query("UPDATE app.oauth_device_authorizations SET record=$2,updated_at=now() WHERE device_code=$1", [code, JSON.stringify(record)]); }, client);
     if (result) await client.query("UPDATE app.oauth_connections SET used_at=now(),ready=false WHERE kind='device' AND device_user_code=$1 AND used_at IS NULL", [normalized]);
     return result;
   });

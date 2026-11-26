@@ -89,34 +89,71 @@ it.skipIf(!database)("keeps a revoked authorization rejected by the resource and
     const token = await h.authorize();
     const listing = await h.request("/api/v1/access/authorized-clients", "GET", undefined, { Cookie: f.cookie });
     const [grant] = await listing.json() as {grantId: string}[];
-    await f.db.pool.query(`INSERT INTO app.agent_identities(tenant_id,kind,subject,user_id,session_version,revoked_at)
-      VALUES($1,'oauth',$2,$3,$4,now())`, [f.tenantId, grant.grantId, f.userId, f.auth.sessionVersion]);
-    const beforeProviderCleanup = await h.refresh(token.refresh_token);
-    expect(beforeProviderCleanup.status).toBe(400);
-    expect(await beforeProviderCleanup.json()).toMatchObject({ error: "invalid_grant" });
-    expect((await h.rpc(token.access_token, "tools/list", {})).status).toBe(401);
+    h.failProviderCleanup();
     const revoked = await h.request(`/api/v1/access/authorizations/${grant.grantId}`, "DELETE", undefined, { Cookie: f.cookie, Origin: f.env.APP_ORIGIN });
     expect(revoked.status).toBe(200);
     expect((await h.rpc(token.access_token, "tools/list", {})).status).toBe(401);
     const refresh = await h.refresh(token.refresh_token);
     expect(refresh.status).toBe(400);
     expect(await refresh.json()).toMatchObject({ error: "invalid_grant" });
-    expect((await f.db.pool.query("SELECT revoked_at FROM app.agent_identities WHERE subject=$1", [grant.grantId])).rows[0].revoked_at).toBeInstanceOf(Date);
+    expect((await f.db.pool.query("SELECT revoked_at FROM app.oauth_installations WHERE id=$1", [grant.grantId])).rows[0].revoked_at).toBeInstanceOf(Date);
   } finally {
     await f.cleanup();
   }
 });
 
+it.skipIf(!database)("keeps the selected connection through successful OAuth reauthorization without coalescing another installation", async () => {
+  const f = await loadingFixture(database!);
+  try {
+    const h = await harness(f);
+    const first = await h.authorize();
+    const list = async () => (await h.request("/api/v1/access/authorized-clients", "GET", undefined, { Cookie: f.cookie })).json() as Promise<{
+      grantId: string; revision: number; scopes: string[]; credentialScopes: string[]; pendingScopes: string[];
+    }[]>;
+    const [connection] = await list();
+    const sibling = await h.authorize();
+    expect(await list()).toHaveLength(2);
+    const save = (scopes: string[], revision: number) => h.request(`/api/v1/access/authorizations/${connection.grantId}/permissions`,
+      "PUT", JSON.stringify({scopes, expectedRevision:revision}), { Cookie:f.cookie, Origin:f.env.APP_ORIGIN, "Content-Type":"application/json" });
+    const readEvents = (access: string) => h.rpc(access, "tools/call", {name:"list_events",arguments:{}});
+    expect((await save(["team:read","triggers:write"],connection.revision)).status).toBe(200);
+    expect((await readEvents(first.access_token)).status).toBe(403);
+    expect((await readEvents(sibling.access_token)).status).toBe(200);
+    const before = await h.refresh(first.refresh_token);
+    expect(before.status).toBe(200);
+    const prior = await before.json() as {access_token: string; refresh_token: string; scope?: string};
+    expect(prior.scope?.split(" ")).not.toContain("triggers:write");
+    const baseOnly = await h.stage({ target:{kind:"installation",id:connection.grantId}, scopes:["team:read"] });
+    expect(baseOnly.preview.reconnect).toBe(true);
+    // Issuing an authorization code has not replaced the working credential.
+    expect((await h.rpc(prior.access_token,"tools/list",{})).status).toBe(200);
+    const expanded = await baseOnly.exchange();
+    expect(expanded.scope.split(" ")).toEqual(["team:read","triggers:write"]);
+    const saved = (await list()).find(row => row.grantId === connection.grantId)!;
+    expect(saved).toMatchObject({ scopes:["team:read","triggers:write"], credentialScopes:["team:read","triggers:write"], pendingScopes:[] });
+    expect((await h.rpc(prior.access_token,"tools/list",{})).status).toBe(401);
+    expect((await h.refresh(prior.refresh_token)).status).toBe(400);
+    expect((await h.rpc(expanded.access_token,"tools/list",{})).status).toBe(200);
+    const selected = await h.stage({ target:{kind:"installation",id:connection.grantId}, scopes:["team:read","triggers:write"] });
+    const renewed = await selected.exchange();
+    expect((await list()).find(row => row.grantId === connection.grantId)?.pendingScopes).toEqual([]);
+    expect((await h.rpc(renewed.access_token,"tools/call",{name:"create_event",arguments:{name:"reconnected.fixture"}})).status).toBe(200);
+    expect((await readEvents(sibling.access_token)).status).toBe(200);
+    expect(await list()).toHaveLength(2);
+  } finally { await f.cleanup(); }
+});
+
 async function harness(f: Awaited<ReturnType<typeof loadingFixture>>) {
   delete f.env.OAUTH_PROVIDER;
   const records = new Map<string, { value: string; metadata: unknown }>();
+  let cleanupFails = false;
   f.env.OAUTH_KV = {
     async get(key: string, format: { type?: string } | string) {
       const item = records.get(key);
       return item ? (typeof format === "string" ? format : format?.type) === "json" ? JSON.parse(item.value) : item.value : null;
     },
     async put(key: string, value: string, options?: { metadata?: unknown }) { records.set(key, { value, metadata: options?.metadata }); },
-    async delete(key: string) { records.delete(key); },
+    async delete(key: string) { if (cleanupFails) throw new Error("fixture storage unavailable"); records.delete(key); },
     async list({ prefix }: { prefix?: string } = {}) {
       return { list_complete: true, keys: [...records.entries()].filter(([key]) => key.startsWith(prefix ?? "")).map(([name, item]) => ({ name, metadata: item.metadata })) };
     },
@@ -134,21 +171,31 @@ async function harness(f: Awaited<ReturnType<typeof loadingFixture>>) {
   const { client_id } = await registration.json() as {client_id: string};
   const tokenRequest = (params: Record<string, string>) => request("/oauth/token", "POST",
     new URLSearchParams({ client_id, resource: origin + "/mcp", ...params }).toString(), { "Content-Type": "application/x-www-form-urlencoded" });
-  const authorize = async () => {
+  const stage = async (input: {target?: {kind: "installation"; id: string}; scopes?: string[]} = {}) => {
     const verifier = randomBytes(32).toString("base64url");
-    const redirect_uri = "http://127.0.0.1/callback", scopes = ["team:read", "triggers:read"];
+    const redirect_uri = "http://127.0.0.1/callback", scopes = input.scopes ?? ["team:read", "triggers:read"];
     const authorizationQuery = new URLSearchParams({ response_type: "code", client_id, redirect_uri, resource: origin + "/mcp", scope: scopes.join(" "),
       state: "fixture", code_challenge: createHash("sha256").update(verifier).digest("base64url"), code_challenge_method: "S256" }).toString();
     const owner = { Cookie: f.cookie, Origin: origin };
-    const preview = await json("/api/v1/oauth/consent/preview", { authorizationQuery }, owner);
+    let query = authorizationQuery;
+    if (input.target) {
+      const started = await request("/authorize?"+authorizationQuery, "GET", undefined, owner);
+      expect(started.status).toBe(302);
+      query = new URL(started.headers.get("Location")!).search.slice(1);
+      owner.Cookie += "; " + started.headers.get("Set-Cookie")!.split(";")[0];
+    }
+    const preview = await json("/api/v1/oauth/consent/preview", { authorizationQuery: query, target: input.target }, owner);
     expect(preview.status, await preview.clone().text()).toBe(200);
-    const { request, signature } = await preview.json() as {request:string; signature:string};
-    const consent = await json("/api/v1/oauth/consent/decision", { request, signature, decision: "allow", scopes }, owner);
+    const data = await preview.json() as {request:string; signature:string; reconnect:boolean; selectedScopes:string[]};
+    const { request: signedRequest, signature } = data;
+    const consent = await json("/api/v1/oauth/consent/decision", { request: signedRequest, signature, decision: "allow", scopes: input.target ? data.selectedScopes : scopes }, owner);
     expect(consent.status, await consent.clone().text()).toBe(200);
     const { redirectTo } = await consent.json() as {redirectTo:string};
-    const exchanged = await tokenRequest({ grant_type: "authorization_code", code: new URL(redirectTo).searchParams.get("code")!, redirect_uri, code_verifier: verifier });
-    expect(exchanged.status, await exchanged.clone().text()).toBe(200);
-    return exchanged.json() as Promise<{ access_token: string; refresh_token: string; expires_in: number }>;
+    return { preview: data, exchange: async () => {
+      const exchanged = await tokenRequest({ grant_type: "authorization_code", code: new URL(redirectTo).searchParams.get("code")!, redirect_uri, code_verifier: verifier });
+      expect(exchanged.status, await exchanged.clone().text()).toBe(200);
+      return exchanged.json() as Promise<{ access_token: string; refresh_token: string; expires_in: number; scope: string }>;
+    } };
   };
   const rpc = (access: string, method: string, params: Record<string, unknown>) => json("/mcp",
     { jsonrpc: "2.0", id: 1, method, params: { ...params, _meta: {
@@ -158,5 +205,5 @@ async function harness(f: Awaited<ReturnType<typeof loadingFixture>>) {
     } } }, { ...credentials(access), Accept: "application/json, text/event-stream", "MCP-Protocol-Version": "2026-07-28", "Mcp-Method": method,
       ...(typeof params.name === "string" && method === "tools/call" ? { "Mcp-Name": params.name } : {}) });
   const refresh = (refresh_token: string, scope?: string) => tokenRequest({ grant_type: "refresh_token", refresh_token, ...(scope ? { scope } : {}) });
-  return { authorize, rpc, refresh, request };
+  return { authorize: async () => (await stage()).exchange(), stage, rpc, refresh, request, failProviderCleanup: () => { cleanupFails = true; } };
 }

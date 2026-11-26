@@ -1,6 +1,6 @@
-import { mcpOAuthChallenge, oauthResourceAuthorization } from "./mcp-oauth-auth";
+import { adoptLegacyCredential } from "./oauth-installations";
+import { mcpOAuthChallenge, oauthResourceAuthorization, scopesForOAuthCredential } from "./mcp-oauth-auth";
 import { mcpMissingScopes } from "./mcp-oauth-scopes";
-import { applyConnectionScopes } from "./oauth-connection-settings";
 import { initialIntegrationOverrides } from "./oauth-reconnect";
 import { listEventsInput, getProcessingAcknowledgmentsInput, setProcessingAcknowledgmentsInput, acknowledgeEventsInput, replayUnacknowledgedEventsInput, readEventDeliveryDiagnosticsInput, readEventOccurrencesInput, subscribeEventInput, unsubscribeEventInput } from "./mcp-event-contracts";
 import { appRegistrationInput, appRegistrationUpdate } from "./apps-contracts";
@@ -8,7 +8,6 @@ import {createPayloadInput,appendPayloadInput,finalizePayloadInput,attachmentInp
 import {operationRef,operationRead} from "./proxy-operations";
 import {proxyToolResult} from "./proxy-result";
 import {SKILLS_EXTENSION} from "./mcp-skills";
-import { effectiveConnectionScopes } from "./oauth-connection-settings";
 import { clientNameInput } from "./settings-contracts";
 import { BuiltinSkillError } from "./builtin-skills";
 import { Hono } from "hono";
@@ -75,14 +74,14 @@ export async function protectedApiFetch(request: Request, env: Env, auth: OAuthP
     try {
       const url = new URL(request.url), path = url.pathname;
       let oauthPolicy: Awaited<ReturnType<typeof oauthResourceAuthorization>>["policy"];
-      if (auth?.authMethod === "oauth" && auth.oauthGrantId && path === "/mcp") {
+      if (auth?.authMethod === "oauth" && auth.oauthGrantId) {
         const status = await oauthResourceAuthorization(env, auth, auth.oauthGrantId);
-        if ("reason" in status && status.reason) return timed(mcpOAuthChallenge(env, status.reason));
+        if (status.reason) return timed(mcpOAuthChallenge(env, status.reason));
         oauthPolicy = status.policy;
-        auth = { ...auth, scopes: applyConnectionScopes(auth.scopes, oauthPolicy) };
-      } else if (auth?.oauthGrantId) {
-        auth = { ...auth, scopes: await effectiveConnectionScopes(env, auth, auth.scopes) };
-        if (path.startsWith("/api/v1/agent/") && !auth.scopes.includes("proxy:use")) throw new ServiceError(403, "insufficient_scope", "The proxy:use scope is required.");
+        auth = { ...auth, scopes: scopesForOAuthCredential(auth.scopes, status), ...(status.installation ? {
+          oauthInstallationId: status.installation.id, explicitIntegrationScopes: true,
+        } : {}) };
+        if (path.startsWith("/api/v1/agent/") && !auth.scopes.includes("proxy:use")) return timed(mcpOAuthChallenge(env, undefined, ["proxy:use"]));
       }
       if (path === "/mcp") {
         if (!auth) return timed(mcpOAuthChallenge(env));
@@ -115,7 +114,7 @@ export async function protectedApiFetch(request: Request, env: Env, auth: OAuthP
                 const status = await oauthResourceAuthorization(env, { ...listenerAuth, oauthExpiresAt: token.expiresAt }, token.grantId);
                 if ("reason" in status && status.reason) return false;
                 const tokenScopes = normalizeScopes(token.scope).filter(scope => listenerAuth.scopes.includes(scope));
-                return applyConnectionScopes(tokenScopes, status.policy).includes(requiredScope);
+                return scopesForOAuthCredential(tokenScopes, status).includes(requiredScope);
               }
               return listenerAuth.scopes.includes(requiredScope); // The database read rechecks owner membership and key activity.
             };
@@ -311,6 +310,7 @@ export class ProtectedApiHandler extends WorkerEntrypoint<Env, OAuthProps> {
       }
       // Props describe original consent. The presented token may be narrowed.
       const tokenScopes = normalizeScopes(token.scope).filter(scope => normalizeScopes(auth.scopes).includes(scope));
+      if (!auth.oauthInstallationId) await adoptLegacyCredential(this.env, auth, token.grantId, token.grant.clientId);
       auth = {...auth, authMethod: "oauth", scopes: tokenScopes, oauthGrantId: token.grantId, oauthClientId: token.grant.clientId, oauthExpiresAt: token.expiresAt};
     }
     return protectedApiFetch(request, this.env, auth, this.ctx);

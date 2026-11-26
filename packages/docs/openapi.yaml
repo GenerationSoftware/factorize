@@ -3636,6 +3636,11 @@ paths:
                     type: array
                     items:
                       type: string
+                  savedOutsideRequestedScopes:
+                    default: []
+                    type: array
+                    items:
+                      type: string
                   grantedScopes:
                     default: []
                     type: array
@@ -3652,6 +3657,28 @@ paths:
                       type: string
                   reconnect:
                     type: boolean
+                  targets:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        kind:
+                          type: string
+                          enum:
+                            - installation
+                            - legacy
+                        id:
+                          type: string
+                        name:
+                          type: string
+                        createdAt:
+                          type: string
+                      required:
+                        - kind
+                        - id
+                        - name
+                        - createdAt
+                      additionalProperties: false
                   request:
                     type: string
                   signature:
@@ -3681,10 +3708,12 @@ paths:
                   - scopes
                   - selectedScopes
                   - newScopes
+                  - savedOutsideRequestedScopes
                   - grantedScopes
                   - blockedScopes
                   - unavailableSavedScopes
                   - reconnect
+                  - targets
                   - request
                   - signature
                   - expiresAt
@@ -3726,6 +3755,34 @@ paths:
                   type: string
                   minLength: 1
                   maxLength: 8192
+                target:
+                  oneOf:
+                    - type: object
+                      properties:
+                        kind:
+                          type: string
+                          const: installation
+                        id:
+                          type: string
+                          minLength: 1
+                          maxLength: 256
+                      required:
+                        - kind
+                        - id
+                      additionalProperties: false
+                    - type: object
+                      properties:
+                        kind:
+                          type: string
+                          const: legacy
+                        id:
+                          type: string
+                          minLength: 1
+                          maxLength: 256
+                      required:
+                        - kind
+                        - id
+                      additionalProperties: false
               required:
                 - authorizationQuery
               additionalProperties: false
@@ -5112,6 +5169,14 @@ paths:
                       type: array
                       items:
                         type: string
+                    credentialScopes:
+                      type: array
+                      items:
+                        type: string
+                    pendingScopes:
+                      type: array
+                      items:
+                        type: string
                     authorizationDate:
                       type: string
                     expiresAt:
@@ -5131,6 +5196,8 @@ paths:
                     - clientId
                     - clientName
                     - scopes
+                    - credentialScopes
+                    - pendingScopes
                     - authorizationDate
                     - expiresAt
                     - lastUsedAt
@@ -5469,9 +5536,9 @@ paths:
               additionalProperties: false
   /api/v1/access/authorizations/{grantId}/permissions:
     put:
-      summary: Set an OAuth connection’s effective scopes and integration access
+      summary: Save the selected permissions for one OAuth connection
       description: |-
-        Interactive owner session required. Removing permissions takes effect immediately. A scope not carried by the current token requires a fresh OAuth authorization and token.
+        The authenticated owner sets the connection policy. Removals take effect immediately; additions need a fresh authorization for this same connection. This never enlarges an existing bearer or refresh credential.
 
         Requires the triggers:write scope.
 
@@ -6075,10 +6142,16 @@ paths:
             minLength: 1
   /api/v1/access/authorized-clients/{clientId}:
     delete:
-      summary: Revoke an authorized OAuth client
+      summary: Revoke a client only when it has one connection
+      description: |-
+        If this app has several connections, use the exact connection endpoint instead.
+
+        Requires the triggers:write scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
       responses:
         "200":
-          description: Revoked grants
+          description: Revoked one OAuth connection
           content:
             application/json:
               schema:
@@ -6099,10 +6172,6 @@ paths:
           $ref: "#/components/responses/Error500"
         "503":
           $ref: "#/components/responses/Error503"
-      description: |-
-        Requires the triggers:write scope.
-
-        An interactive owner session is required; bearer tokens cannot call this operation.
       operationId: delete_api_v1_access_authorized_clients_clientId
       tags:
         - access
