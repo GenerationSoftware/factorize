@@ -177,13 +177,23 @@ export async function checkOAuth({ read: send, stream, db, tenantId, userId, coo
   const clients = await send('/api/v1/access/authorized-clients', 'GET', undefined, owner);
   const connection = clients.json.find(client => client.clientId === clientId);
   assert.equal(connection.clientName, 'Release assistant');
+  const ackEvent = await json('/api/v1/events', {name:'reconnect.ack.fixture', payloadSchema}, restBearer);
+  assert.equal(ackEvent.status,201,ackEvent.text);
+  const subscriptionId = 'sub_' + randomBytes(32).toString('hex');
+  const ackId = randomUUID();
+  await db.query(`INSERT INTO app.mcp_event_subscriptions
+    (tenant_id,id,user_id,session_version,grant_id,client_id,definition_id,arguments,callback_url,encrypted_secret,secret_fingerprint,verified_at,generation,status,expires_at,ack_epoch)
+    VALUES($1,$2,$3,1,$4,$5,$6,'{}','https://receiver.example.com/fixture','unused-fixture','fixture',now(),$7,'active',now()+interval '5 minutes',$8)`,
+    [tenantId,subscriptionId,userId,connection.grantId,clientId,ackEvent.json.id,randomUUID(),ackId]);
+  const readAck = async credentials => (await rpc('tools/call', {name:'get_event_processing_acknowledgments',arguments:{subscription_id:subscriptionId}}, 21, credentials)).result.structuredContent;
+  assert.equal((await readAck(bearer)).enabled,true);
   const integrationId = randomUUID(), deniedIntegrationId = randomUUID();
   await db.query("INSERT INTO app.agent_integrations(tenant_id,id,kind,credential_id,name,available) VALUES ($1,$2,'linear','linear','Linear',true)", [tenantId,integrationId]);
   await db.query("INSERT INTO app.agent_integrations(tenant_id,id,kind,credential_id,name,available,policy) VALUES ($1,$2,'github','local-fixture','Blocked fixture',true,'baseline')", [tenantId,deniedIntegrationId]);
   const permissionsPath = '/api/v1/access/authorizations/' + connection.grantId + '/permissions';
   const change = (edit, headers = owner) => send(permissionsPath, 'PUT', JSON.stringify(edit), {...headers, 'Content-Type':'application/json'});
   const integrationKey = 'integration:' + integrationId + ':1';
-  const edit = {scopes: ['team:read', 'integrations:read', integrationKey], integrationOverrides: {[deniedIntegrationId]: false}, expectedRevision: 0};
+  const edit = {scopes: ['team:read', 'integrations:read', integrationKey], integrationOverrides: {[deniedIntegrationId]: false}, expectedRevision: connection.revision};
   assert.equal((await change(edit, restBearer)).status, 403);
   assert.equal((await change({...edit, scopes: [...edit.scopes, 'unknown:scope']})).status, 400);
   const saved = await change(edit);
@@ -211,10 +221,13 @@ export async function checkOAuth({ read: send, stream, db, tenantId, userId, coo
   assert.equal(resource.status, 200, resource.text);
   assert.equal(resource.json.resource, origin + '/mcp');
 
-  // Newly selected scopes are carried by a freshly authorized credential.
+  const approvedSaved = [...edit.scopes, 'proxy:use', 'triggers:read'];
+  assert.equal((await change({scopes:approvedSaved,expectedRevision:connection.revision+1})).status,200);
+  // The client initially requests only base scopes; Factorize can offer the
+  // owner's saved permissions for this exact, selected installation.
   const freshVerifier = randomBytes(32).toString('base64url');
   const freshQuery = new URLSearchParams(authorizationQuery);
-  freshQuery.set('scope', [...edit.scopes, 'proxy:use'].join(' '));
+  freshQuery.set('scope', 'team:read integrations:read');
   freshQuery.set('state', 'fixture-reauthorize');
   freshQuery.set('code_challenge', createHash('sha256').update(freshVerifier).digest('base64url'));
   const freshScreen = await send('/authorize?' + freshQuery, 'GET', undefined, owner);
@@ -222,26 +235,16 @@ export async function checkOAuth({ read: send, stream, db, tenantId, userId, coo
   const freshUrl = new URL(freshScreen.headers.location);
   const freshCookie = freshScreen.headers['set-cookie'][0].split(';')[0];
   const freshOwner = { ...owner, Cookie: cookie + '; ' + freshCookie };
-  const freshPreview = await json('/api/v1/oauth/consent/preview', {authorizationQuery: freshUrl.search.slice(1)}, freshOwner);
+  const noTarget = await json('/api/v1/oauth/consent/preview', {authorizationQuery: freshUrl.search.slice(1)}, freshOwner);
+  assert.equal(noTarget.status, 200, noTarget.text);
+  assert.equal(noTarget.json.reconnect, false);
+  assert.ok(noTarget.json.targets.some(target => target.id === connection.grantId));
+  assert.deepEqual(noTarget.json.scopes,['team:read','integrations:read']);
+  const freshPreview = await json('/api/v1/oauth/consent/preview', {authorizationQuery: freshUrl.search.slice(1), target: {kind:'installation', id:connection.grantId}}, freshOwner);
   assert.equal(freshPreview.status, 200, freshPreview.text);
   assert.equal(freshPreview.json.reconnect, true);
-  assert.deepEqual(freshPreview.json.selectedScopes, edit.scopes);
-  assert.deepEqual(freshPreview.json.newScopes, [integrationKey, 'proxy:use']);
-  const freshConsent = await json('/api/v1/oauth/consent/decision', {
-    request: freshPreview.json.request, signature: freshPreview.json.signature, decision: 'allow', scopes: [...freshPreview.json.selectedScopes, 'proxy:use'],
-  }, freshOwner);
-  assert.equal(freshConsent.status, 200, freshConsent.text);
-  const freshDestination = new URL(freshConsent.json.redirectTo);
-  assert.equal(freshDestination.searchParams.get('state'), 'fixture-reauthorize');
-  const freshExchange = await form('/oauth/token', {
-    grant_type: 'authorization_code', client_id: clientId, code: freshDestination.searchParams.get('code'),
-    redirect_uri: redirectUri, code_verifier: freshVerifier, resource: origin+'/mcp',
-  });
-  assert.equal(freshExchange.status, 200, freshExchange.text);
-  const freshBearer = { Authorization: 'Bearer '+freshExchange.json.access_token };
-  const reflected = await reflect(freshBearer);
-  assert.equal(reflected.integrations.find(row => row.id === deniedIntegrationId).access, 'unavailable');
-  assert.equal((await reflect(freshBearer)).integrations.find(row => row.id === integrationId).access, 'granted');
+  assert.deepEqual(freshPreview.json.selectedScopes, approvedSaved);
+  assert.deepEqual(freshPreview.json.savedOutsideRequestedScopes, [integrationKey,'proxy:use','triggers:read']);
   const originalRefresh = await form('/oauth/token', {
     grant_type: 'refresh_token', client_id: clientId, refresh_token: exchange.json.refresh_token, resource: origin+'/mcp',
   });
@@ -249,10 +252,40 @@ export async function checkOAuth({ read: send, stream, db, tenantId, userId, coo
   const refreshedOriginal = { Authorization: 'Bearer ' + originalRefresh.json.access_token };
   assert.equal((await reflect(refreshedOriginal)).integrations.find(row => row.id === integrationId).access, 'requestable');
   assert.ok(!originalRefresh.json.scope?.split(' ').includes(integrationKey));
-
-  assert.equal((await change({scopes: originalScopes, expectedRevision: 1})).status, 200);
-  assert.equal((await reflect()).integrations.find(row => row.id === integrationId).access, 'unavailable');
-  assert.deepEqual((await rpc('tools/call', {name:'list_triggers',arguments:{}}, 11)).result.structuredContent.items, []);
+  const freshConsent = await json('/api/v1/oauth/consent/decision', {
+    request: freshPreview.json.request, signature: freshPreview.json.signature, decision: 'allow', scopes: freshPreview.json.selectedScopes,
+  }, freshOwner);
+  assert.equal(freshConsent.status, 200, freshConsent.text);
+  const freshDestination = new URL(freshConsent.json.redirectTo);
+  assert.equal(freshDestination.searchParams.get('state'), 'fixture-reauthorize');
+  assert.equal((await challengeRequest(bearer)).status, 403); // The code alone has not replaced the connection.
+  const freshExchange = await form('/oauth/token', {
+    grant_type: 'authorization_code', client_id: clientId, code: freshDestination.searchParams.get('code'),
+    redirect_uri: redirectUri, code_verifier: freshVerifier, resource: origin+'/mcp',
+  });
+  assert.equal(freshExchange.status, 200, freshExchange.text);
+  assert.deepEqual(freshExchange.json.scope.split(' '),approvedSaved);
+  const freshBearer = { Authorization: 'Bearer '+freshExchange.json.access_token };
+  assert.equal((await readAck(freshBearer)).enabled,true);
+  assert.deepEqual((await db.query('SELECT id,grant_id,ack_epoch FROM app.mcp_event_subscriptions WHERE tenant_id=$1',[tenantId])).rows,[{id:subscriptionId,grant_id:connection.grantId,ack_epoch:ackId}]);
+  const reflected = await reflect(freshBearer);
+  assert.notEqual(reflected.integrations.find(row => row.id === deniedIntegrationId).access, 'granted');
+  assert.equal((await reflect(freshBearer)).integrations.find(row => row.id === integrationId).access, 'granted');
+  assert.equal((await challengeRequest(refreshedOriginal)).status, 401);
+  const oldAfterSwitch = await form('/oauth/token', {
+    grant_type:'refresh_token',client_id:clientId,refresh_token:originalRefresh.json.refresh_token,resource:origin+'/mcp',
+  });
+  assert.equal(oldAfterSwitch.json.error, 'invalid_grant');
+  const after = (await send('/api/v1/access/authorized-clients','GET',undefined,owner)).json.filter(row => row.clientId === clientId);
+  assert.equal(after.length,1);
+  assert.equal(after[0].grantId,connection.grantId);
+  assert.equal(after[0].clientName,'Release assistant');
+  assert.deepEqual(after[0].pendingScopes,[]);
+  assert.equal((await change({scopes:[...originalScopes,'proxy:use'],expectedRevision:after[0].revision})).status,200);
+  assert.notEqual((await reflect(freshBearer)).integrations.find(row => row.id === integrationId).access,'granted');
+  const pending = (await send('/api/v1/access/authorized-clients','GET',undefined,owner)).json.find(row => row.grantId === connection.grantId);
+  assert.ok(pending.pendingScopes.includes('triggers:write'));
+  assert.equal((await challengeRequest(freshBearer)).status,200);
   const deviceClient = await json('/oauth/register', { client_name: 'Device fixture', token_endpoint_auth_method: 'none', grant_types: ['urn:ietf:params:oauth:grant-type:device_code','refresh_token'] }); assert.equal(deviceClient.status, 201, deviceClient.text);
   const device = await form('/oauth/device_authorization', { client_id: deviceClient.json.client_id, scope: "team:read triggers:read integrations:read", resource: origin+'/mcp' }); assert.equal(device.status, 200, device.text);
   const poll = { grant_type: 'urn:ietf:params:oauth:grant-type:device_code', client_id: deviceClient.json.client_id, device_code: device.json.device_code };

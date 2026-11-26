@@ -4,10 +4,11 @@ import { normalizeScopes } from "./access-tokens";
 import { decrypt, encrypt } from "./crypto";
 import { eventDefinitionId, deliveryEventName, type subscribeEventInput, type unsubscribeEventInput, type setProcessingAcknowledgmentsInput, type acknowledgeEventsInput } from "./mcp-event-contracts";
 import { callbackAccepted, canonicalCallbackURL, canonicalWebhookSecret, sendMcpWebhook, validChallenge, type WebhookOutcome } from "./mcp-webhook";
+import { getOAuthInstallation, installationScopes } from "./oauth-installations";
 import { applyConnectionScopes, type ConnectionScopePolicy } from "./oauth-connection-settings";
 import { databaseFor, type DatabaseClient } from "./postgres/database";
 import { wakeMcpDeliveries } from "./postgres/event-match-repository";
-import { lockEventOutbox, lockMcpEventGrant } from "./postgres/mcp-event-outbox";
+import { installationCanReceiveMcpEvents, joinMcpInstallation, lockEventOutbox, lockMcpEventGrant } from "./postgres/mcp-event-outbox";
 import type { Env, OAuthProps } from "./types";
 
 const defaultLifetime = 24 * 60 * 60 * 1000;
@@ -19,7 +20,8 @@ const retryInterval = 15_000;
 type Principal = {
   tenant_id: string;
   user_id: string;
-  grant_id: string;
+  grant_id: string; // Stable OAuth installation, or the original grant for legacy registrations.
+  credential_id?: string;
   client_id: string;
   session_version: number;
 };
@@ -29,7 +31,7 @@ async function activeGrantScopes(env: Env, principal: Principal): Promise<string
   let cursor: string | undefined;
   do {
     const page = await env.OAUTH_PROVIDER.listUserGrants(principal.user_id, { limit: 100, cursor });
-    const grant = page.items.find(item => item.id === principal.grant_id);
+    const grant = page.items.find(item => item.id === (principal.credential_id ?? principal.grant_id));
     if (grant) {
       if (grant.clientId !== principal.client_id || grant.metadata?.tenantId !== principal.tenant_id ||
           (grant.expiresAt != null && grant.expiresAt <= Date.now() / 1000)) return null;
@@ -45,6 +47,12 @@ async function authorized(sql: DatabaseClient, principal: Principal, scopes: str
     WHERE m.tenant_id=$1 AND m.user_id=$2 AND m.role='owner' AND m.session_version=$3 AND u.email_verified
     FOR SHARE OF m,u`, [principal.tenant_id, principal.user_id, principal.session_version]);
   if (!member.rowCount) return false;
+  const installation = await getOAuthInstallation(sql, principal.tenant_id, principal.user_id, principal.grant_id);
+  if (installation) return !installation.revoked_at && installation.client_id === principal.client_id &&
+    installation.active_grant_id === (principal.credential_id ?? principal.grant_id) &&
+    installation.active_session_version === principal.session_version && scopes.includes("triggers:read") &&
+    installationScopes(installation).includes("triggers:read");
+  if (principal.credential_id && principal.credential_id !== principal.grant_id) return false;
   const { rows: [policy] } = await sql.query<ConnectionScopePolicy & { revoked_at: Date | null }>(
     `SELECT revoked_at,disabled_scopes,scope_overrides FROM app.agent_identities
      WHERE tenant_id=$1 AND kind='oauth' AND subject=$2 AND user_id=$3 FOR SHARE`,
@@ -62,17 +70,22 @@ function forbidden() {
   return new ProtocolError(-32024, "The OAuth grant is not authorized for this event.");
 }
 
+function requestPrincipal(auth: OAuthProps): Principal {
+  if (auth.authMethod !== "oauth" || !auth.oauthGrantId || !auth.oauthClientId ||
+      !auth.scopes.includes("triggers:read")) throw forbidden();
+  return {
+    tenant_id: auth.tenantId, user_id: auth.userId, grant_id: auth.oauthInstallationId ?? auth.oauthGrantId,
+    credential_id: auth.oauthGrantId, client_id: auth.oauthClientId, session_version: auth.sessionVersion,
+  };
+}
+
 async function subscriptionKey(auth: OAuthProps, input: z.infer<typeof unsubscribeEventInput>) {
-  if (auth.authMethod !== "oauth" || !auth.oauthGrantId || !auth.oauthClientId) throw forbidden();
+  const principal = requestPrincipal(auth);
   const url = canonicalCallbackURL(input.delivery.url);
   if (!url) throw new ProtocolError(ProtocolErrorCode.InvalidParams, "Expected an HTTPS callback URL without credentials or a fragment.");
-  const principal: Principal = {
-    tenant_id: auth.tenantId, user_id: auth.userId, grant_id: auth.oauthGrantId, client_id: auth.oauthClientId,
-    session_version: auth.sessionVersion,
-  };
   // Validated arguments have one canonical representation per event and protocol.
   const args = JSON.stringify(input.arguments);
-  const id = "sub_" + await digest(JSON.stringify([auth.tenantId, auth.userId, auth.oauthGrantId, url, input.name, args]));
+  const id = "sub_" + await digest(JSON.stringify([auth.tenantId, auth.userId, principal.grant_id, url, input.name, args]));
   return { id, url, args, principal, definitionId: eventDefinitionId(input) };
 }
 
@@ -94,7 +107,7 @@ export async function subscribeMcpEvent(env: Env, auth: OAuthProps, input: z.inf
     `SELECT verified_at FROM app.mcp_event_subscriptions
      WHERE tenant_id=$1 AND user_id=$2 AND grant_id=$3 AND callback_url=$4 AND secret_fingerprint=$5
        AND verified_at>now()-interval '10 minutes' ORDER BY verified_at DESC LIMIT 1`,
-    [auth.tenantId, auth.userId, auth.oauthGrantId, url, fingerprint],
+    [auth.tenantId, auth.userId, principal.grant_id, url, fingerprint],
   )).rows[0];
   let verifiedAt = cached?.verified_at;
   if (!verifiedAt) {
@@ -116,7 +129,7 @@ export async function subscribeMcpEvent(env: Env, auth: OAuthProps, input: z.inf
   const currentScopes = cached ? scopes : await activeGrantScopes(env, principal);
   if (!currentScopes) throw forbidden();
   const expiresAt = await db.transaction(async sql => {
-    await lockMcpEventGrant(sql, principal.tenant_id, principal.grant_id);
+    await lockMcpEventGrant(sql, principal.tenant_id, principal.grant_id, true);
     const definition = await sql.query("SELECT 1 FROM app.event_definitions WHERE tenant_id=$1 AND id=$2 FOR SHARE", [auth.tenantId, definitionId]);
     if (!definition.rowCount) throw new ProtocolError(-32023, "Event not found.", { kind: "event" });
     await lockEventOutbox(sql, auth.tenantId, definitionId);
@@ -141,7 +154,7 @@ export async function subscribeMcpEvent(env: Env, auth: OAuthProps, input: z.inf
          generation=CASE WHEN s.status='active' AND s.expires_at>clock_timestamp() THEN s.generation ELSE excluded.generation END,
          status='active', expires_at=clock_timestamp()+$13*interval '1 millisecond'
        RETURNING expires_at`,
-      [auth.tenantId, id, auth.userId, auth.sessionVersion, auth.oauthGrantId, auth.oauthClientId, definitionId, args, url, encrypted, fingerprint, verifiedAt, ttl],
+      [auth.tenantId, id, auth.userId, auth.sessionVersion, principal.grant_id, principal.client_id, definitionId, args, url, encrypted, fingerprint, verifiedAt, ttl],
     );
     return row.expires_at;
   });
@@ -149,11 +162,19 @@ export async function subscribeMcpEvent(env: Env, auth: OAuthProps, input: z.inf
 }
 
 export async function unsubscribeMcpEvent(env: Env, auth: OAuthProps, input: z.infer<typeof unsubscribeEventInput>) {
-  const { id } = await subscriptionKey(auth, input);
-  await databaseFor(env).pool.query(
-    `UPDATE app.mcp_event_subscriptions SET status='stopped', previous_encrypted_secret=NULL, rotated_at=NULL, cooldown_until=NULL
-     WHERE tenant_id=$1 AND id=$2 AND status='active'`, [auth.tenantId, id],
-  );
+  const { id, principal } = await subscriptionKey(auth, input);
+  const db = databaseFor(env);
+  await db.transaction(async sql => {
+    await lockMcpEventGrant(sql, principal.tenant_id, principal.grant_id, true);
+    const row = await sql.query(`SELECT id FROM app.mcp_event_subscriptions
+       WHERE tenant_id=$1 AND id=$2 AND user_id=$3 AND grant_id=$4 AND client_id=$5 FOR NO KEY UPDATE`,
+      [auth.tenantId, id, principal.user_id, principal.grant_id, principal.client_id]);
+    if (!row.rowCount) return;
+    const scopes = await activeGrantScopes(env, principal);
+    if (!scopes || !await authorized(sql, principal, scopes)) throw forbidden();
+    await sql.query(`UPDATE app.mcp_event_subscriptions SET status='stopped', previous_encrypted_secret=NULL,
+       rotated_at=NULL,cooldown_until=NULL WHERE tenant_id=$1 AND id=$2 AND status='active'`, [auth.tenantId, id]);
+  });
   return {};
 }
 
@@ -165,16 +186,11 @@ type ProcessingSubscription = Principal & {
 
 async function withProcessingSubscription<T>(env: Env, auth: OAuthProps, id: string,
   action: (sql: DatabaseClient, subscription: ProcessingSubscription) => Promise<T>) {
-  if (auth.authMethod !== "oauth" || !auth.oauthGrantId || !auth.oauthClientId ||
-      !auth.scopes.includes("triggers:read")) throw forbidden();
-  const principal: Principal = {
-    tenant_id: auth.tenantId, user_id: auth.userId, grant_id: auth.oauthGrantId,
-    client_id: auth.oauthClientId, session_version: auth.sessionVersion,
-  };
-  const scoped = [auth.tenantId, id, auth.userId, auth.oauthGrantId, auth.oauthClientId];
+  const principal = requestPrincipal(auth);
+  const scoped = [auth.tenantId, id, auth.userId, principal.grant_id, principal.client_id];
   const owns = "tenant_id=$1 AND id=$2 AND user_id=$3 AND grant_id=$4 AND client_id=$5";
   return databaseFor(env).transaction(async sql => {
-    await lockMcpEventGrant(sql, auth.tenantId, auth.oauthGrantId!);
+    await lockMcpEventGrant(sql, auth.tenantId, principal.grant_id, true);
     const { rows: [current] } = await sql.query<{ definition_id: string }>(
       `SELECT definition_id FROM app.mcp_event_subscriptions WHERE ${owns}`, scoped,
     );
@@ -182,10 +198,10 @@ async function withProcessingSubscription<T>(env: Env, auth: OAuthProps, id: str
     await lockEventOutbox(sql, auth.tenantId, current.definition_id);
     const { rows: [row] } = await sql.query<ProcessingSubscription>(
       `SELECT * FROM app.mcp_event_subscriptions WHERE ${owns} AND status='active'
-        AND expires_at>clock_timestamp() AND session_version=$6 FOR NO KEY UPDATE`,
-      [...scoped, auth.sessionVersion],
+        AND expires_at>clock_timestamp() FOR NO KEY UPDATE`, scoped,
     );
-    const scopes = row && await activeGrantScopes(env, principal);
+    const scopes = row && (auth.oauthInstallationId || row.session_version === auth.sessionVersion) &&
+      await activeGrantScopes(env, principal);
     if (!scopes || !await authorized(sql, principal, scopes)) throw forbidden();
     return action(sql, row);
   });
@@ -329,7 +345,8 @@ async function claimDelivery(sql: DatabaseClient) {
        SELECT d.tenant_id,d.subscription_id,d.occurrence_id,(d.status='accepted') AS recovery
        FROM app.mcp_event_deliveries d JOIN app.mcp_event_subscriptions s
          ON (s.tenant_id,s.id)=(d.tenant_id,d.subscription_id)
-       WHERE ${deliveryReady} AND ${pacedDue}<=statement_timestamp()
+       ${joinMcpInstallation}
+       WHERE ${deliveryReady} AND ${installationCanReceiveMcpEvents} AND ${pacedDue}<=statement_timestamp()
        ORDER BY ${pacedDue},d.tenant_id,d.subscription_id,d.occurrence_id LIMIT 1 FOR UPDATE OF d SKIP LOCKED
      )
      UPDATE app.mcp_event_deliveries d SET
@@ -352,7 +369,8 @@ export async function nextMcpDeliveryDelay(env: Env) {
   const { rows: [row] } = await databaseFor(env).pool.query<{ due_at: Date | null }>(
     `SELECT min(${pacedDue}) AS due_at FROM app.mcp_event_deliveries d JOIN app.mcp_event_subscriptions s
        ON (s.tenant_id,s.id)=(d.tenant_id,d.subscription_id)
-     WHERE ${deliveryReady} AND (d.ack_epoch IS NOT NULL OR s.cooldown_until IS NOT NULL)`,
+     ${joinMcpInstallation}
+     WHERE ${deliveryReady} AND ${installationCanReceiveMcpEvents} AND (d.ack_epoch IS NOT NULL OR s.cooldown_until IS NOT NULL)`,
   );
   return row?.due_at ? Math.max(100, row.due_at.getTime() - Date.now()) : 60_000;
 }
@@ -373,10 +391,15 @@ async function dispatchClaim(env: Env, claim: Claim, now: () => number) {
   const db = databaseFor(env);
   const key = [claim.tenant_id, claim.subscription_id, claim.occurrence_id, claim.claim_id];
   await db.transaction(async sql => {
+    const { rows: [identity] } = await sql.query<{ grant_id: string }>(
+      "SELECT grant_id FROM app.mcp_event_subscriptions WHERE tenant_id=$1 AND id=$2", key.slice(0, 2),
+    );
+    if (!identity) return;
+    await lockMcpEventGrant(sql, claim.tenant_id, identity.grant_id, true);
     const { rows: [subscription] } = await sql.query<Subscription>(
       `SELECT * FROM app.mcp_event_subscriptions WHERE tenant_id=$1 AND id=$2 FOR NO KEY UPDATE`, key.slice(0, 2),
     );
-    if (!subscription) return;
+    if (!subscription || subscription.grant_id !== identity.grant_id) return;
     const { rows: [record] } = await sql.query<{ occurred_at: Date; definition_id: string; source_identity: string; ack_epoch: string | null; ack_state: string | null }>(
       `SELECT o.occurred_at,o.definition_id,o.source_identity,d.ack_epoch,d.ack_state FROM app.mcp_event_deliveries d
        JOIN app.event_occurrences o ON o.tenant_id=d.tenant_id AND o.id=d.occurrence_id
@@ -437,6 +460,33 @@ async function dispatchClaim(env: Env, claim: Claim, now: () => number) {
         WHERE tenant_id=$1 AND subscription_id=$2 AND occurrence_id=$3 AND claim_id=$4`, [...key, claim.recovery]);
       return;
     }
+    // A replaceable credential can be absent, temporarily unverifiable, or
+    // lack the selected scope. Pause without burning the claim or its ACK.
+    const deferAuthorization = () => sql.query(`UPDATE app.mcp_event_deliveries SET claim_id=NULL,
+      status=CASE WHEN $5 THEN status ELSE 'pending' END,
+      attempts=CASE WHEN $5 THEN attempts ELSE greatest(attempts-1,0) END,
+      recovery_attempts=CASE WHEN $5 THEN greatest(recovery_attempts-1,0) ELSE recovery_attempts END,
+      ack_due_at=CASE WHEN $5 THEN clock_timestamp()+interval '60 seconds' ELSE ack_due_at END,
+      next_attempt_at=CASE WHEN $5 THEN next_attempt_at ELSE clock_timestamp()+interval '60 seconds' END,
+      last_outcome='authorization_inactive'
+      WHERE tenant_id=$1 AND subscription_id=$2 AND occurrence_id=$3 AND claim_id=$4`, [...key, claim.recovery]);
+    const installation = await getOAuthInstallation(sql, subscription.tenant_id, subscription.user_id, subscription.grant_id);
+    const principal = installation
+      ? installation.active_grant_id && installation.active_session_version != null &&
+        { ...subscription, credential_id: installation.active_grant_id, session_version: installation.active_session_version }
+      : subscription;
+    let scopes: string[] | null = null;
+    if (principal && !installation?.revoked_at) {
+      try {
+        scopes = await activeGrantScopes(env, principal);
+      } catch {
+        // A provider read failure is not proof of revocation.
+      }
+    }
+    if (!principal || !scopes || !await authorized(sql, principal, scopes) || !subscriptionActive(subscription, claim)) {
+      await deferAuthorization();
+      return;
+    }
     if (claim.recovery && claim.recovery_attempts > maxRecoveryAttempts) {
       await finishRecovery("exhausted");
       return;
@@ -456,11 +506,6 @@ async function dispatchClaim(env: Env, claim: Claim, now: () => number) {
       const secrets = [await decrypt(subscription.encrypted_secret, env.CREDENTIAL_ENCRYPTION_KEY)];
       if (subscription.previous_encrypted_secret && (subscription.rotated_at?.getTime() ?? 0) > Date.now() - 5 * 60_000) {
         secrets.push(await decrypt(subscription.previous_encrypted_secret, env.CREDENTIAL_ENCRYPTION_KEY));
-      }
-      const scopes = await activeGrantScopes(env, subscription);
-      if (!scopes || !await authorized(sql, subscription, scopes) || !subscriptionActive(subscription, claim)) {
-        await cancel("authorization_inactive");
-        return;
       }
       result = await sendMcpWebhook(env.APP_ORIGIN, {
         url: subscription.callback_url,

@@ -291,7 +291,7 @@ export async function executeAuth(action: AuthAction, request: Request, env: Env
     if (action === "consent-preview" || action === "consent-decision") {
       if (!session) return failure(401, "Sign in before authorizing a client.");
       try {
-        const data = action === "consent-preview" ? await consentPreview(env, session, consentPreviewInput.parse(input), request) : await consentDecision(env, session, consentDecisionInput.parse(input));
+        const data = action === "consent-preview" ? await consentPreview(env, session, consentPreviewInput.parse(input), request) : await consentDecision(env, session, consentDecisionInput.parse(input), request);
         return data ? authJson(data) : failure(400, "This approval is no longer current. Reload the request and review the permissions again. If the connection link has expired or was already used, start Reconnect in your MCP client.");
       } catch (error) {
         if (error instanceof ConsentPreviewError) return failure(400, error.message);

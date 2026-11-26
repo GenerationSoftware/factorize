@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { EventMatchRepository, validAgainstSchema } from "../src/postgres/event-match-repository";
 import { loadingFixture } from "./helpers/loading-fixture";
 import { ApiService } from "../src/api-service";
-import { effectiveConnectionScopes } from "../src/oauth-connection-settings";
+import { inspectOAuthGrant, scopesForOAuthCredential } from "../src/mcp-oauth-auth";
 
 vi.mock("cloudflare:workers", () => ({ WorkerEntrypoint: class {}, WorkflowEntrypoint: class {}, DurableObject: class {} }));
 vi.mock("@cloudflare/workers-oauth-provider", () => ({ OAuthProvider: class {}, AuthorizationError: class extends Error {}, getOAuthApi: vi.fn() }));
@@ -22,12 +22,15 @@ describe.skipIf(!url)("durable Event occurrences", () => {
       f.env.OAUTH_PROVIDER = { listUserGrants: async () => ({items:[{id:grantId,clientId:"test-client",metadata:{tenantId:f.tenantId},scope:readWrite,createdAt:now,expiresAt:null}]}), lookupClient: async () => ({clientId:"test-client",clientName:"Test client"}) } as any;
       const service = new ApiService(f.env,f.auth);
       const auth = {...f.auth,authMethod:"oauth" as const,oauthGrantId:grantId};
+      const effective = async (credential: string[]) => scopesForOAuthCredential(credential, await inspectOAuthGrant(f.db.pool, auth, grantId));
       await service.updateClientPermissions(grantId,{scopes:readWrite,expectedRevision:0});
-      expect(await effectiveConnectionScopes(f.env,auth,readOnly)).toEqual(readOnly);
-      expect(await effectiveConnectionScopes(f.env,auth,readWrite)).toEqual(readWrite);
+      expect(await effective(readOnly)).toEqual(readOnly);
+      expect(await effective(readWrite)).toEqual(readWrite);
       await service.updateClientPermissions(grantId,{scopes:readOnly,expectedRevision:1});
-      expect(await effectiveConnectionScopes(f.env,auth,readOnly)).toEqual(readOnly);
-      expect(await effectiveConnectionScopes(f.env,auth,readWrite)).toEqual(readOnly);
+      expect(await effective(readOnly)).toEqual(readOnly);
+      expect(await effective(readWrite)).toEqual(readOnly);
+      await service.updateClientPermissions(grantId,{scopes:readWrite,expectedRevision:2});
+      expect(await effective(readWrite)).toEqual(readOnly);
     } finally { await f.cleanup(); }
   });
   it("deletes an Event with its Triggers, input sources, match state, and occurrence history", async () => {

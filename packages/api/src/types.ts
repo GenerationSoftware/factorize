@@ -45,8 +45,11 @@ export type OAuthProps = {
   sessionVersion: number;
   scopes: string[];
   accessTokenId?: string;
-  /** Stable identifier for the OAuth authorization grant; never a bearer token. */
+  /** Current provider grant, changed when an installation is reauthorized. */
   oauthGrantId?: string;
+  /** Server-issued stable connection anchor; never used as a credential. */
+  oauthInstallationId?: string;
+  oauthIssuanceId?: string;
   oauthClientId?: string;
   /** Explicit integration denials carried to this grant at browser consent. */
   initialIntegrationDenials?: string[];

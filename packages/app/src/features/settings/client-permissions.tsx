@@ -10,19 +10,10 @@ export function ClientPermissions({ client: initialClient, close }: { client: Au
   const cache = useQueryClient();
   // Keep the edited scope selection and its revision tied to the same snapshot.
   const [client] = useState(() => initialClient);
-  const deniedIntegrationId = (scope: string) => {
-    const [kind, id] = scope.split(":");
-    return kind === "integration" && client.integrationOverrides[id] === false ? id : undefined;
-  };
-  const [allowed, setAllowed] = useState(() => client.availableScopes.filter(scope => client.scopes.includes(scope) && !deniedIntegrationId(scope)));
+  const [allowed, setAllowed] = useState(() => client.availableScopes.filter(scope => client.scopes.includes(scope)));
   const save = useMutation({ retry: false, mutationFn: async () => {
-    const integrationOverrides: Record<string, string> = {};
-    for (const scope of allowed) {
-      const id = deniedIntegrationId(scope);
-      if (id) integrationOverrides[id] = scope;
-    }
-    const { error } = await api.PUT("/api/v1/access/authorizations/{grantId}/permissions", { params: { path: { grantId: client.grantId } }, body: { scopes: allowed, expectedRevision: client.revision, ...(Object.keys(integrationOverrides).length && { integrationOverrides }) } });
+    const { error } = await api.PUT("/api/v1/access/authorizations/{grantId}/permissions", { params: { path: { grantId: client.grantId } }, body: { scopes: allowed, expectedRevision: client.revision } });
     if (error) throw new Error(messageOf(error));
   }, onSuccess: close, onSettled: () => cache.invalidateQueries({ queryKey: clientsQuery.queryKey }) });
-  return <Dialog title={`Permissions for ${client.clientName}`} close={close}><p className="mb-3 text-sm">You can add or remove permissions here. Removal takes effect immediately. Additions are saved as choices for this connection: start Reconnect in the MCP client and review the choices in the new consent screen to issue a fresh token.</p><fieldset className="grid gap-2"><legend>Agent API scopes</legend>{client.availableScopes.map(scope => <Label key={scope}><Input type="checkbox" checked={allowed.includes(scope)} onChange={event => setAllowed(event.target.checked ? [...allowed, scope] : allowed.filter(value => value !== scope))} />{client.scopeLabels[scope] ?? scope}</Label>)}</fieldset>{save.error && <p role="alert">{save.error.message}</p>}<Button variant="primary" disabled={save.isPending} onClick={() => save.mutate()}>Save permissions</Button></Dialog>;
+  return <Dialog title={`Permissions for ${client.clientName}`} close={close}><p className="mb-3 text-sm">You can add or remove permissions here. Removal takes effect immediately. Additions are saved as choices for this connection: start Reconnect in the MCP client, select this existing connection in Factorize, and confirm your saved permissions on the consent screen. The client must accept the fresh credential.</p><fieldset className="grid gap-2"><legend>Agent API scopes</legend>{client.availableScopes.map(scope => <Label key={scope}><Input type="checkbox" checked={allowed.includes(scope)} onChange={event => setAllowed(event.target.checked ? [...allowed, scope] : allowed.filter(value => value !== scope))} />{client.scopeLabels[scope] ?? scope}{client.pendingScopes?.includes(scope) && " (awaiting fresh authorization)"}</Label>)}</fieldset>{save.error && <p role="alert">{save.error.message}</p>}<Button variant="primary" disabled={save.isPending} onClick={() => save.mutate()}>Save permissions</Button></Dialog>;
 }
