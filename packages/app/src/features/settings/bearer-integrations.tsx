@@ -59,7 +59,7 @@ export function useBearerIntegrations() {
   const reset = () => { clearFields(); setEditing(null); setName(""); setOrigin(""); setDescription(""); setNotice(""); };
   return {
     count: records.data?.integrations.length ?? 0, pending: records.isPending,
-    rows: records.data?.integrations.map(record => <IntegrationRow key={record.id} kind="bearer" credentialId={record.id} name={record.name} detail={[record.origin, record.description].filter(Boolean).join(" · ")} actions={[
+    rows: records.data?.integrations.map(record => <IntegrationRow key={record.id} kind="bearer" credentialId={record.id} name="Bearer API" actionName={record.name} detail={[record.name, record.origin, record.description].filter(Boolean).join(" · ")} actions={[
       {label: "Edit / replace token", onClick: () => beginEdit(record)},
       {label: "Delete", destructive: true, disabled: remove.isPending, onClick: () => {if (window.confirm(`Delete ${record.name}?`)) remove.mutate(record);}},
     ]} />),

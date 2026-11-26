@@ -48,7 +48,7 @@ test("X settings guides app callback setup, validated permissions, and starts ow
   connected = true;
   await page.goto(origin + "/settings/integrations?x=connected");
   await page.getByRole("status").filter({ hasText: "X account connected and verified" }).waitFor();
-  await page.getByText("@verified_user · 12345", { exact: true }).waitFor();
+  await page.getByText("My account · @verified_user · 12345", { exact: true }).waitFor();
   await page.getByText(/Granted permissions:.*tweet.write/).waitFor();
   await context.close();
 });

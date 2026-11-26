@@ -54,8 +54,8 @@ export function useCloudflareIntegration() {
   </>;
   return { count, pending: status.isPending, feedback, dialog: null,
     rows: connections.map(row => <IntegrationRow key={row.id} kind="cloudflare" credentialId={row.id}
-      name={row.connected ? row.name : "Cloudflare: " + row.name}
-      detail={row.reconnectRequired ? "Reconnect on Cloudflare to use this integration." : "Permissions managed in Cloudflare"}
+      name="Cloudflare" detail={row.name === "Cloudflare" ? "Permissions managed in Cloudflare" : row.name}
+      status={row.reconnectRequired ? "Reconnect on Cloudflare to use this integration." : !row.connected ? "Needs attention" : undefined}
       actions={[{ label: "Reconnect Cloudflare", onClick: start }, { label: "Disconnect", destructive: true, onClick: () => {
         if (window.confirm("Disconnect Cloudflare from Factorize?")) disconnect.mutate(row.id);
       }}]} />),
