@@ -381,6 +381,254 @@ components:
           schema:
             $ref: "#/components/schemas/Error"
 paths:
+  /api/v1/integrations/removal/preview:
+    post:
+      summary: Preview what removing one installed integration affects
+      responses:
+        "200":
+          description: Exact references and an impact fingerprint
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  fingerprint:
+                    type: string
+                  needsConfirmation:
+                    type: boolean
+                  sources:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        triggerId:
+                          type: string
+                        triggerName:
+                          type: string
+                        eventId:
+                          type: string
+                        eventName:
+                          type: string
+                        sourceName:
+                          type: string
+                        deleteTrigger:
+                          type: boolean
+                      required:
+                        - id
+                        - triggerId
+                        - triggerName
+                        - eventId
+                        - eventName
+                        - sourceName
+                        - deleteTrigger
+                      additionalProperties: false
+                  lookups:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        eventId:
+                          type: string
+                        eventName:
+                          type: string
+                        name:
+                          type: string
+                        cascaded:
+                          type: boolean
+                      required:
+                        - eventId
+                        - eventName
+                        - name
+                        - cascaded
+                      additionalProperties: false
+                  pausedEvents:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        name:
+                          type: string
+                      required:
+                        - id
+                        - name
+                      additionalProperties: false
+                  clients:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        name:
+                          type: string
+                      required:
+                        - id
+                        - name
+                      additionalProperties: false
+                  workloads:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        name:
+                          type: string
+                        revoked:
+                          type: boolean
+                      required:
+                        - id
+                        - name
+                        - revoked
+                      additionalProperties: false
+                required:
+                  - fingerprint
+                  - needsConfirmation
+                  - sources
+                  - lookups
+                  - pausedEvents
+                  - clients
+                  - workloads
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the integrations:write scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      operationId: post_api_v1_integrations_removal_preview
+      tags:
+        - integrations
+      security:
+        - cookieAuth: []
+      x-required-scope: integrations:write
+      x-owner-session-required: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                kind:
+                  type: string
+                  enum:
+                    - exe
+                    - amp
+                    - github
+                    - cloudflareTail
+                    - cloudflare
+                    - fly
+                    - bearer
+                id:
+                  type: string
+                  minLength: 1
+                  maxLength: 128
+              required:
+                - kind
+                - id
+              additionalProperties: false
+  /api/v1/integrations/removal/confirm:
+    post:
+      summary: Remove one installed integration with verified impact
+      description: |-
+        The owner must explicitly confirm affected references. An outdated impact fingerprint returns 409 without any change.
+
+        Requires the integrations:write scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      responses:
+        "200":
+          description: Removed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: boolean
+                    const: true
+                required:
+                  - deleted
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: post_api_v1_integrations_removal_confirm
+      tags:
+        - integrations
+      security:
+        - cookieAuth: []
+      x-required-scope: integrations:write
+      x-owner-session-required: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                kind:
+                  type: string
+                  enum:
+                    - exe
+                    - amp
+                    - github
+                    - cloudflareTail
+                    - cloudflare
+                    - fly
+                    - bearer
+                id:
+                  type: string
+                  minLength: 1
+                  maxLength: 128
+                fingerprint:
+                  type: string
+                  minLength: 1
+                  maxLength: 128
+                confirmImpact:
+                  type: boolean
+              required:
+                - kind
+                - id
+                - fingerprint
+                - confirmImpact
+              additionalProperties: false
   /api/v1/integrations/cloudflare:
     get:
       summary: Read Cloudflare connections
@@ -7067,6 +7315,9 @@ paths:
                         - extraDataUrls
                         - rule
                       additionalProperties: false
+                    enrichmentPauseReason:
+                      type: string
+                      const: integration_removed
                     createdAt:
                       type: string
                     updatedAt:
@@ -7189,6 +7440,9 @@ paths:
                       - extraDataUrls
                       - rule
                     additionalProperties: false
+                  enrichmentPauseReason:
+                    type: string
+                    const: integration_removed
                   createdAt:
                     type: string
                   updatedAt:
@@ -7374,6 +7628,9 @@ paths:
                       - extraDataUrls
                       - rule
                     additionalProperties: false
+                  enrichmentPauseReason:
+                    type: string
+                    const: integration_removed
                   createdAt:
                     type: string
                   updatedAt:
@@ -7494,6 +7751,9 @@ paths:
                       - extraDataUrls
                       - rule
                     additionalProperties: false
+                  enrichmentPauseReason:
+                    type: string
+                    const: integration_removed
                   createdAt:
                     type: string
                   updatedAt:

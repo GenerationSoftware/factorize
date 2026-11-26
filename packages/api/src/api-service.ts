@@ -1,8 +1,11 @@
+import { IntegrationRemoval } from "./postgres/integration-removal";
+import { lockIntegrationTopology } from "./postgres/integration-removal-topology";
+import { integrationRemovalConfirmation, integrationRemovalTarget } from "./integration-removal-contracts";
 import { authorizeEnrichment } from "./event-enrichment";
 import { enrichmentRun } from "./event-enrichment-contracts";
 import { readOccurrenceSummaries } from "./postgres/occurrence-summary-repository";
 import { eventOccurrenceSummaryPage, subscriptionOccurrenceSummaryPage, parseOccurrenceSummaryCursor } from "./event-contracts";
-import { cloudflareState, disconnectCloudflare, startCloudflare } from "./cloudflare-oauth";
+import { cloudflareState, startCloudflare } from "./cloudflare-oauth";
 import { integrationForScope, lockOAuthPolicy } from "./oauth-reconnect";
 import { installationScopes, listLegacyOAuthGrants, listOAuthInstallations, materializeLegacyOAuthInstallation } from "./oauth-installations";
 import { deleteMcpGrantSubscriptions, lockMcpEventGrant } from "./postgres/mcp-event-outbox";
@@ -23,7 +26,7 @@ import type { DatabaseClient } from "./postgres/database";
 import { decideOidcConsent, inspectOidcConsent, oidcConsentInput, oidcConsentPreview } from "./oidc-provider";
 import { AppsRepository } from "./postgres/apps-repository";
 import { appRegistrationInput, appRegistrationUpdate, appSecret, connectedApp, registeredApp } from "./apps-contracts";
-import { AgentApiService, listAgentPolicies } from "./agent-api";
+import { AgentApiError, AgentApiService, listAgentPolicies } from "./agent-api";
 import {ProxyPayloads,createPayloadInput,appendPayloadInput,finalizePayloadInput,attachmentInput} from "./proxy-payloads";
 import {ProxyOperations,operationRef,operationRead} from "./proxy-operations";
 import {queryApiResponseInput} from "./agent-api-contracts";
@@ -211,7 +214,11 @@ export class ApiService {
       return { connection: await this.flyConnections().save(metadata, parsed.token) };
     } catch (error) { this.handleFlyAccountError(error); }
   }
-  async removeFlyConnection() { await this.authorizeOwnerSession("integrations:write"); return { deleted: await this.flyConnections().remove() }; }
+  async removeFlyConnection() {
+    await this.authorizeOwnerSession("integrations:write");
+    try { return {deleted:(await this.removal().confirm({kind:"fly",id:"fly"})).deleted}; }
+    catch (error) { if (error instanceof AgentApiError && error.status===404) return {deleted:false}; throw error; }
+  }
   async listGitHubInstallations() { await this.authorize("integrations:read"); return publicValue(z.array(githubInstallation), JSON.parse(JSON.stringify(await new GitHubRepository(databaseFor(this.env), this.auth.tenantId).installations()))); }
   async listTailIntegrations() { await this.authorize("integrations:read"); return publicValue(z.array(tailIntegration), await new IntegrationService(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY).tails()); }
   async eventContextMetadata() { await this.authorize("triggers:read"); return eventContextCatalog; }
@@ -410,11 +417,31 @@ export class ApiService {
   }
   async disconnectCloudflare(id: string) {
     await this.authorizeOwnerSession("integrations:write");
-    return disconnectCloudflare(this.env, this.auth, id);
+    try { await this.removal().confirm({kind:"cloudflare",id}); }
+    catch (error) {
+      if (!(error instanceof AgentApiError) || error.status!==404 || !(await databaseFor(this.env).pool.query(
+        "SELECT 1 FROM app.cloudflare_connections WHERE tenant_id=$1 AND id=$2 AND encrypted_credentials IS NULL",[this.auth.tenantId,id])).rowCount) throw error;
+    }
+    return {ok:true as const};
   }
   async integrationStatus() { await this.authorize("integrations:read"); return publicValue(integrationStatus, await this.integrations().status()); }
   async saveExeIntegration(input: any) { await this.authorize("integrations:write"); return this.integrations().saveExe(input); }
-  async removeIntegration(kind: "exe" | "amp", id: string) { await this.authorize("integrations:write"); const result = await this.integrations().remove(kind, id); if (result.conflict) throw new ServiceError(409, "conflict", "This integration is used by a trigger."); if (!result.deleted) throw new ServiceError(404, "not_found", "Integration not found"); return { id, deleted: true }; }
+  private removal() { return new IntegrationRemoval(databaseFor(this.env),this.auth,this.env.SESSION_SIGNING_SECRET,this.env.CREDENTIAL_ENCRYPTION_KEY); }
+  async previewIntegrationRemoval(input: unknown) {
+    await this.authorizeOwnerSession("integrations:write");
+    return this.removal().preview(integrationRemovalTarget.parse(input));
+  }
+  async confirmIntegrationRemoval(input: unknown) {
+    await this.authorizeOwnerSession("integrations:write");
+    const {kind,id,...confirmation} = integrationRemovalConfirmation.parse(input);
+    const result = await this.removal().confirm({kind,id},confirmation);
+    return {deleted:result.deleted};
+  }
+  async removeIntegration(kind: "exe" | "amp", id: string) {
+    await this.authorize("integrations:write");
+    await this.removal().confirm({kind,id});
+    return {id,deleted:true};
+  }
   async saveAmpIntegration(input: any) { await this.authorize("integrations:write"); return this.integrations().saveAmp(input); }
   async saveTailIntegration(input: any) { await this.authorize("integrations:write"); return this.integrations().saveTail(input); }
   async testTailIntegration(id: string) { await this.authorize("integrations:write"); const result = await this.integrations().testTail(id); if (!result) throw new ServiceError(404, "not_found", "Integration not found"); return result; }
@@ -534,19 +561,28 @@ export class ApiService {
   }
   async deleteBearerIntegration(id: string, input: { expectedRevision: number; idempotencyKey: string }) {
     await this.authorizeOwnerSession("integrations:write");
-    const existing = (await this.credentials().metadata("bearer")).find(record => record.id === id && record.origin !== null);
-    if (!existing) throw new ServiceError(404, "not_found", "Integration not found.");
-    const result = await this.bearerWrite({ id, name: existing.name, origin: existing.origin!, description: existing.description, ...input, operation: "delete" });
-    return { id, deleted: true as const, ...result };
+    try {
+      const result = await this.removal().confirm({kind:"bearer",id},undefined,input);
+      return {id,deleted:true as const,...result.journal!};
+    } catch (error) {
+      if (error instanceof StaleIntegrationRevisionError) throw new ServiceError(409,"stale_revision", `The integration collection changed. Current revision is ${error.currentRevision}.`);
+      if (error instanceof IntegrationIdempotencyConflictError) throw new ServiceError(409,"conflict","The idempotency key was already used for a different integration change.");
+      if (error instanceof IntegrationValidationError) throw new ServiceError(400,"invalid_request",error.message);
+      throw error;
+    }
   }
-  async removeTailIntegration(id: string) { await this.authorize("integrations:write"); if (!await this.connections().delete(`cloudflare-tail:${id}`)) throw new ServiceError(404, "not_found", "Integration not found"); return { id, deleted: true }; }
+  async removeTailIntegration(id: string) {
+    await this.authorize("integrations:write");
+    await this.removal().confirm({kind:"cloudflareTail",id});
+    return {id,deleted:true};
+  }
   async linearProjects() { await this.authorize("integrations:read"); return publicValue(z.array(namedOption), await this.providers().linearProjects()); }
   async linearOptions() { await this.authorize("integrations:read"); return publicValue(providerOptions, await this.providers().linearOptions()); }
   async clickUpLists() { await this.authorize("integrations:read"); return publicValue(z.array(namedOption), await this.providers().clickUpLists()); }
   async clickUpOptions(listId: string) { await this.authorize("integrations:read"); return publicValue(providerOptions, await this.providers().clickUpOptions(listId)); }
   async githubRepositories(installationId: number) { await this.authorize("integrations:read"); return publicValue(z.array(githubRepository), await this.providers().githubRepositories(installationId)); }
   async githubIssueOptions(installationId: number, repositoryId: number) { await this.authorize("integrations:read"); return publicValue(providerOptions, await this.providers().githubIssueOptions(installationId, repositoryId)); }
-  async removeGitHubInstallation(id: number) { await this.authorize("integrations:write"); if (!await new GitHubRepository(databaseFor(this.env), this.auth.tenantId).delete(id)) throw new ServiceError(404, "not_found", "Installation not found"); return { id, deleted: true }; }
+  async removeGitHubInstallation(id: number) { await this.authorize("integrations:write"); await this.removal().confirm({kind:"github",id:String(id)}); return { id, deleted: true }; }
 
   async inspectAppConsent(requestId: string) {
     await this.authorizeOwnerSession("team:read");
@@ -648,6 +684,7 @@ export class ApiService {
     if (this.auth.authMethod !== "oauth" || !this.auth.oauthGrantId) throw new ServiceError(403, "forbidden", "An OAuth connection is required.");
     await databaseFor(this.env).transaction(async sql => {
       const id = this.auth.oauthInstallationId ?? this.auth.oauthGrantId!;
+      await lockIntegrationTopology(sql,this.auth.tenantId);
       await lockOAuthPolicy(sql, this.auth);
       await lockMcpEventGrant(sql, this.auth.tenantId, id);
       const connection = await materializeLegacyOAuthInstallation(this.env, sql, this.auth, id);
@@ -660,6 +697,7 @@ export class ApiService {
     await this.authorizeOwnerSession("triggers:write");
     const { name } = clientNameInput.parse(input);
     await databaseFor(this.env).transaction(async sql => {
+      await lockIntegrationTopology(sql,this.auth.tenantId);
       await lockOAuthPolicy(sql, this.auth);
       await lockMcpEventGrant(sql, this.auth.tenantId, grantId);
       if (!await materializeLegacyOAuthInstallation(this.env, sql, this.auth, grantId)) throw new ServiceError(404, "not_found", "Authorization not found.");
@@ -687,21 +725,26 @@ export class ApiService {
     await this.authorizeOwnerSession("team:write");
     const { scope, isDefault } = teamPermissionUpdate.parse(input);
     const tenant = this.auth.tenantId;
-    if (!standardPermissions.includes(scope)) {
-      const { integrations } = await listAgentPolicies(this.env, tenant);
-      if (!integrations.some(row => row.requiredScope === scope && row.available && row.policy !== "disabled"))
-        throw new ServiceError(409, "conflict", "Integration availability changed. Reload permissions.");
-    }
-    await databaseFor(this.env).pool.query(`INSERT INTO app.team_permission_defaults (tenant_id,permission,enabled)
-      VALUES($1,$2,$3) ON CONFLICT (tenant_id,permission) DO UPDATE SET enabled=excluded.enabled`, [tenant, permissionKey(scope), isDefault]);
-    return { ok: true };
+    await databaseFor(this.env).transaction(async sql => {
+      await lockIntegrationTopology(sql,tenant);
+      if (!standardPermissions.includes(scope)) {
+        const { integrations } = await listAgentPolicies(this.env,tenant);
+        if (!integrations.some(row => row.requiredScope === scope && row.available && row.policy !== "disabled")) {
+          throw new ServiceError(409,"conflict","Integration availability changed. Reload permissions.");
+        }
+      }
+      await sql.query(`INSERT INTO app.team_permission_defaults (tenant_id,permission,enabled)
+        VALUES($1,$2,$3) ON CONFLICT (tenant_id,permission) DO UPDATE SET enabled=excluded.enabled`,[tenant,permissionKey(scope),isDefault]);
+    });
+    return {ok:true};
   }
   async updateClientPermissions(grantId: string, input: unknown) {
     await this.authorizeOwnerSession("triggers:write");
     const edit = clientPermissionsUpdate.parse(input);
-    const { integrations } = await listAgentPolicies(this.env, this.auth.tenantId);
-    const available = new Set<string>([...AGENT_SCOPES, ...integrations.filter(row => row.available && row.policy !== "disabled").map(row => row.requiredScope)]);
     await databaseFor(this.env).transaction(async sql => {
+      await lockIntegrationTopology(sql,this.auth.tenantId);
+      const { integrations } = await listAgentPolicies(this.env,this.auth.tenantId);
+      const available = new Set<string>([...AGENT_SCOPES, ...integrations.filter(row => row.available && row.policy !== "disabled").map(row => row.requiredScope)]);
       await lockOAuthPolicy(sql, this.auth);
       await lockMcpEventGrant(sql, this.auth.tenantId, grantId);
       const row = await materializeLegacyOAuthInstallation(this.env, sql, this.auth, grantId);
@@ -731,6 +774,7 @@ export class ApiService {
     const legacy = await listLegacyOAuthGrants(this.env, this.auth);
     // Materialize only exact old grants, never coalescing two installations of one OAuth client.
     if (legacy.length) await db.transaction(async sql => {
+      await lockIntegrationTopology(sql,this.auth.tenantId);
       await lockOAuthPolicy(sql, this.auth);
       for (const grant of legacy) await materializeLegacyOAuthInstallation(this.env, sql, this.auth, grant.id, undefined, undefined, grant);
     });
@@ -758,6 +802,7 @@ export class ApiService {
     await this.authorizeOwnerSession("triggers:write");
     if (!this.env.OAUTH_PROVIDER) throw new ServiceError(503,"operation_failed","OAuth management unavailable");
     const activeGrant = await databaseFor(this.env).transaction(async sql => {
+      await lockIntegrationTopology(sql,this.auth.tenantId);
       await lockOAuthPolicy(sql, this.auth);
       await lockMcpEventGrant(sql, this.auth.tenantId, grantId);
       const row = await materializeLegacyOAuthInstallation(this.env, sql, this.auth, grantId);

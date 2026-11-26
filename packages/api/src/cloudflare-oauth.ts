@@ -132,18 +132,6 @@ export async function cloudflareState(env: Env, owner: Owner) {
     connections: rows.map(row => ({ id: row.id, name: row.name, connected: !row.legacy, reconnectRequired: row.legacy })) });
 }
 
-export async function disconnectCloudflare(env: Env, owner: Owner, id: string) {
-  await databaseFor(env).transaction(async sql => {
-    await lock(sql, owner.tenantId);
-    const result = await sql.query(`UPDATE app.cloudflare_connections SET encrypted_credentials=NULL
-      WHERE tenant_id=$1 AND id=$2 RETURNING id`, [owner.tenantId, id]);
-    if (!result.rowCount) throw new AgentApiError(404, "not_found", "Cloudflare connection not found.");
-    await sql.query("UPDATE app.agent_integrations SET available=false,epoch=epoch+1,revision=revision+1 WHERE tenant_id=$1 AND kind='cloudflare' AND credential_id=$2", [owner.tenantId, id]);
-    await sql.query("DELETE FROM app.cloudflare_oauth_attempts WHERE tenant_id=$1", [owner.tenantId]);
-  });
-  return { ok: true } as const;
-}
-
 export function cloudflarePath(relative: string) {
   if (!relative.startsWith("/") || relative.startsWith("//") || /[\\\r\n\0#]/.test(relative)) throw invalidPath();
   const [path] = relative.split("?", 1);

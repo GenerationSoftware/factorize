@@ -1,3 +1,4 @@
+import { lockIntegrationTopology } from "./postgres/integration-removal-topology";
 import { lockOAuthPolicy } from "./oauth-reconnect";
 import { prepareOAuthIssuance } from "./oauth-installations";
 import { integrationConsentLabels } from "./agent-api";
@@ -230,7 +231,10 @@ export async function decideDevice(env: Env, oauth: OAuthHelpers, session: { ten
     if (!record || record.status !== "pending" || record.expiresAt <= Math.floor(Date.now() / 1000)) return null;
     if (decision === "deny") { record.status = "denied"; await write(record); return { status: "denied" as const }; }
   await integrationConsentLabels(env, session.tenantId, record.scope);
-    if (sql) await lockOAuthPolicy(sql, session);
+    if (sql) {
+      await lockIntegrationTopology(sql,session.tenantId);
+      await lockOAuthPolicy(sql, session);
+    }
     const issued = sql ? await prepareOAuthIssuance(sql, { session, installationId: null, clientId: record.clientId,
       redirectUri: record.redirectUri, policyRevision: null, selectedScopes: record.scope, credentialScopes: record.scope, expiresAt: record.expiresAt }) : null;
     const binding = issued ? { oauthInstallationId: issued.installationId, oauthIssuanceId: issued.issuanceId } : {};

@@ -1,3 +1,4 @@
+import { lockIntegrationTopology } from "./postgres/integration-removal-topology";
 import { selectedTeamDefaults, teamPermissionPreferences } from "./team-permission-defaults";
 import { integrationConsentLabels, listAgentPolicies } from "./agent-api";
 import { isIntegrationScope } from "./agent-api-contracts";
@@ -122,6 +123,7 @@ export async function consentDecision(env: Env, session: Session, input: z.infer
     let policyRevision: number | null = null;
     let savedScopes: string[] = [];
     if (input.decision === "allow") {
+      await lockIntegrationTopology(transaction,session.tenantId);
       await lockOAuthPolicy(transaction, session);
       const target = envelope.target;
       if (target) {

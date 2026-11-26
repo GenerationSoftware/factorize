@@ -76,7 +76,7 @@ export class EventMatchRepository {
     if (!trigger) throw new Error("Trigger not found");
     if (!trigger.enabled) throw new Error("Trigger is disabled");
     if (trigger.revision !== input.triggerRevision) throw new Error("Trigger revision changed during matching");
-    const definition = (await client.query<any>(`SELECT d.name,d.description,d.current_revision,r.payload_schema,r.enrichment,r.evaluator_authority
+    const definition = (await client.query<any>(`SELECT d.name,d.description,d.current_revision,r.payload_schema,r.enrichment,r.evaluator_authority,r.enrichment_pause_reason
       FROM app.event_definitions d JOIN app.event_definition_revisions r
         ON r.tenant_id=d.tenant_id AND r.definition_id=d.id AND r.revision=d.current_revision
       WHERE d.tenant_id=$1 AND d.id=$2 FOR SHARE OF d,r`, [input.tenantId, trigger.event_definition_id])).rows[0];
@@ -143,8 +143,8 @@ export class EventMatchRepository {
       evaluationId = reserved;
       let evaluated: Evaluation;
       try {
-        const time = this.enrichmentBudget?.take(definition.enrichment.extraDataUrls.length) ?? 8000;
-        evaluated = !time ? {state:"failed",stage:"evaluation",reason:"evaluation_budget_exhausted",steps:[]}
+        const time = definition.enrichment_pause_reason ? 0 : this.enrichmentBudget?.take(definition.enrichment.extraDataUrls.length) ?? 8000;
+        evaluated = definition.enrichment_pause_reason ? {state:"failed",stage:"evaluation",reason:definition.enrichment_pause_reason,steps:[]} : !time ? {state:"failed",stage:"evaluation",reason:"evaluation_budget_exhausted",steps:[]}
           : this.env && definition.evaluator_authority
             ? await evaluateEnrichment(this.env,input.tenantId,definition.enrichment,definition.evaluator_authority,trigger.input_mapping,evidence,time)
             : {state:"failed",stage:"authority",reason:"authority_unavailable",steps:[]};

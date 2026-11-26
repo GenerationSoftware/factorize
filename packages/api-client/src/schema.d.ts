@@ -1,5 +1,51 @@
 // Generated from packages/docs/openapi.yaml. Do not edit.
 export interface paths {
+    "/api/v1/integrations/removal/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview what removing one installed integration affects
+         * @description Requires the integrations:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        post: operations["post_api_v1_integrations_removal_preview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integrations/removal/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Remove one installed integration with verified impact
+         * @description The owner must explicitly confirm affected references. An outdated impact fingerprint returns 409 without any change.
+         *
+         *     Requires the integrations:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        post: operations["post_api_v1_integrations_removal_confirm"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/integrations/cloudflare": {
         parameters: {
             query?: never;
@@ -2802,6 +2848,116 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    post_api_v1_integrations_removal_preview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    kind: "exe" | "amp" | "github" | "cloudflareTail" | "cloudflare" | "fly" | "bearer";
+                    id: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Exact references and an impact fingerprint */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        fingerprint: string;
+                        needsConfirmation: boolean;
+                        sources: {
+                            id: string;
+                            triggerId: string;
+                            triggerName: string;
+                            eventId: string;
+                            eventName: string;
+                            sourceName: string;
+                            deleteTrigger: boolean;
+                        }[];
+                        lookups: {
+                            eventId: string;
+                            eventName: string;
+                            name: string;
+                            cascaded: boolean;
+                        }[];
+                        pausedEvents: {
+                            id: string;
+                            name: string;
+                        }[];
+                        clients: {
+                            id: string;
+                            name: string;
+                        }[];
+                        workloads: {
+                            id: string;
+                            name: string;
+                            revoked: boolean;
+                        }[];
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_integrations_removal_confirm: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    kind: "exe" | "amp" | "github" | "cloudflareTail" | "cloudflare" | "fly" | "bearer";
+                    id: string;
+                    fingerprint: string;
+                    confirmImpact: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Removed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        deleted: true;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
     get_api_v1_integrations_cloudflare: {
         parameters: {
             query?: never;
@@ -6404,6 +6560,8 @@ export interface operations {
                             }[];
                             rule: string;
                         };
+                        /** @constant */
+                        enrichmentPauseReason?: "integration_removed";
                         createdAt: string;
                         updatedAt: string;
                         triggerCount: number;
@@ -6483,6 +6641,8 @@ export interface operations {
                             }[];
                             rule: string;
                         };
+                        /** @constant */
+                        enrichmentPauseReason?: "integration_removed";
                         createdAt: string;
                         updatedAt: string;
                     };
@@ -6536,6 +6696,8 @@ export interface operations {
                             }[];
                             rule: string;
                         };
+                        /** @constant */
+                        enrichmentPauseReason?: "integration_removed";
                         createdAt: string;
                         updatedAt: string;
                     };
@@ -6616,6 +6778,8 @@ export interface operations {
                             }[];
                             rule: string;
                         };
+                        /** @constant */
+                        enrichmentPauseReason?: "integration_removed";
                         createdAt: string;
                         updatedAt: string;
                     };

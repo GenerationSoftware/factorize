@@ -32,7 +32,7 @@ test("navigates Events, subscriptions and exact client connections through acces
     id:triggerId,eventId:definitionId,name:"Order signal",enabled:true,sources:[{kind:"manual"}],
   }]}));
   await page.route(`**/api/v1/events/${definitionId}`, route => {
-    if (route.request().method()==="GET") return route.fulfill({json:{...definition,enrichment}});
+    if (route.request().method()==="GET") return route.fulfill({json:{...definition,enrichment,enrichmentPauseReason:"integration_removed"}});
     expect(route.request().method()).toBe("DELETE");
     deleted = true;
     return route.fulfill({ json: { id: definitionId, deleted: true } });
@@ -87,6 +87,7 @@ test("navigates Events, subscriptions and exact client connections through acces
   await expect(page.getByRole("heading", { name: "Payload schema" })).toHaveCount(0);
   await expect(page.getByRole("link",{name:"Order signal"})).toHaveAttribute("href","/triggers/" + triggerId);
   await expect(page.getByRole("heading",{name:"Match logic"})).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: "Evaluation is paused because an integration used by this Event was disconnected." })).toBeVisible();
   await expect(page.getByText("input.ready",{exact:true})).toBeVisible();
   await expect(page.getByRole("button", { name: /^Edit\b/ })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Delete", exact: true })).toBeVisible();

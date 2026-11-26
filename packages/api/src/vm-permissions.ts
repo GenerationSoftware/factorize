@@ -1,3 +1,4 @@
+import { lockIntegrationTopology } from "./postgres/integration-removal-topology";
 import { getOAuthInstallation, installationScopes } from "./oauth-installations";
 import { AGENT_SCOPES } from "./access-tokens";
 import { connectionAccess, requiredIntegrationScope, type AgentIntegration } from "./agent-integration-access";
@@ -95,6 +96,7 @@ export async function writeVmPermissionSnapshot<T>(
   write: (db: DatabaseClient, snapshot: VmPermissionSnapshot) => Promise<T>,
 ) {
   return database.transaction(async db => {
+    await lockIntegrationTopology(db,auth.tenantId);
     const snapshot = await resolveVmPermissions(db, auth, source);
     return write(db, snapshot);
   });

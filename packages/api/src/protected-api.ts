@@ -1,3 +1,4 @@
+import { IntegrationTopologyChanged } from "./postgres/integration-removal-topology";
 import { adoptLegacyCredential } from "./oauth-installations";
 import { mcpOAuthChallenge, oauthResourceAuthorization, scopesForOAuthCredential } from "./mcp-oauth-auth";
 import { mcpMissingScopes } from "./mcp-oauth-scopes";
@@ -31,6 +32,7 @@ import { activeVmAuthorization } from "./vm-auth";
 import { vmGrantInput, vmGrantRef } from "./vm-grant-contracts";
 
 function errorResponse(error: unknown, origin?: string): Response {
+  if (error instanceof IntegrationTopologyChanged) return Response.json({ error:{ code:"conflict", message:error.message } }, {status:409});
   if (error instanceof AgentApiError) return Response.json({error: {code: error.code, message: error.message}}, {status: error.status, headers: error.code === "insufficient_scope" ? {"WWW-Authenticate": `Bearer error="insufficient_scope", scope="${error.scope}", resource_metadata="${origin}/.well-known/oauth-protected-resource/mcp"`} : undefined});
   if (error instanceof URIError) return Response.json({ error: { code: "invalid_request", message: "Invalid path encoding" } }, { status: 400 });
   if (error instanceof z.ZodError) {

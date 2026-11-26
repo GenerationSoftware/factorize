@@ -1,3 +1,4 @@
+import { integrationRemovalConfirmation, integrationRemovalPreview, integrationRemovalTarget } from "./integration-removal-contracts";
 import { enrichmentRun } from "./event-enrichment-contracts";
 import { eventOccurrenceSummaryPage, subscriptionOccurrenceSummaryPage, occurrenceSummaryQuery } from "./event-contracts";
 import { cloudflareStartResult, cloudflareStatus } from "./cloudflare-oauth";
@@ -169,6 +170,16 @@ function authRoute(method: string, path: string, action: AuthAction, summary: st
 }
 
 export const API_ROUTES: RouteContract[] = [
+  route("POST", "/api/v1/integrations/removal/preview", "integrations:write", {
+    summary: "Preview what removing one installed integration affects",
+    responses: { "200": { description: "Exact references and an impact fingerprint", content: { "application/json": { schema: jsonSchema(integrationRemovalPreview, "output") } } } },
+  }, (service, {body}) => service.previewIntegrationRemoval(body), { ownerSession:true, body:integrationRemovalTarget }),
+  route("POST", "/api/v1/integrations/removal/confirm", "integrations:write", {
+    summary: "Remove one installed integration with verified impact",
+    description: "The owner must explicitly confirm affected references. An outdated impact fingerprint returns 409 without any change.",
+    responses: { "200": { description: "Removed", content: { "application/json": { schema: jsonSchema(z.object({deleted:z.literal(true)}), "output") } } } },
+  }, (service, {body}) => service.confirmIntegrationRemoval(body), { ownerSession:true, body:integrationRemovalConfirmation }),
+
   route("GET", "/api/v1/integrations/cloudflare", "integrations:read", {
     summary: "Read Cloudflare connections",
     responses: { "200": { description: "Cloudflare OAuth metadata", content: { "application/json": { schema: jsonSchema(cloudflareStatus, "output") } } } },

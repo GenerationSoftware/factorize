@@ -1,3 +1,4 @@
+import { lockIntegrationTopology } from "./postgres/integration-removal-topology";
 import { OAuthError, type TokenExchangeCallbackOptions } from "@cloudflare/workers-oauth-provider";
 import { normalizeScopes } from "./access-tokens";
 import { applyConnectionScopes, type ConnectionScopePolicy } from "./oauth-connection-settings";
@@ -82,6 +83,7 @@ export async function withRefreshAdmission(env: Env, run: (hook: TokenHook) => P
     return new Promise((accept, reject) => {
       let admitted = false;
       transaction = databaseFor(env).transaction(async sql => {
+        if (activating) await lockIntegrationTopology(sql,props.tenantId);
         await lockOAuthPolicy(sql, props);
         const anchor = props.oauthInstallationId ?? options.grantId;
         await lockMcpEventGrant(sql, props.tenantId, anchor);
