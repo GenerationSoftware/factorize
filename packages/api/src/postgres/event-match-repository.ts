@@ -1,3 +1,5 @@
+import { evaluateEnrichment, type Evaluation, type EnrichmentBudget } from "../event-enrichment";
+import type { Env } from "../types";
 import draft7 from "ajv/dist/refs/json-schema-draft-07.json";
 import { validate } from "jsonschema";
 import type { Database, DatabaseClient } from "./database";
@@ -29,6 +31,7 @@ export interface MatchResult {
   outcome: MatchDecision;
   duplicate: boolean;
   pendingReason?: string;
+  evaluationId?: string;
   occurrence: null | { id: string; definitionId: string; definitionRevision: number; occurredAt: string; payload: Record<string, unknown> };
 }
 // Event schemas are supplied at runtime. Workers cannot compile validators with eval.
@@ -49,11 +52,11 @@ export function validAgainstSchema(value: unknown, schema: object, path = "paylo
 
 /**
  * The canonical internal match operation. Match state and any resulting
- * occurrence commit together. Callers perform provider/network work only after
- * this method has returned.
+ * occurrence commit together. Opt-in enrichment reserves its deduplication
+ * key durably before any upstream request; a cancelled match is never retried.
  */
 export class EventMatchRepository {
-  constructor(private database: Database, private wake?: () => Promise<void>) {}
+  constructor(private database: Database, private wake?: () => Promise<void>, private env?: Env, private enrichmentBudget?: EnrichmentBudget) {}
 
   async match(input: MatchInput): Promise<MatchResult> {
     if (!input.tenantId || !input.triggerId || !input.sourceIdentity || !input.deduplicationKey) throw new Error("Tenant, trigger, source identity, and deduplication key are required");
@@ -68,12 +71,12 @@ export class EventMatchRepository {
   }
 
   private async matchInTransaction(client: DatabaseClient, input: MatchInput, onEnqueued: () => void): Promise<MatchResult> {
-    const trigger = (await client.query<any>(`SELECT enabled,revision,event_definition_id
+    const trigger = (await client.query<any>(`SELECT enabled,revision,event_definition_id,input_mapping
       FROM app.triggers WHERE tenant_id=$1 AND id=$2 FOR SHARE`, [input.tenantId, input.triggerId])).rows[0];
     if (!trigger) throw new Error("Trigger not found");
     if (!trigger.enabled) throw new Error("Trigger is disabled");
     if (trigger.revision !== input.triggerRevision) throw new Error("Trigger revision changed during matching");
-    const definition = (await client.query<any>(`SELECT d.name,d.description,d.current_revision,r.payload_schema
+    const definition = (await client.query<any>(`SELECT d.name,d.description,d.current_revision,r.payload_schema,r.enrichment,r.evaluator_authority
       FROM app.event_definitions d JOIN app.event_definition_revisions r
         ON r.tenant_id=d.tenant_id AND r.definition_id=d.id AND r.revision=d.current_revision
       WHERE d.tenant_id=$1 AND d.id=$2 FOR SHARE OF d,r`, [input.tenantId, trigger.event_definition_id])).rows[0];
@@ -83,9 +86,11 @@ export class EventMatchRepository {
     let evidence = input.evidence;
     let decision = input.decision;
     let pendingReason = input.pendingReason;
-    if (input.githubSignal) {
+    if (definition.enrichment || input.githubSignal) {
       const lockKey = `${input.tenantId}:${input.triggerId}:${input.triggerRevision}:${input.sourceIdentity}:${input.deduplicationKey}`;
       await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [lockKey]);
+    }
+    if (input.githubSignal) {
       const prior = (await client.query<any>(`SELECT evidence,outcome,occurrence_id FROM app.trigger_matches
         WHERE tenant_id=$1 AND trigger_id=$2 AND trigger_revision=$3 AND source_identity=$4 AND deduplication_key=$5 FOR UPDATE`,
       [input.tenantId,input.triggerId,input.triggerRevision,input.sourceIdentity,input.deduplicationKey])).rows[0];
@@ -109,6 +114,52 @@ export class EventMatchRepository {
       decision = prior?.outcome === "matched" ? "matched" : reasons.length ? "pending" : "matched";
       pendingReason = decision === "pending" ? reasons.join(" ") : undefined;
     }
+    let evaluationId: string | undefined;
+    if (definition.enrichment && decision === "matched") {
+      const prior = (await client.query<any>(`SELECT id,outcome,occurrence_id,pending_reason FROM app.trigger_matches
+        WHERE tenant_id=$1 AND trigger_id=$2 AND trigger_revision=$3 AND source_identity=$4 AND deduplication_key=$5 AND outcome<>'pending'`,
+        [input.tenantId,input.triggerId,input.triggerRevision,input.sourceIdentity,input.deduplicationKey])).rows[0];
+      const reservationPool = this.database.pool;
+      const key = JSON.stringify([input.sourceIdentity,input.deduplicationKey]);
+      if (prior) {
+        const run = (await reservationPool.query<{id:string}>(`SELECT id FROM app.event_enrichment_runs
+          WHERE tenant_id=$1 AND trigger_id=$2 AND dedup_digest=encode(sha256(convert_to($3,'UTF8')),'hex')`,
+          [input.tenantId,input.triggerId,key])).rows[0];
+        return { ...await this.resultForSaved(client,input.tenantId,prior,true), ...(run ? {evaluationId:run.id} : {}) };
+      }
+      const reserved = crypto.randomUUID();
+      // Commit the reservation before network IO, independently of the main
+      // match transaction. A crash after dispatch can never cause a retry.
+      const reservation = await reservationPool.query(`INSERT INTO app.event_enrichment_runs(tenant_id,definition_id,trigger_id,dedup_digest,id,state)
+        VALUES($1,$2,$3,encode(sha256(convert_to($4,'UTF8')),'hex'),$5,'running')
+        ON CONFLICT (tenant_id,trigger_id,dedup_digest) DO NOTHING RETURNING id`,
+        [input.tenantId,trigger.event_definition_id,input.triggerId,key,reserved]);
+      if (!reservation.rowCount) {
+        const run = (await reservationPool.query<{id:string}>(`SELECT id FROM app.event_enrichment_runs
+          WHERE tenant_id=$1 AND trigger_id=$2 AND dedup_digest=encode(sha256(convert_to($3,'UTF8')),'hex')`,
+          [input.tenantId,input.triggerId,key])).rows[0];
+        return { matchId: id, outcome:"failed", duplicate:true, occurrence:null, ...(run ? {evaluationId:run.id} : {}) };
+      }
+      evaluationId = reserved;
+      let evaluated: Evaluation;
+      try {
+        const time = this.enrichmentBudget?.take(definition.enrichment.extraDataUrls.length) ?? 8000;
+        evaluated = !time ? {state:"failed",stage:"evaluation",reason:"evaluation_budget_exhausted",steps:[]}
+          : this.env && definition.evaluator_authority
+            ? await evaluateEnrichment(this.env,input.tenantId,definition.enrichment,definition.evaluator_authority,trigger.input_mapping,evidence,time)
+            : {state:"failed",stage:"authority",reason:"authority_unavailable",steps:[]};
+        if (evaluated.state === "matched") {
+          try { validAgainstSchema(evaluated.input,definition.payload_schema); }
+          catch { evaluated = {...evaluated,state:"failed",stage:"payload",reason:"payload_schema_invalid"}; }
+        }
+      } catch { evaluated = {state:"failed",stage:"evaluation",reason:"evaluation_unavailable",steps:[]}; }
+      await client.query(`UPDATE app.event_enrichment_runs SET state=$3,stage=$4,reason=$5,steps=$6,normalized_input=$7
+        WHERE tenant_id=$1 AND id=$2`,[input.tenantId,reserved,evaluated.state,evaluated.stage,evaluated.reason,
+        JSON.stringify(evaluated.steps),evaluated.input ?? null]);
+      decision = evaluated.state;
+      evidence = evaluated.input ?? {};
+    }
+    const evaluation = evaluationId ? { evaluationId } : {};
     const inserted = await client.query<any>(`INSERT INTO app.trigger_matches
       (tenant_id,id,trigger_id,trigger_revision,source_identity,deduplication_key,evidence,outcome,pending_reason,created_at,updated_at)
       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10)
@@ -122,7 +173,7 @@ export class EventMatchRepository {
     [input.tenantId, input.triggerId, input.triggerRevision, input.sourceIdentity, input.deduplicationKey])).rows[0];
     if (!inserted.rowCount) return this.resultForSaved(client, input.tenantId, saved, true);
 
-    if (decision !== "matched") return { matchId: saved.id, outcome: decision, duplicate: false, ...(pendingReason ? { pendingReason } : {}), occurrence: null };
+    if (decision !== "matched") return { ...evaluation, matchId: saved.id, outcome: decision, duplicate: false, ...(pendingReason ? { pendingReason } : {}), occurrence: null };
     if (saved.occurrence_id) return this.resultForSaved(client,input.tenantId,saved,true);
     const payload = evidence;
     validAgainstSchema(payload, definition.payload_schema);
@@ -139,7 +190,7 @@ export class EventMatchRepository {
       FROM app.event_occurrences WHERE tenant_id=$1 AND definition_id=$2 AND source_identity=$3 AND idempotency_key=$4`,
     [input.tenantId, trigger.event_definition_id, input.sourceIdentity, input.deduplicationKey])).rows[0];
     await client.query("UPDATE app.trigger_matches SET occurrence_id=$3,updated_at=$4 WHERE tenant_id=$1 AND id=$2", [input.tenantId, saved.id, occurrence.id, now]);
-    return { matchId: saved.id, outcome: "matched", duplicate: !occurrenceWrite.rowCount, occurrence: { id: occurrence.id, definitionId: occurrence.definition_id, definitionRevision: occurrence.definition_revision, occurredAt: occurrence.occurred_at.toISOString(), payload: occurrence.payload } };
+    return { ...evaluation, matchId: saved.id, outcome: "matched", duplicate: !occurrenceWrite.rowCount, occurrence: { id: occurrence.id, definitionId: occurrence.definition_id, definitionRevision: occurrence.definition_revision, occurredAt: occurrence.occurred_at.toISOString(), payload: occurrence.payload } };
   }
 
   private async resultForSaved(client: DatabaseClient, tenantId: string, row: any, duplicate: boolean): Promise<MatchResult> {

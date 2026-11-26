@@ -1,3 +1,5 @@
+import type { InputMapping } from "./event-enrichment-contracts";
+
 export type TriggerSourceKind = "manual" | "schedule" | "webhook";
 
 /** A Trigger's input source configuration. */
@@ -23,6 +25,7 @@ export interface Trigger {
   revision: number;
   enabled: boolean;
   sources: TriggerSource[];
+  inputMapping?: InputMapping;
   createdAt: string;
   updatedAt: string;
 }

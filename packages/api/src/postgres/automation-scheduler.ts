@@ -1,3 +1,4 @@
+import { EnrichmentBudget } from "../event-enrichment";
 import { catchUpOccurrence, nextOccurrence, validateScheduleConfig } from "../schedule";
 import type { Env } from "../types";
 import type { Database } from "./database";
@@ -8,6 +9,7 @@ import { EventMatchRepository } from "./event-match-repository";
 
 /** Turns scheduled and verified provider input into durable event occurrences. */
 export class AutomationScheduler {
+  private enrichmentBudget = new EnrichmentBudget();
   constructor(private database: Database, private env: Env) {}
   async process(): Promise<void> { await this.githubVerifications(); await this.schedules(); }
   private async schedules() {
@@ -22,7 +24,7 @@ export class AutomationScheduler {
       });
       if (!due) break;
       const occurredAt = due.occurrence.occurredAt.toISOString();
-      await new EventMatchRepository(this.database).match({ tenantId: due.tenant_id, triggerId: due.trigger_id, triggerRevision: due.trigger_revision ?? 1, sourceIdentity: `schedule:${due.event_id}`, deduplicationKey: occurredAt, evidence: { occurredAt, timezone: due.config.timezone }, decision: "matched", occurredAt });
+      await new EventMatchRepository(this.database, undefined, this.env, this.enrichmentBudget).match({ tenantId: due.tenant_id, triggerId: due.trigger_id, triggerRevision: due.trigger_revision ?? 1, sourceIdentity: `schedule:${due.event_id}`, deduplicationKey: occurredAt, evidence: { occurredAt, timezone: due.config.timezone }, decision: "matched", occurredAt });
     }
   }
 
@@ -53,7 +55,7 @@ export class AutomationScheduler {
           await finish(decision.decision === "error" ? "conditions_error" : "excluded", decision.decision === "error" ? "Webhook conditions failed; no occurrence was recorded." : "Webhook conditions did not match; no occurrence was recorded.");
           continue;
         }
-        const result = await new EventMatchRepository(this.database).match({ tenantId: row.tenant_id, triggerId: row.trigger_id, triggerRevision: row.trigger_revision, sourceIdentity: `github:${row.event_id}:${match.deduplicationKey}`, deduplicationKey: match.deduplicationKey, evidence: context, decision: "matched" });
+        const result = await new EventMatchRepository(this.database, undefined, this.env, this.enrichmentBudget).match({ tenantId: row.tenant_id, triggerId: row.trigger_id, triggerRevision: row.trigger_revision, sourceIdentity: `github:${row.event_id}:${match.deduplicationKey}`, deduplicationKey: match.deduplicationKey, evidence: context, decision: "matched" });
         await finish(result.duplicate ? "duplicate" : "accepted", result.duplicate ? "Verified occurrence was already recorded." : "Verified Event occurrence recorded.");
       } catch (error) {
         const attempt = Number(row.attempt) + 1, detail = error instanceof Error ? error.message : "GitHub verification failed";

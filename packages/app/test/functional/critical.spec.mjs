@@ -26,7 +26,13 @@ test("navigates Events, subscriptions and exact client connections through acces
   ] }));
   await page.route("**/api/v1/event-subscriptions", route => route.fulfill({ json: deleted ? [other] : [required, expired, other] }));
   await page.route(`**/api/v1/event-subscriptions/${requiredId}`, route => route.fulfill({ json: required }));
+  const triggerId = "30000000-0000-4000-8000-000000000001";
+  const enrichment = {rule:"input.ready",extraDataUrls:[{name:"checks",method:"GET",path:"/status"}]};
+  await page.route("**/api/v1/triggers", route => route.fulfill({json:[{
+    id:triggerId,eventId:definitionId,name:"Order signal",enabled:true,sources:[{kind:"manual"}],
+  }]}));
   await page.route(`**/api/v1/events/${definitionId}`, route => {
+    if (route.request().method()==="GET") return route.fulfill({json:{...definition,enrichment}});
     expect(route.request().method()).toBe("DELETE");
     deleted = true;
     return route.fulfill({ json: { id: definitionId, deleted: true } });
@@ -79,6 +85,9 @@ test("navigates Events, subscriptions and exact client connections through acces
   await expect(page.getByRole("heading", { name: "orders.created", exact: true })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "Dashboard navigation" }).getByRole("link", { name: "Events" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Payload schema" })).toHaveCount(0);
+  await expect(page.getByRole("link",{name:"Order signal"})).toHaveAttribute("href","/triggers/" + triggerId);
+  await expect(page.getByRole("heading",{name:"Match logic"})).toBeVisible();
+  await expect(page.getByText("input.ready",{exact:true})).toBeVisible();
   await expect(page.getByRole("button", { name: /^Edit\b/ })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Delete", exact: true })).toBeVisible();
   const eventOccurrences = page.getByRole("table", { name: "Event occurrences", exact: true });

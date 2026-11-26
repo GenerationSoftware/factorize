@@ -4,7 +4,7 @@ import type { Database, DatabaseClient } from "./database";
 
 export class StaleTriggerEdit extends Error {}
 type SourceRow = { id: string; trigger_id: string; kind: TriggerSource["kind"]; slug: string; enabled: boolean; config: Record<string, unknown>; encrypted_template: string | null; created_at: Date; updated_at: Date };
-type TriggerRow = { id: string; event_definition_id: string; name: string; description: string; slug: string; revision: number; enabled: boolean; created_at: Date; updated_at: Date };
+type TriggerRow = { input_mapping: Trigger["inputMapping"] | null; id: string; event_definition_id: string; name: string; description: string; slug: string; revision: number; enabled: boolean; created_at: Date; updated_at: Date };
 type Crypt = (value: string) => Promise<string>;
 
 /** Tenant-scoped persistence for input Triggers and their input source configs. */
@@ -15,25 +15,25 @@ export class PostgresTriggerRepository implements TriggerRepository {
 
   private async mapped(client: Pick<DatabaseClient, "query">, row: TriggerRow): Promise<Trigger> {
     const sources = await client.query<SourceRow>(`SELECT id,trigger_id,kind,slug,enabled,config,encrypted_template,created_at,updated_at FROM app.events WHERE tenant_id=$1 AND trigger_id=$2 AND removed_at IS NULL ORDER BY position,created_at,id`, [this.tenantId,row.id]);
-    return { id: row.id, eventId: row.event_definition_id, name: row.name, description: row.description, slug: row.slug, revision: row.revision, enabled: row.enabled,
+    return { id: row.id, eventId: row.event_definition_id, name: row.name, description: row.description, ...(row.input_mapping ? {inputMapping: row.input_mapping} : {}), slug: row.slug, revision: row.revision, enabled: row.enabled,
       sources: await Promise.all(sources.rows.map(async source => ({ id: source.id, triggerId: source.trigger_id, kind: source.kind, slug: source.slug, enabled: source.enabled, config: source.config, ...(source.encrypted_template ? {template: await this.decrypt(source.encrypted_template)} : {}), createdAt: source.created_at.toISOString(), updatedAt: source.updated_at.toISOString() }))),
       createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString() };
   }
 
   async getTrigger(id: string): Promise<Trigger | null> {
-    const result = await this.database.pool.query<TriggerRow>(`SELECT id,event_definition_id,name,description,slug,revision,enabled,created_at,updated_at FROM app.triggers WHERE tenant_id=$1 AND id=$2`, [this.tenantId,id]);
+    const result = await this.database.pool.query<TriggerRow>(`SELECT id,event_definition_id,name,description,slug,revision,enabled,created_at,updated_at,input_mapping FROM app.triggers WHERE tenant_id=$1 AND id=$2`, [this.tenantId,id]);
     return result.rows[0] ? this.mapped(this.database.pool,result.rows[0]) : null;
   }
 
   async list(): Promise<Trigger[]> {
-    const result = await this.database.pool.query<TriggerRow>(`SELECT id,event_definition_id,name,description,slug,revision,enabled,created_at,updated_at FROM app.triggers WHERE tenant_id=$1 ORDER BY name,id`, [this.tenantId]);
+    const result = await this.database.pool.query<TriggerRow>(`SELECT id,event_definition_id,name,description,slug,revision,enabled,created_at,updated_at,input_mapping FROM app.triggers WHERE tenant_id=$1 ORDER BY name,id`, [this.tenantId]);
     return Promise.all(result.rows.map(row => this.mapped(this.database.pool,row)));
   }
 
   async create(trigger: Trigger): Promise<Trigger> {
     return this.database.transaction(async client => {
-      const created = await client.query<TriggerRow>(`INSERT INTO app.triggers(tenant_id,id,event_definition_id,name,description,slug,enabled,created_at,updated_at)
-        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id,event_definition_id,name,description,slug,revision,enabled,created_at,updated_at`, [this.tenantId,trigger.id,trigger.eventId,trigger.name,trigger.description,trigger.slug,trigger.enabled,trigger.createdAt,trigger.updatedAt]);
+      const created = await client.query<TriggerRow>(`INSERT INTO app.triggers(tenant_id,id,event_definition_id,name,description,slug,enabled,created_at,updated_at,input_mapping)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id,event_definition_id,name,description,slug,revision,enabled,created_at,updated_at,input_mapping`, [this.tenantId,trigger.id,trigger.eventId,trigger.name,trigger.description,trigger.slug,trigger.enabled,trigger.createdAt,trigger.updatedAt,trigger.inputMapping ?? null]);
       await this.writeSources(client,trigger,[]);
       return this.mapped(client,created.rows[0]);
     });
@@ -41,12 +41,12 @@ export class PostgresTriggerRepository implements TriggerRepository {
 
   async update(trigger: Trigger, expectedUpdatedAt?: string): Promise<Trigger> {
     return this.database.transaction(async client => {
-      const current = await client.query<TriggerRow>(`SELECT id,event_definition_id,name,description,slug,revision,enabled,created_at,updated_at FROM app.triggers WHERE tenant_id=$1 AND id=$2 FOR UPDATE`,[this.tenantId,trigger.id]);
+      const current = await client.query<TriggerRow>(`SELECT id,event_definition_id,name,description,slug,revision,enabled,created_at,updated_at,input_mapping FROM app.triggers WHERE tenant_id=$1 AND id=$2 FOR UPDATE`,[this.tenantId,trigger.id]);
       const old = current.rows[0];
       if (!old) throw new Error("Trigger not found");
       if (expectedUpdatedAt && old.updated_at.toISOString() !== expectedUpdatedAt) throw new StaleTriggerEdit("Trigger changed since it was loaded");
       const updatedAt = new Date(Math.max(Date.parse(trigger.updatedAt),old.updated_at.getTime()+1)).toISOString();
-      const saved = await client.query<TriggerRow>(`UPDATE app.triggers SET event_definition_id=$3,name=$4,description=$5,slug=$6,revision=revision+1,enabled=$7,updated_at=$8 WHERE tenant_id=$1 AND id=$2 RETURNING id,event_definition_id,name,description,slug,revision,enabled,created_at,updated_at`,[this.tenantId,trigger.id,trigger.eventId,trigger.name,trigger.description,trigger.slug,trigger.enabled,updatedAt]);
+      const saved = await client.query<TriggerRow>(`UPDATE app.triggers SET event_definition_id=$3,name=$4,description=$5,slug=$6,revision=revision+1,enabled=$7,updated_at=$8,input_mapping=$9 WHERE tenant_id=$1 AND id=$2 RETURNING id,event_definition_id,name,description,slug,revision,enabled,created_at,updated_at,input_mapping`,[this.tenantId,trigger.id,trigger.eventId,trigger.name,trigger.description,trigger.slug,trigger.enabled,updatedAt,trigger.inputMapping ?? null]);
       const existing = await client.query<SourceRow>(`SELECT id,trigger_id,kind,slug,enabled,config,encrypted_template,created_at,updated_at FROM app.events WHERE tenant_id=$1 AND trigger_id=$2 AND removed_at IS NULL`,[this.tenantId,trigger.id]);
       await this.writeSources(client,{...trigger,updatedAt},existing.rows);
       return this.mapped(client,saved.rows[0]);

@@ -45,6 +45,17 @@ components:
           type: string
           format: uuid
           pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+        inputMapping:
+          anyOf:
+            - type: object
+              propertyNames:
+                type: string
+                pattern: ^[A-Za-z][A-Za-z0-9_]{0,39}$
+              additionalProperties:
+                type: string
+                maxLength: 240
+                pattern: ^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+){0,11}$
+            - type: "null"
         sources:
           default:
             - kind: manual
@@ -6943,6 +6954,50 @@ paths:
                       propertyNames:
                         type: string
                       additionalProperties: {}
+                    enrichment:
+                      type: object
+                      properties:
+                        extraDataUrls:
+                          maxItems: 6
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              name:
+                                type: string
+                                pattern: ^[A-Za-z][A-Za-z0-9_]{0,39}$
+                              integration:
+                                type: string
+                                format: uuid
+                                pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                              method:
+                                type: string
+                                enum:
+                                  - GET
+                                  - HEAD
+                                  - POST
+                                  - PUT
+                                  - PATCH
+                                  - DELETE
+                                  - OPTIONS
+                              path:
+                                type: string
+                                minLength: 1
+                                maxLength: 2048
+                            required:
+                              - name
+                              - integration
+                              - method
+                              - path
+                            additionalProperties: false
+                        rule:
+                          type: string
+                          minLength: 1
+                          maxLength: 1000
+                      required:
+                        - extraDataUrls
+                        - rule
+                      additionalProperties: false
                     createdAt:
                       type: string
                     updatedAt:
@@ -7021,6 +7076,50 @@ paths:
                     propertyNames:
                       type: string
                     additionalProperties: {}
+                  enrichment:
+                    type: object
+                    properties:
+                      extraDataUrls:
+                        maxItems: 6
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            name:
+                              type: string
+                              pattern: ^[A-Za-z][A-Za-z0-9_]{0,39}$
+                            integration:
+                              type: string
+                              format: uuid
+                              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                            method:
+                              type: string
+                              enum:
+                                - GET
+                                - HEAD
+                                - POST
+                                - PUT
+                                - PATCH
+                                - DELETE
+                                - OPTIONS
+                            path:
+                              type: string
+                              minLength: 1
+                              maxLength: 2048
+                          required:
+                            - name
+                            - integration
+                            - method
+                            - path
+                          additionalProperties: false
+                      rule:
+                        type: string
+                        minLength: 1
+                        maxLength: 1000
+                    required:
+                      - extraDataUrls
+                      - rule
+                    additionalProperties: false
                   createdAt:
                     type: string
                   updatedAt:
@@ -7078,6 +7177,52 @@ paths:
                   default: ""
                   type: string
                   maxLength: 2000
+                enrichment:
+                  anyOf:
+                    - type: object
+                      properties:
+                        extraDataUrls:
+                          maxItems: 6
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              name:
+                                type: string
+                                pattern: ^[A-Za-z][A-Za-z0-9_]{0,39}$
+                              integration:
+                                type: string
+                                format: uuid
+                                pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                              method:
+                                type: string
+                                enum:
+                                  - GET
+                                  - HEAD
+                                  - POST
+                                  - PUT
+                                  - PATCH
+                                  - DELETE
+                                  - OPTIONS
+                              path:
+                                type: string
+                                minLength: 1
+                                maxLength: 2048
+                            required:
+                              - name
+                              - integration
+                              - method
+                              - path
+                            additionalProperties: false
+                        rule:
+                          type: string
+                          minLength: 1
+                          maxLength: 1000
+                      required:
+                        - extraDataUrls
+                        - rule
+                      additionalProperties: false
+                    - type: "null"
                 payloadSchema:
                   default:
                     type: object
@@ -7116,6 +7261,50 @@ paths:
                     propertyNames:
                       type: string
                     additionalProperties: {}
+                  enrichment:
+                    type: object
+                    properties:
+                      extraDataUrls:
+                        maxItems: 6
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            name:
+                              type: string
+                              pattern: ^[A-Za-z][A-Za-z0-9_]{0,39}$
+                            integration:
+                              type: string
+                              format: uuid
+                              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                            method:
+                              type: string
+                              enum:
+                                - GET
+                                - HEAD
+                                - POST
+                                - PUT
+                                - PATCH
+                                - DELETE
+                                - OPTIONS
+                            path:
+                              type: string
+                              minLength: 1
+                              maxLength: 2048
+                          required:
+                            - name
+                            - integration
+                            - method
+                            - path
+                          additionalProperties: false
+                      rule:
+                        type: string
+                        minLength: 1
+                        maxLength: 1000
+                    required:
+                      - extraDataUrls
+                      - rule
+                    additionalProperties: false
                   createdAt:
                     type: string
                   updatedAt:
@@ -7192,6 +7381,50 @@ paths:
                     propertyNames:
                       type: string
                     additionalProperties: {}
+                  enrichment:
+                    type: object
+                    properties:
+                      extraDataUrls:
+                        maxItems: 6
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            name:
+                              type: string
+                              pattern: ^[A-Za-z][A-Za-z0-9_]{0,39}$
+                            integration:
+                              type: string
+                              format: uuid
+                              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                            method:
+                              type: string
+                              enum:
+                                - GET
+                                - HEAD
+                                - POST
+                                - PUT
+                                - PATCH
+                                - DELETE
+                                - OPTIONS
+                            path:
+                              type: string
+                              minLength: 1
+                              maxLength: 2048
+                          required:
+                            - name
+                            - integration
+                            - method
+                            - path
+                          additionalProperties: false
+                      rule:
+                        type: string
+                        minLength: 1
+                        maxLength: 1000
+                    required:
+                      - extraDataUrls
+                      - rule
+                    additionalProperties: false
                   createdAt:
                     type: string
                   updatedAt:
@@ -7257,6 +7490,52 @@ paths:
                   default: ""
                   type: string
                   maxLength: 2000
+                enrichment:
+                  anyOf:
+                    - type: object
+                      properties:
+                        extraDataUrls:
+                          maxItems: 6
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              name:
+                                type: string
+                                pattern: ^[A-Za-z][A-Za-z0-9_]{0,39}$
+                              integration:
+                                type: string
+                                format: uuid
+                                pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                              method:
+                                type: string
+                                enum:
+                                  - GET
+                                  - HEAD
+                                  - POST
+                                  - PUT
+                                  - PATCH
+                                  - DELETE
+                                  - OPTIONS
+                              path:
+                                type: string
+                                minLength: 1
+                                maxLength: 2048
+                            required:
+                              - name
+                              - integration
+                              - method
+                              - path
+                            additionalProperties: false
+                        rule:
+                          type: string
+                          minLength: 1
+                          maxLength: 1000
+                      required:
+                        - extraDataUrls
+                        - rule
+                      additionalProperties: false
+                    - type: "null"
                 payloadSchema:
                   default:
                     type: object
@@ -7310,6 +7589,124 @@ paths:
         - bearerAuth: []
         - cookieAuth: []
       x-required-scope: triggers:write
+      x-owner-session-required: false
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+  /api/v1/events/{eventId}/evaluations:
+    get:
+      summary: Read recent safe Event evaluation diagnostics
+      responses:
+        "200":
+          description: Evaluations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                      format: uuid
+                      pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                    triggerId:
+                      type: string
+                      format: uuid
+                      pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                    createdAt:
+                      type: string
+                      format: date-time
+                      pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z))$
+                    state:
+                      type: string
+                      enum:
+                        - running
+                        - matched
+                        - excluded
+                        - failed
+                    stage:
+                      type:
+                        - string
+                        - "null"
+                    reason:
+                      type:
+                        - string
+                        - "null"
+                    input:
+                      anyOf:
+                        - type: object
+                          propertyNames:
+                            type: string
+                          additionalProperties:
+                            type:
+                              - string
+                              - number
+                              - boolean
+                        - type: "null"
+                    steps:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          name:
+                            type: string
+                            pattern: ^[A-Za-z][A-Za-z0-9_]{0,39}$
+                          outcome:
+                            type: string
+                            enum:
+                              - ok
+                              - failed
+                          status:
+                            type: integer
+                            minimum: 100
+                            maximum: 599
+                        required:
+                          - name
+                          - outcome
+                        additionalProperties: false
+                  required:
+                    - id
+                    - triggerId
+                    - createdAt
+                    - state
+                    - stage
+                    - reason
+                    - input
+                    - steps
+                  additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the triggers:read scope.
+
+        Accepts a scoped bearer token or interactive owner session.
+      operationId: get_api_v1_events_eventId_evaluations
+      tags:
+        - events
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      x-required-scope: triggers:read
       x-owner-session-required: false
       parameters:
         - name: eventId
@@ -7434,6 +7831,15 @@ paths:
                 items:
                   type: object
                   properties:
+                    inputMapping:
+                      type: object
+                      propertyNames:
+                        type: string
+                        pattern: ^[A-Za-z][A-Za-z0-9_]{0,39}$
+                      additionalProperties:
+                        type: string
+                        maxLength: 240
+                        pattern: ^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+){0,11}$
                     id:
                       type: string
                       format: uuid
@@ -7784,6 +8190,15 @@ paths:
               schema:
                 type: object
                 properties:
+                  inputMapping:
+                    type: object
+                    propertyNames:
+                      type: string
+                      pattern: ^[A-Za-z][A-Za-z0-9_]{0,39}$
+                    additionalProperties:
+                      type: string
+                      maxLength: 240
+                      pattern: ^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+){0,11}$
                   id:
                     type: string
                     format: uuid
@@ -8151,6 +8566,10 @@ paths:
                       - type: "null"
                   duplicate:
                     type: boolean
+                  evaluationId:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
                 required:
                   - occurrenceId
                   - duplicate
@@ -10421,6 +10840,15 @@ paths:
               schema:
                 type: object
                 properties:
+                  inputMapping:
+                    type: object
+                    propertyNames:
+                      type: string
+                      pattern: ^[A-Za-z][A-Za-z0-9_]{0,39}$
+                    additionalProperties:
+                      type: string
+                      maxLength: 240
+                      pattern: ^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+){0,11}$
                   id:
                     type: string
                     format: uuid
@@ -10784,6 +11212,15 @@ paths:
               schema:
                 type: object
                 properties:
+                  inputMapping:
+                    type: object
+                    propertyNames:
+                      type: string
+                      pattern: ^[A-Za-z][A-Za-z0-9_]{0,39}$
+                    additionalProperties:
+                      type: string
+                      maxLength: 240
+                      pattern: ^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+){0,11}$
                   id:
                     type: string
                     format: uuid
@@ -11144,6 +11581,17 @@ paths:
                   type: string
                   format: uuid
                   pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                inputMapping:
+                  anyOf:
+                    - type: object
+                      propertyNames:
+                        type: string
+                        pattern: ^[A-Za-z][A-Za-z0-9_]{0,39}$
+                      additionalProperties:
+                        type: string
+                        maxLength: 240
+                        pattern: ^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+){0,11}$
+                    - type: "null"
                 sources:
                   default:
                     - kind: manual

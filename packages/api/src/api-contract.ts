@@ -1,3 +1,4 @@
+import { enrichmentRun } from "./event-enrichment-contracts";
 import { eventOccurrenceSummaryPage, subscriptionOccurrenceSummaryPage, occurrenceSummaryQuery } from "./event-contracts";
 import { cloudflareStartResult, cloudflareStatus } from "./cloudflare-oauth";
 import { cloneInfo, gitCredential } from "./git-https-contracts";
@@ -717,6 +718,10 @@ export const API_ROUTES: RouteContract[] = [
   route("GET", "/api/v1/events/{eventId}", "triggers:read", { summary: "Get an Event", responses: { "200": { description: "Event", content: { "application/json": { schema: jsonSchema(eventDefinitionResponse, "output") } } } } }, (service, { params }) => service.getEvent(params.eventId), { parameters: z.object({ eventId: z.uuid() }) }),
   route("PUT", "/api/v1/events/{eventId}", "triggers:write", { summary: "Update an Event payload schema", responses: { "200": { description: "Updated Event", content: { "application/json": { schema: jsonSchema(eventDefinitionResponse, "output") } } } } }, (service, { params, body }) => service.updateEvent(params.eventId, body), { parameters: z.object({ eventId: z.uuid() }), body: eventDefinitionUpdate }),
   route("DELETE", "/api/v1/events/{eventId}", "triggers:write", { summary: "Delete an Event, its Triggers, subscriptions, and occurrences", description:"Permanently deletes the Event, all attached Triggers, their input configurations, subscriptions, and the Event's occurrence history.", responses: { "200": { description: "Deleted" } } }, (service, { params }) => service.deleteEvent(params.eventId), { parameters: z.object({ eventId: z.uuid() }) }),
+  route("GET", "/api/v1/events/{eventId}/evaluations", "triggers:read", {
+    summary: "Read recent safe Event evaluation diagnostics",
+    responses: { "200": { description: "Evaluations", content: { "application/json": { schema: jsonSchema(z.array(enrichmentRun),"output") } } } },
+  }, (service,{params})=>service.listEnrichmentRuns(params.eventId), { parameters:z.object({eventId:z.uuid()}) }),
   route("GET", "/api/v1/events/{eventId}/occurrences", "triggers:read", { summary: "List durable Event occurrences", responses: { "200": { description: "Occurrences", content: { "application/json": { schema: jsonSchema(eventOccurrencePage, "output") } } } } }, (service, { params, query }) => service.listEventOccurrences(params.eventId, query.limit, query.cursor), { parameters: z.object({ eventId: z.uuid() }), query: eventOccurrenceQuery }),
   route(
     "GET",
@@ -745,7 +750,7 @@ export const API_ROUTES: RouteContract[] = [
     (service, { body }) => service.createTrigger(body),
     { body: triggerInputSchema },
   ),
-  route("POST", "/api/v1/triggers/{triggerId}/fire", "triggers:write", { summary: "Fire a Trigger and create an Event occurrence", responses: { "200": { description: "Event occurrence receipt", content: { "application/json": { schema: jsonSchema(z.object({ occurrenceId: z.uuid().nullable(), duplicate: z.boolean() }), "output") } } } } }, (service, { params, body }) => service.fireTrigger(params.triggerId, body), { parameters: z.object({ triggerId: z.uuid() }), body: fireTriggerInputSchema }),
+  route("POST", "/api/v1/triggers/{triggerId}/fire", "triggers:write", { summary: "Fire a Trigger and create an Event occurrence", responses: { "200": { description: "Event occurrence receipt", content: { "application/json": { schema: jsonSchema(z.object({ occurrenceId: z.uuid().nullable(), duplicate: z.boolean(), evaluationId: z.uuid().optional() }), "output") } } } } }, (service, { params, body }) => service.fireTrigger(params.triggerId, body), { parameters: z.object({ triggerId: z.uuid() }), body: fireTriggerInputSchema }),
   route(
     "POST",
     "/api/v1/trigger-conditions/test",

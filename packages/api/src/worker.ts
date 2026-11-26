@@ -48,7 +48,7 @@ function oauthError(error: AuthorizationError): Response {
 const defaultHandler: ExportedHandler<Env> = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
-    if (url.pathname !== "/authorize" && url.pathname !== "/device") return app.fetch(request, env, ctx);
+    if (url.pathname !== "/authorize" && url.pathname !== "/device") return app.fetch(request, { ...env, OAUTH_PROVIDER: env.OAUTH_PROVIDER ?? getOAuthApi(providerOptions(env), env) }, ctx);
     try {
       if (request.method === "POST" && (request.headers.get("Origin") !== env.APP_ORIGIN || request.headers.get("Sec-Fetch-Site") === "cross-site")) return new Response("Invalid request origin", { status: 403 });
       const session = await currentOwner(request, env);
