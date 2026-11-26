@@ -1,5 +1,5 @@
 import {decrypt, encrypt} from "../crypto";
-import type {Database} from "./database";
+import type {Database, DatabaseClient} from "./database";
 
 export type IntegrationKind = "bearer";
 export type IntegrationMetadata = {id: string; kind: IntegrationKind; name: string; origin: string | null; description: string | null};
@@ -60,12 +60,12 @@ export class CredentialRepository {
     return { revision: safeRevision(row.revision), duplicate: true };
   }
 
-  async write(input: IntegrationWrite): Promise<{ revision: number; duplicate: boolean }> {
+  async write(input: IntegrationWrite, transaction?: DatabaseClient): Promise<{ revision: number; duplicate: boolean }> {
     validate(input);
     const suppliedPayload = input.managedSecret !== undefined ? `${MANAGED_BEARER_PREFIX}${input.managedSecret}` : undefined;
     const encryptedPayload = input.operation === "upsert" ? await encrypt(suppliedPayload!, this.serverEncryptionKey) : null;
     const metadata = [input.id, input.kind, input.name, input.origin, input.description, input.operation, encryptedPayload];
-    return this.database.transaction(async client => {
+    const write = async (client: DatabaseClient) => {
       const existing = async () => (await client.query<StoredChange>("SELECT revision,operation,record_id,kind,name,origin,description,encrypted_payload FROM app.integration_changes WHERE tenant_id=$1 AND idempotency_key=$2", [this.tenantId, input.idempotencyKey])).rows[0];
       const isSame = async (row: StoredChange) => row.record_id === metadata[0] && row.kind === metadata[1] && row.name === metadata[2] && row.origin === metadata[3] && row.description === metadata[4] && row.operation === metadata[5] && (row.encrypted_payload === null ? encryptedPayload === null : encryptedPayload !== null && await decrypt(row.encrypted_payload, this.serverEncryptionKey) === suppliedPayload);
       const duplicate = await existing();
@@ -101,7 +101,8 @@ export class CredentialRepository {
       await client.query(`INSERT INTO app.integration_changes(tenant_id,revision,id,idempotency_key,operation,record_id,kind,name,origin,description,encrypted_payload)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, [this.tenantId, revision, crypto.randomUUID(), input.idempotencyKey, input.operation, input.id, input.kind, input.name, input.origin, input.description, encryptedPayload]);
       return { revision, duplicate: false };
-    });
+    };
+    return transaction ? write(transaction) : this.database.transaction(write);
   }
 
   /** Resolve exactly one selected live credential. Legacy user ciphertext is

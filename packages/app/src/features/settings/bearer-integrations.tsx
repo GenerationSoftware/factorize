@@ -1,3 +1,4 @@
+import type { StartIntegrationRemoval } from "./integration-removal";
 import { SecretInput } from "../../shared/credential-fields";
 import { bearerIntegrationsQuery } from "./queries";
 import { useState } from "react";
@@ -27,7 +28,7 @@ function validOrigin(value: string): boolean {
   } catch { return false; }
 }
 
-export function useBearerIntegrations() {
+export function useBearerIntegrations(remove: StartIntegrationRemoval, removalBusy: boolean) {
   const cache = useQueryClient(), records = useQuery(bearerIntegrationsQuery);
   const [editing, setEditing] = useState<string | null>(null), [name, setName] = useState(""), [origin, setOrigin] = useState(""), [description, setDescription] = useState(""), [token, setToken] = useState("");
   const [open, setOpen] = useState(false);
@@ -50,21 +51,16 @@ export function useBearerIntegrations() {
     if (!data || error) throw new Error(messageOf(error));
     return data;
   }, onSuccess: async () => { clearFields(); setNotice("Bearer integration saved."); setOpen(false); setEditing(null); setName(""); setOrigin(""); setDescription(""); await cache.invalidateQueries({ queryKey: ["settings"] }); }, onError: async error => { clearFields(); setNotice(error.message); if (error.message.includes("changed") || error.message.includes("revision")) await cache.invalidateQueries({ queryKey: ["settings"] }); } });
-  const remove = useMutation({ retry: false, mutationFn: async (record: BearerRecord) => {
-    const { data, error } = await api.DELETE("/api/v1/integrations/bearer/{integrationId}", { params: { path: { integrationId: record.id } }, body: { expectedRevision: records.data?.revision ?? 0, idempotencyKey: crypto.randomUUID() } });
-    if (!data || error) throw new Error(messageOf(error));
-    return data;
-  }, onSuccess: async () => { setNotice("Integration deleted."); await cache.invalidateQueries({ queryKey: ["settings"] }); }, onError: async error => { setNotice(error.message); await cache.invalidateQueries({ queryKey: ["settings"] }); } });
   const beginEdit = (record: BearerRecord) => { setOpen(true); clearFields(); setNotice(""); setEditing(record.id); setName(record.name); setOrigin(record.origin); setDescription(record.description ?? ""); };
   const reset = () => { clearFields(); setEditing(null); setName(""); setOrigin(""); setDescription(""); setNotice(""); };
   return {
     count: records.data?.integrations.length ?? 0, pending: records.isPending,
     rows: records.data?.integrations.map(record => <IntegrationRow key={record.id} kind="bearer" credentialId={record.id} name="Bearer API" actionName={record.name} detail={[record.name, record.origin, record.description].filter(Boolean).join(" · ")} actions={[
       {label: "Edit / replace token", onClick: () => beginEdit(record)},
-      {label: "Delete", destructive: true, disabled: remove.isPending, onClick: () => {if (window.confirm(`Delete ${record.name}?`)) remove.mutate(record);}},
+      {label: "Delete", destructive: true, disabled: removalBusy, onClick: () => remove({ kind: "bearer", id: record.id, name: record.name })},
     ]} />),
     tile: <ProviderTile kind="bearer" name="Bearer API" description="Connect an HTTPS API using a bearer token." count={records.data?.integrations.length ?? 0} onAdd={() => {reset(); setOpen(true);}} />,
-    feedback: <>{records.error && <p role="alert">{records.error.message}</p>}{notice && !open && <p role={save.isError || remove.isError ? "alert" : "status"}>{notice}</p>}</>,
+    feedback: <>{records.error && <p role="alert">{records.error.message}</p>}{notice && !open && <p role={save.isError ? "alert" : "status"}>{notice}</p>}</>,
     dialog: open && <Dialog title={editing ? "Edit bearer integration" : "Add bearer integration"} close={() => {reset(); setOpen(false);}}>
       <p className="text-sm">Stored tokens cannot be viewed. Editing requires a replacement token.</p>
       <form autoComplete="off" method="post" className="mt-3 grid gap-3" onSubmit={event => {event.preventDefault(); setNotice(""); save.mutate();}}>

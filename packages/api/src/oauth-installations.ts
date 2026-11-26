@@ -1,3 +1,4 @@
+import { lockIntegrationTopology } from "./postgres/integration-removal-topology";
 import type { AuthRequest, GrantSummary } from "@cloudflare/workers-oauth-provider";
 import { normalizeScopes } from "./access-tokens";
 import { connectionAccess, requiredIntegrationScope, type AgentIntegration } from "./agent-integration-access";
@@ -114,6 +115,7 @@ export async function adoptLegacyCredential(env: Env, owner: Owner, grantId: str
   if (await getOAuthInstallation(db.pool, owner.tenantId, owner.userId, grantId)) return;
   if (!env.OAUTH_PROVIDER) return;
   await db.transaction(async sql => {
+    await lockIntegrationTopology(sql,owner.tenantId);
     await lockOAuthPolicy(sql, owner);
     await lockMcpEventGrant(sql, owner.tenantId, grantId);
     await materializeLegacyOAuthInstallation(env, sql, owner, grantId, clientId);

@@ -1,5 +1,6 @@
 import type { EvaluatorAuthority } from "../event-enrichment";
 import type { EventEnrichment } from "../event-enrichment-contracts";
+import { lockIntegrationTopology, validateEnrichmentRegistrations } from "./integration-removal-topology";
 import type { Database, DatabaseClient } from "./database";
 
 interface RecordedOccurrence {
@@ -62,11 +63,11 @@ export class EventDefinitionRepository {
 
   private async present(client: Pick<DatabaseClient, "query">, id: string) {
     const row = (await client.query<any>(`SELECT d.id,d.name,d.description,d.current_revision,d.created_at,d.updated_at,
-        r.payload_schema,r.enrichment
+        r.payload_schema,r.enrichment,r.enrichment_pause_reason
       FROM app.event_definitions d JOIN app.event_definition_revisions r
         ON r.tenant_id=d.tenant_id AND r.definition_id=d.id AND r.revision=d.current_revision
       WHERE d.tenant_id=$1 AND d.id=$2`, [this.tenantId, id])).rows[0];
-    return row && { id: row.id, name: row.name, description: row.description, revision: row.current_revision, payloadSchema: row.payload_schema, ...(row.enrichment ? { enrichment: row.enrichment } : {}), createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString() };
+    return row && { id: row.id, name: row.name, description: row.description, revision: row.current_revision, payloadSchema: row.payload_schema, ...(row.enrichment ? { enrichment: row.enrichment } : {}), ...(row.enrichment_pause_reason ? { enrichmentPauseReason: row.enrichment_pause_reason } : {}), createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString() };
   }
 
   async list() {
@@ -152,6 +153,8 @@ export class EventDefinitionRepository {
   async create(input: EventDefinitionInput) {
     const id = crypto.randomUUID();
     await this.database.transaction(async client => {
+      await lockIntegrationTopology(client,this.tenantId);
+      await validateEnrichmentRegistrations(client,this.tenantId,input.enrichment);
       await client.query(`INSERT INTO app.event_definitions(tenant_id,id,name,description,current_revision) VALUES($1,$2,$3,$4,1)`, [this.tenantId, id, input.name, input.description ?? ""]);
       await client.query(`INSERT INTO app.event_definition_revisions(tenant_id,definition_id,revision,payload_schema,enrichment,evaluator_authority) VALUES($1,$2,1,$3,$4,$5)`, [this.tenantId, id, input.payloadSchema ?? { type: "object" }, input.enrichment ?? null,input.evaluatorAuthority ?? null]);
     });
@@ -160,24 +163,29 @@ export class EventDefinitionRepository {
 
   async update(id: string, input: EventDefinitionInput, expectedRevision: number) {
     return this.database.transaction(async client => {
+      await lockIntegrationTopology(client,this.tenantId);
       const current = (await client.query<any>(`SELECT current_revision FROM app.event_definitions WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, [this.tenantId, id])).rows[0];
       if (!current) return null;
       if (current.current_revision !== expectedRevision) throw new EventDefinitionConflict();
       const revision = current.current_revision + 1;
-      const previous = input.enrichment === undefined ? (await client.query<{ enrichment: EventEnrichment; evaluator_authority: EvaluatorAuthority }>(
-        "SELECT enrichment,evaluator_authority FROM app.event_definition_revisions WHERE tenant_id=$1 AND definition_id=$2 AND revision=$3",
+      if (input.enrichment !== undefined) await validateEnrichmentRegistrations(client,this.tenantId,input.enrichment);
+      const previous = input.enrichment === undefined ? (await client.query<{ enrichment: EventEnrichment; evaluator_authority: EvaluatorAuthority; enrichment_pause_reason: string | null }>(
+        "SELECT enrichment,evaluator_authority,enrichment_pause_reason FROM app.event_definition_revisions WHERE tenant_id=$1 AND definition_id=$2 AND revision=$3",
         [this.tenantId,id,current.current_revision])).rows[0] : undefined;
-      await client.query(`INSERT INTO app.event_definition_revisions(tenant_id,definition_id,revision,payload_schema,enrichment,evaluator_authority)
-        VALUES($1,$2,$3,$4,$5,$6)`, [this.tenantId,id,revision,input.payloadSchema ?? {type:"object"},previous?.enrichment ?? input.enrichment ?? null,
-          previous?.evaluator_authority ?? input.evaluatorAuthority ?? null]);
+      await client.query(`INSERT INTO app.event_definition_revisions(tenant_id,definition_id,revision,payload_schema,enrichment,evaluator_authority,enrichment_pause_reason)
+        VALUES($1,$2,$3,$4,$5,$6,$7)`, [this.tenantId,id,revision,input.payloadSchema ?? {type:"object"},previous?.enrichment ?? input.enrichment ?? null,
+          previous?.evaluator_authority ?? input.evaluatorAuthority ?? null,previous?.enrichment_pause_reason ?? null]);
       await client.query(`UPDATE app.event_definitions SET name=$3,description=$4,current_revision=$5,updated_at=now() WHERE tenant_id=$1 AND id=$2`, [this.tenantId, id, input.name, input.description ?? "", revision]);
       return this.present(client, id);
     });
   }
 
   async delete(id: string) {
-    const result = await this.database.pool.query(`DELETE FROM app.event_definitions WHERE tenant_id=$1 AND id=$2 RETURNING id`, [this.tenantId, id]);
-    return !!result.rowCount;
+    return this.database.transaction(async sql=>{
+      await lockIntegrationTopology(sql,this.tenantId);
+      const result = await sql.query(`DELETE FROM app.event_definitions WHERE tenant_id=$1 AND id=$2 RETURNING id`, [this.tenantId, id]);
+      return !!result.rowCount;
+    });
   }
 
   async occurrences(id: string, limit = 50, cursor?: string) {

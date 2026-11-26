@@ -1,4 +1,5 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { StartIntegrationRemoval } from "./integration-removal";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { api } from "factorize-api-client";
 import { messageOf } from "../auth/session";
 import { IntegrationRow, ProviderTile } from "./integration-ui";
@@ -6,7 +7,6 @@ import { IntegrationRow, ProviderTile } from "./integration-ui";
 const paths = {
   status: "/api/v1/integrations/cloudflare",
   authorize: "/api/v1/integrations/cloudflare/authorize",
-  connection: "/api/v1/integrations/cloudflare/{connectionId}",
 } as const;
 const key = ["settings", "cloudflare-rest"];
 
@@ -24,8 +24,7 @@ function cloudflareFailure(code: string | null) {
   }
 }
 
-export function useCloudflareIntegration() {
-  const cache = useQueryClient();
+export function useCloudflareIntegration(remove: StartIntegrationRemoval, removalBusy: boolean) {
   const callback = new URLSearchParams(window.location.search);
   const result = callback.get("cloudflare");
   const status = useQuery({ queryKey: key, retry: false, queryFn: async ({ signal }) => {
@@ -38,10 +37,6 @@ export function useCloudflareIntegration() {
     if (!data || error) throw new Error(messageOf(error));
     return data.authorizationUrl;
   }, onSuccess: url => window.location.assign(url) });
-  const disconnect = useMutation({ retry: false, mutationFn: async (id: string) => {
-    const { error } = await api.DELETE(paths.connection, { params: { path: { connectionId: id } } });
-    if (error) throw new Error(messageOf(error));
-  }, onSuccess: () => cache.invalidateQueries({ queryKey: ["settings"] }) });
   const connections = status.data?.connections ?? [];
   const count = connections.filter(row => row.connected).length;
   const start = () => { if (!authorize.isPending) authorize.mutate(); };
@@ -50,15 +45,12 @@ export function useCloudflareIntegration() {
     {(result === "expired" || result === "denied") && <p role="alert">{cloudflareFailure(null)}</p>}
     {status.error && <p role="alert">{status.error.message}</p>}
     {authorize.error && <p role="alert">{authorize.error.message}</p>}
-    {disconnect.error && <p role="alert">{disconnect.error.message}</p>}
   </>;
   return { count, pending: status.isPending, feedback, dialog: null,
     rows: connections.map(row => <IntegrationRow key={row.id} kind="cloudflare" credentialId={row.id}
       name="Cloudflare" detail={row.name === "Cloudflare" ? "Permissions managed in Cloudflare" : row.name}
       status={row.reconnectRequired ? "Reconnect on Cloudflare to use this integration." : !row.connected ? "Needs attention" : undefined}
-      actions={[{ label: "Reconnect Cloudflare", onClick: start }, { label: "Disconnect", destructive: true, onClick: () => {
-        if (window.confirm("Disconnect Cloudflare from Factorize?")) disconnect.mutate(row.id);
-      }}]} />),
+      actions={[{ label: "Reconnect Cloudflare", onClick: start }, { label: "Disconnect", destructive: true, disabled: removalBusy, onClick: () => remove({ kind: "cloudflare", id: row.id, name: row.name })}]} />),
     tile: <ProviderTile kind="cloudflare" name="Cloudflare" description="Connect directly on Cloudflare to use its REST API." count={count} onAdd={start} />,
   };
 }

@@ -24,13 +24,6 @@ export class IntegrationService {
   }
   async saveAmp(value: AmpConnectionInput) { const existing = value.connectionId ? await this.connections.get<AmpConnection>(`amp:${value.connectionId}`) : null, accessToken = value.accessToken || existing?.accessToken, project = value.project || existing?.project; if (!accessToken || !project) throw new Error("Amp access token and project are required"); const connectionId = value.connectionId || crypto.randomUUID(); await this.connections.put(`amp:${connectionId}`, { ...existing, ...value, accessToken, project }); return { ok: true, connectionId }; }
 
-  async remove(kind: "exe" | "amp", id: string) {
-    const targetKind = kind === "exe" ? "exe" : "Amp";
-    const used = await this.database.pool.query("SELECT 1 FROM app.agent_integrations WHERE tenant_id=$1 AND kind=$2 AND credential_id=$3 LIMIT 1", [this.tenantId, kind, id]);
-    if (used.rowCount) return { conflict: true, deleted: false };
-    return { conflict: false, deleted: await this.connections.delete(`${kind}:${id}`), targetKind };
-  }
-
   async saveTail(value: TailIntegrationInput) {
     const name = String(value.name ?? "").trim(); if (!name || name.length > 120) throw new Error("A Tail installation name is required");
     const existing = value.integrationId ? await this.connections.get<any>(`cloudflare-tail:${value.integrationId}`) : null, supplied = String(value.signingSecret ?? "");

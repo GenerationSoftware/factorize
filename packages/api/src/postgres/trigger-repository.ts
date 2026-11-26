@@ -1,3 +1,4 @@
+import { lockIntegrationTopology, validateTopologySources } from "./integration-removal-topology";
 import type { TriggerSource, Trigger, TriggerRepository } from "../trigger-domain";
 import { nextOccurrence, validateScheduleConfig } from "../schedule";
 import type { Database, DatabaseClient } from "./database";
@@ -32,6 +33,8 @@ export class PostgresTriggerRepository implements TriggerRepository {
 
   async create(trigger: Trigger): Promise<Trigger> {
     return this.database.transaction(async client => {
+      await lockIntegrationTopology(client,this.tenantId);
+      await validateTopologySources(client,this.tenantId,trigger.sources,[]);
       const created = await client.query<TriggerRow>(`INSERT INTO app.triggers(tenant_id,id,event_definition_id,name,description,slug,enabled,created_at,updated_at,input_mapping)
         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id,event_definition_id,name,description,slug,revision,enabled,created_at,updated_at,input_mapping`, [this.tenantId,trigger.id,trigger.eventId,trigger.name,trigger.description,trigger.slug,trigger.enabled,trigger.createdAt,trigger.updatedAt,trigger.inputMapping ?? null]);
       await this.writeSources(client,trigger,[]);
@@ -41,6 +44,7 @@ export class PostgresTriggerRepository implements TriggerRepository {
 
   async update(trigger: Trigger, expectedUpdatedAt?: string): Promise<Trigger> {
     return this.database.transaction(async client => {
+      await lockIntegrationTopology(client,this.tenantId);
       const current = await client.query<TriggerRow>(`SELECT id,event_definition_id,name,description,slug,revision,enabled,created_at,updated_at,input_mapping FROM app.triggers WHERE tenant_id=$1 AND id=$2 FOR UPDATE`,[this.tenantId,trigger.id]);
       const old = current.rows[0];
       if (!old) throw new Error("Trigger not found");
@@ -48,6 +52,7 @@ export class PostgresTriggerRepository implements TriggerRepository {
       const updatedAt = new Date(Math.max(Date.parse(trigger.updatedAt),old.updated_at.getTime()+1)).toISOString();
       const saved = await client.query<TriggerRow>(`UPDATE app.triggers SET event_definition_id=$3,name=$4,description=$5,slug=$6,revision=revision+1,enabled=$7,updated_at=$8,input_mapping=$9 WHERE tenant_id=$1 AND id=$2 RETURNING id,event_definition_id,name,description,slug,revision,enabled,created_at,updated_at,input_mapping`,[this.tenantId,trigger.id,trigger.eventId,trigger.name,trigger.description,trigger.slug,trigger.enabled,updatedAt,trigger.inputMapping ?? null]);
       const existing = await client.query<SourceRow>(`SELECT id,trigger_id,kind,slug,enabled,config,encrypted_template,created_at,updated_at FROM app.events WHERE tenant_id=$1 AND trigger_id=$2 AND removed_at IS NULL`,[this.tenantId,trigger.id]);
+      await validateTopologySources(client,this.tenantId,trigger.sources,existing.rows);
       await this.writeSources(client,{...trigger,updatedAt},existing.rows);
       return this.mapped(client,saved.rows[0]);
     });
@@ -74,6 +79,7 @@ export class PostgresTriggerRepository implements TriggerRepository {
 
   async setEnabled(id: string, enabled: boolean, changedAt: string): Promise<boolean> {
     return this.database.transaction(async client => {
+      await lockIntegrationTopology(client,this.tenantId);
       const updated = await client.query(`UPDATE app.triggers SET enabled=$3,updated_at=greatest($4::timestamptz,date_trunc('milliseconds',updated_at)+interval '1 millisecond') WHERE tenant_id=$1 AND id=$2 RETURNING id`,[this.tenantId,id,enabled,changedAt]);
       if (!updated.rowCount) return false;
       const sources = await client.query<SourceRow>(`SELECT id,trigger_id,kind,slug,enabled,config,encrypted_template,created_at,updated_at FROM app.events WHERE tenant_id=$1 AND trigger_id=$2 AND kind='schedule' AND removed_at IS NULL`,[this.tenantId,id]);
@@ -86,7 +92,10 @@ export class PostgresTriggerRepository implements TriggerRepository {
   }
 
   async delete(id: string): Promise<boolean> {
-    const result = await this.database.pool.query("DELETE FROM app.triggers WHERE tenant_id=$1 AND id=$2 RETURNING id",[this.tenantId,id]);
-    return result.rowCount===1;
+    return this.database.transaction(async sql=>{
+      await lockIntegrationTopology(sql,this.tenantId);
+      const result = await sql.query("DELETE FROM app.triggers WHERE tenant_id=$1 AND id=$2 RETURNING id",[this.tenantId,id]);
+      return result.rowCount===1;
+    });
   }
 }

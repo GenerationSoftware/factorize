@@ -1,13 +1,11 @@
 import { useCloudflareIntegration } from "./cloudflare";
 import { useDisableCredentialAutofill } from "../../shared/credential-fields";
 import { useState, type ReactNode } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api } from "factorize-api-client";
+import { useQuery } from "@tanstack/react-query";
 import { integrationsQuery } from "./queries";
 import { installationsQuery } from "./provider-queries";
 import { SettingsLayout } from "./navigation";
 import { IntegrationForm } from "./integration-form";
-import { messageOf } from "../auth/session";
 import { useBearerIntegrations } from "./bearer-integrations";
 import { useFlyIntegration } from "./fly";
 import { useXConnections } from "./x-connections";
@@ -16,36 +14,25 @@ import { IntegrationRow, ProviderTile, type IntegrationAction } from "./integrat
 import { Table, tableCellClasses, tableHeadClasses } from "../../shared/ui";
 import { defaultColumn } from "./permissions";
 import { Dialog } from "../../shared/dialog";
+import { useIntegrationRemoval } from "./integration-removal";
 
 type Kind = "exe" | "amp" | "cloudflareTail" | "github";
-const linkClass = "inline-flex min-h-10 items-center rounded-lg border border-stone-200 px-3 py-2 text-sm font-semibold hover:bg-stone-100 dark:border-slate-700 dark:hover:bg-slate-800";
 export function Integrations() {
   useDisableCredentialAutofill();
   return <SettingsLayout title="Integrations"><IntegrationPoliciesProvider><IntegrationsContent /></IntegrationPoliciesProvider></SettingsLayout>;
 }
 function IntegrationsContent() {
-  const cache = useQueryClient(), status = useQuery(integrationsQuery), github = useQuery(installationsQuery);
-  const fly = useFlyIntegration(), bearer = useBearerIntegrations(), x = useXConnections();
-  const cloudflare = useCloudflareIntegration();
+  const status = useQuery(integrationsQuery), github = useQuery(installationsQuery);
+  const removal = useIntegrationRemoval();
+  const fly = useFlyIntegration(removal.open, removal.busy);
+  const bearer = useBearerIntegrations(removal.open, removal.busy);
+  const x = useXConnections();
+  const cloudflare = useCloudflareIntegration(removal.open, removal.busy);
   const [setup, setSetup] = useState<{title: string; form: ReactNode} | null>(null);
-  const [feedback, setFeedback] = useState<{key: string; message: string; error: boolean} | null>(null);
-  const action = useMutation({retry: false, mutationFn: async ({kind, id}: {kind: Kind; id: string}) => {
-    let result;
-    if (kind === "exe") result = await api.DELETE("/api/v1/integrations/exe/{connectionId}", {params: {path: {connectionId: id}}});
-    else if (kind === "amp") result = await api.DELETE("/api/v1/integrations/amp/{connectionId}", {params: {path: {connectionId: id}}});
-    else if (kind === "cloudflareTail") result = await api.DELETE("/api/v1/integrations/cloudflare-tail/{integrationId}", {params: {path: {integrationId: id}}});
-    else result = await api.DELETE("/api/v1/providers/github/installations/{installationId}", {params: {path: {installationId: id}}});
-    if (result.error) throw new Error(messageOf(result.error));
-    return result.data;
-  }, onSuccess: async (_result, variables) => {
-    setFeedback({key: `${variables.kind}:${variables.id}`, message: "Integration disconnected.", error: false});
-    await Promise.all([cache.invalidateQueries({queryKey: ["settings"]}), cache.invalidateQueries({queryKey: ["providers"]}), cache.invalidateQueries({queryKey: ["editor"]})]);
-  }, onError: (error, variables) => setFeedback({key: `${variables.kind}:${variables.id}`, message: error.message, error: true})});
-  const actions = (kind: Kind, id: string, edit?: () => void): IntegrationAction[] => [
+  const actions = (kind: Kind, id: string, name: string, edit?: () => void): IntegrationAction[] => [
     ...(edit ? [{label: "Edit integration", onClick: edit}] : []),
-    {label: "Disconnect", destructive: true, disabled: action.isPending, onClick: () => {if (window.confirm("Disconnect this integration? Triggers that still reference it must be updated first.")) {setFeedback(null); action.mutate({kind, id});}}},
+    {label: "Disconnect", destructive: true, disabled: removal.busy, onClick: () => removal.open({kind, id, name})},
   ];
-  const result = (key: string) => feedback?.key === key && <p className="mt-2 text-sm" role={feedback.error ? "alert" : "status"}>{feedback.message}</p>;
   const open = (title: string, form: ReactNode) => setSetup({title, form});
   const data = status.data;
   const count = (data?.linear ? 1 : 0) + (data?.clickup ? 1 : 0) + (github.data?.length ?? 0) + (data?.exeConnections.length ?? 0) + (data?.ampConnections.length ?? 0) + (data?.cloudflareTail.installations.length ?? 0) + fly.count + bearer.count + x.count + cloudflare.count;
@@ -58,13 +45,13 @@ function IntegrationsContent() {
       {Boolean(count) && <><IntegrationDefaultPrompt /><Table aria-label="Installed integrations" className="table-fixed"><thead className={tableHeadClasses}><tr><th scope="col" className={tableCellClasses}>Integration</th><th scope="col" className={defaultColumn}>Available by Default</th></tr></thead><tbody>
         {data?.linear && <IntegrationRow kind="linear" credentialId="linear" name="Linear" detail={[data.linear.organizationName, data.linear.viewerEmail].filter(Boolean).join(" · ")} actions={[{label: "Reconnect Linear", href: "/auth/linear"}]} />}
         {data?.clickup && <IntegrationRow kind="clickup" credentialId="clickup" name="ClickUp" detail={data.clickup.teamName ?? undefined} actions={[{label: "Reconnect ClickUp", href: "/auth/clickup"}]} />}
-        {github.data?.map(i => <IntegrationRow key={i.installationId} kind="github" credentialId={String(i.installationId)} name="GitHub" detail={`${i.accountLogin} · ${i.accountType} · #${i.installationId}`} status={i.state === "active" ? undefined : `Needs attention · ${i.state}`} actions={[{label: "Manage on GitHub", href: "https://github.com/settings/installations", external: true}, ...actions("github", String(i.installationId))]}>{result(`github:${i.installationId}`)}</IntegrationRow>)}
-        {data?.exeConnections.map(c => <IntegrationRow key={c.connectionId} kind="exe" credentialId={c.connectionId} name="exe.dev" detail={c.connectionId} actions={actions("exe", c.connectionId, () => open("Edit exe.dev integration", <IntegrationForm kind="exe" connectionId={c.connectionId} />))}>{result(`exe:${c.connectionId}`)}</IntegrationRow>)}
-        {data?.ampConnections.map(c => <IntegrationRow key={c.connectionId} kind="amp" credentialId={c.connectionId} name="Amp" detail={c.project} actions={actions("amp", c.connectionId, () => open("Edit Amp integration", <IntegrationForm kind="amp" connectionId={c.connectionId} initialName={c.project} initialApiBaseUrl={c.apiBaseUrl} />))}>{result(`amp:${c.connectionId}`)}</IntegrationRow>)}
+        {github.data?.map(i => <IntegrationRow key={i.installationId} kind="github" credentialId={String(i.installationId)} name="GitHub" detail={`${i.accountLogin} · ${i.accountType} · #${i.installationId}`} status={i.state === "active" ? undefined : `Needs attention · ${i.state}`} actions={[{label: "Manage on GitHub", href: "https://github.com/settings/installations", external: true}, ...actions("github", String(i.installationId), `GitHub · ${i.accountLogin} · #${i.installationId}`)]} />)}
+        {data?.exeConnections.map(c => <IntegrationRow key={c.connectionId} kind="exe" credentialId={c.connectionId} name="exe.dev" detail={c.connectionId} actions={actions("exe", c.connectionId, `exe.dev · ${c.connectionId}`, () => open("Edit exe.dev integration", <IntegrationForm kind="exe" connectionId={c.connectionId} />))} />)}
+        {data?.ampConnections.map(c => <IntegrationRow key={c.connectionId} kind="amp" credentialId={c.connectionId} name="Amp" detail={c.project} actions={actions("amp", c.connectionId, `Amp · ${c.project}`, () => open("Edit Amp integration", <IntegrationForm kind="amp" connectionId={c.connectionId} initialName={c.project} initialApiBaseUrl={c.apiBaseUrl} />))} />)}
         {fly.rows}{bearer.rows}{x.rows}{cloudflare.rows}
-        {data?.cloudflareTail.installations.map(c => <IntegrationRow key={c.integrationId} kind="tail" credentialId={c.integrationId} name="Cloudflare Tail" status="Retired" detail={`${c.name} · Referenced by ${c.referencedTriggerCount} ${c.referencedTriggerCount === 1 ? "trigger" : "triggers"}`} actions={actions("cloudflareTail", c.integrationId)}>{result(`cloudflareTail:${c.integrationId}`)}</IntegrationRow>)}
+        {data?.cloudflareTail.installations.map(c => <IntegrationRow key={c.integrationId} kind="tail" credentialId={c.integrationId} name="Cloudflare Tail" status="Retired" detail={`${c.name} · Referenced by ${c.referencedTriggerCount} ${c.referencedTriggerCount === 1 ? "trigger" : "triggers"}`} actions={actions("cloudflareTail", c.integrationId, `Cloudflare Tail · ${c.name}`)} />)}
       </tbody></Table></>}
-      {feedback && !feedback.error && feedback.message === "Integration disconnected." && <p role="status">Integration disconnected.</p>}
+      {removal.notice}
       {fly.feedback}{bearer.feedback}{x.feedback}{cloudflare.feedback}
     </section>
     <section aria-labelledby="available-integrations-heading" className="mt-10"><h2 id="available-integrations-heading" className="text-xl font-bold">Available integrations</h2><p className="mb-4 mt-1 text-sm text-slate-600 dark:text-slate-400">Choose a provider to connect or configure an integration.</p><ul aria-label="Available integration providers" className="overflow-hidden rounded-xl border border-stone-200 dark:border-slate-800">
@@ -75,6 +62,6 @@ function IntegrationsContent() {
       <ProviderTile kind="amp" name="Amp" description="Connect an Amp project API for client access." count={data?.ampConnections.length ?? 0} onAdd={() => open("Add Amp integration", <IntegrationForm kind="amp" />)} />
       {fly.tile}{bearer.tile}{x.tile}{cloudflare.tile}
     </ul></section>
-    {setup && <Dialog title={setup.title} close={() => setSetup(null)}>{setup.form}</Dialog>}{fly.dialog}{bearer.dialog}{x.dialog}{cloudflare.dialog}
+    {setup && <Dialog title={setup.title} close={() => setSetup(null)}>{setup.form}</Dialog>}{fly.dialog}{bearer.dialog}{x.dialog}{cloudflare.dialog}{removal.dialog}
   </>;
 }
