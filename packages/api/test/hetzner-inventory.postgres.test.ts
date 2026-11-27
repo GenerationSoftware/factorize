@@ -5,6 +5,7 @@ import { HetznerConnectionRepository } from "../src/credentials/storage/hetzner-
 import { IdentityRepository } from "../src/auth/storage/identity-repository";
 import { signSession } from "../src/auth/application/session";
 import { loadingFixture } from "./helpers/loading-fixture";
+import { mcpRequest } from "./helpers/mcp-request";
 
 vi.mock("cloudflare:workers", () => ({ WorkerEntrypoint: class {}, DurableObject: class {} }));
 vi.mock("@cloudflare/workers-oauth-provider", () => ({ OAuthProvider: class {}, AuthorizationError: class extends Error {}, getOAuthApi: vi.fn() }));
@@ -119,4 +120,38 @@ describe.skipIf(!databaseUrl)("owner-only Hetzner project inventory REST routes 
       expect(provider).toHaveBeenCalledTimes(5);
     } finally { vi.unstubAllGlobals(); await f.cleanup(); }
   });
+});
+
+it.skipIf(!databaseUrl)("lets a live client read Hetzner only while its workspace owner has checked access", async () => {
+  const f = await loadingFixture(databaseUrl!);
+  const installation = crypto.randomUUID(), grant = "hetzner-existing-grant";
+  const provider = vi.fn(async () => Response.json({ servers: [], meta: { pagination: { next_page: null } } }));
+  vi.stubGlobal("fetch", provider);
+  try {
+    await new HetznerConnectionRepository(f.db, f.tenantId, f.env.CREDENTIAL_ENCRYPTION_KEY).save("Fixture", "syntheticToken");
+    const { id, epoch } = (await f.db.pool.query("SELECT id,epoch FROM app.agent_integrations WHERE tenant_id=$1 AND kind='hetzner'", [f.tenantId])).rows[0];
+    const scope = `integration:${id}:${epoch}`;
+    await f.db.pool.query(`INSERT INTO app.oauth_installations
+      (tenant_id,user_id,id,client_id,redirect_uri,active_grant_id,active_session_version,active_scopes,selected_scopes)
+      VALUES($1,$2,$3,'fixture-client','https://client.example/callback',$4,$5,'{}','{}')`,
+      [f.tenantId,f.userId,installation,grant,f.auth.sessionVersion]);
+    const call = mcpRequest(f.env, { ...f.auth, authMethod:"oauth", oauthInstallationId:installation,
+      oauthClientId:"fixture-client", oauthGrantId:grant, oauthExpiresAt:Date.now()/1000 + 300, scopes:[] });
+    const list = () => call("tools/call", { name:"list_hetzner_servers", arguments:{} });
+    const ssh = () => call("tools/call", { name:"check_hetzner_ssh", arguments:{serverId:1} });
+    const save = async (scopes: string[]) => worker.fetch(new Request(f.env.APP_ORIGIN + `/api/v1/access/authorizations/${installation}/permissions`, {
+      method: "PUT", headers: { Cookie:f.cookie, Origin:f.env.APP_ORIGIN, "Content-Type":"application/json" },
+      body: JSON.stringify({ scopes }),
+    }), f.env, { waitUntil() {} } as any);
+    expect((await list()).message.result.isError).toBe(true);
+    expect((await ssh()).message.result.isError).toBe(true);
+    expect(provider).not.toHaveBeenCalled();
+    expect((await save([scope])).status).toBe(200);
+    expect((await list()).message.result.structuredContent).toMatchObject({servers:[],truncated:false});
+    expect(provider).toHaveBeenCalledOnce();
+    expect((await save([])).status).toBe(200);
+    expect((await list()).message.result.isError).toBe(true);
+    expect((await ssh()).message.result.isError).toBe(true);
+    expect(provider).toHaveBeenCalledOnce();
+  } finally { vi.unstubAllGlobals(); await f.cleanup(); }
 });

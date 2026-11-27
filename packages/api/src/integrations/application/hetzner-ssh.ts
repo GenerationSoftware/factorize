@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { getOAuthInstallation } from "../../access-control/application/oauth-installations";
+import { activeHetznerScope } from "./hetzner-access";
 import { signingConfig } from "../../config/runtime";
 import { HetznerConnectionRepository } from "../../credentials/storage/hetzner-connection-repository";
 import { HetznerSshRepository } from "../../credentials/storage/hetzner-ssh-repository";
@@ -14,7 +14,7 @@ import { HetznerInventoryService } from "./hetzner-inventory";
 
 const authority = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("owner") }),
-  z.strictObject({ type: z.literal("oauth"), installationId: z.uuid(), grantId: z.string().min(1), expiresAt: z.number().finite() }),
+  z.strictObject({ type: z.literal("oauth"), installationId: z.uuid(), grantId: z.string().min(1), expiresAt: z.number().finite(), scope: z.string().min(1) }),
 ]);
 
 export const hetznerProbeRequest = z.strictObject({
@@ -28,7 +28,7 @@ function publicHost(host: z.infer<typeof hetznerSshTarget>) {
 }
 
 export class HetznerSshService {
-  constructor(private env: Env, private auth: OAuthProps, private read: () => Promise<void>,
+  constructor(private env: Env, private auth: OAuthProps,
     private owner: (scope: "integrations:read" | "integrations:write") => Promise<void>) {}
 
   private database() { return databaseFor(this.env); }
@@ -58,10 +58,6 @@ export class HetznerSshService {
       if ((await this.projects.get(sql))?.revision !== selected.connectionRevision) {
         throw new ServiceError(409, "hetzner_connection_changed", "The Hetzner project changed. Select the server again.");
       }
-      const client = await getOAuthInstallation(sql, tenantId, userId, enrollment.clientInstallationId);
-      if (!client || client.revoked_at || !client.active_grant_id || !client.active_scopes.includes("integrations:read")) {
-        throw new ServiceError(400, "ssh_client_not_authorized", "Select a currently authorized MCP client.");
-      }
       if (await this.repository.get(enrollment.serverId, sql)) {
         throw new ServiceError(409, "ssh_target_exists", "Delete the existing SSH enrollment before replacing it.");
       }
@@ -87,22 +83,30 @@ export class HetznerSshService {
   }
 
   async checkAsClient(serverId: number) {
-    await this.read();
-    const { authMethod, oauthInstallationId, oauthGrantId, oauthExpiresAt, tenantId, userId } = this.auth;
-    if (authMethod !== "oauth" || !oauthInstallationId || !oauthGrantId || !oauthExpiresAt) {
-      throw new ServiceError(403, "ssh_client_not_authorized", "An explicitly enrolled OAuth client is required.");
-    }
-    const client = await getOAuthInstallation(this.database().pool, tenantId, userId, oauthInstallationId);
-    if (!client || client.revoked_at || client.active_grant_id !== oauthGrantId || !client.active_scopes.includes("integrations:read")) {
-      throw new ServiceError(403, "ssh_client_not_authorized", "This client is no longer authorized.");
-    }
-    return this.check(serverId, { type: "oauth", installationId: oauthInstallationId, grantId: oauthGrantId, expiresAt: oauthExpiresAt });
+    return this.check(serverId, await this.clientAuthority());
+  }
+
+  async inventoryAsClient() {
+    await this.clientAuthority();
+    const inventory = await new HetznerInventoryService(this.projects).inventory();
+    await this.clientAuthority();
+    return inventory;
+  }
+
+  private async clientAuthority() {
+    const { authMethod, oauthInstallationId, oauthGrantId, oauthExpiresAt, tenantId, userId, sessionVersion } = this.auth;
+    const forbidden = () => new ServiceError(403, "hetzner_not_authorized", "This client does not have Hetzner access.");
+    if (authMethod !== "oauth" || !oauthInstallationId || !oauthGrantId || !oauthExpiresAt) throw forbidden();
+    const scope = await activeHetznerScope(this.database().pool, { tenantId, userId, sessionVersion, installationId: oauthInstallationId,
+      grantId: oauthGrantId, expiresAt: oauthExpiresAt });
+    if (!scope) throw forbidden();
+    return { type: "oauth" as const, installationId: oauthInstallationId, grantId: oauthGrantId, expiresAt: oauthExpiresAt, scope };
   }
 
   private async check(serverId: number, principal: z.infer<typeof authority>) {
     const { tenantId, userId } = this.auth;
     const host = await this.repository.get(serverId);
-    if (!host || host.ownerId !== userId || (principal.type === "oauth" && host.clientInstallationId !== principal.installationId)) {
+    if (!host || host.ownerId !== userId) {
       throw new ServiceError(404, "ssh_target_not_found", "No SSH enrollment is available to this caller.");
     }
     const broker = this.env.HETZNER_SSH;

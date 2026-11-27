@@ -24,18 +24,20 @@ it.skipIf(!url)("rechecks the project and exact OAuth authority at the SSH broke
   vi.stubGlobal("fetch", providerGet);
   try {
     await repository.save("Fixture project", "synthetic-read-only-token");
+    const { id, epoch } = (await f.db.pool.query("SELECT id,epoch FROM app.agent_integrations WHERE tenant_id=$1 AND kind='hetzner'", [f.tenantId])).rows[0];
+    const scope = `integration:${id}:${epoch}`;
     await f.db.pool.query(`INSERT INTO app.oauth_installations
       (tenant_id,user_id,id,client_id,redirect_uri,active_grant_id,active_session_version,active_scopes,selected_scopes)
-      VALUES($1,$2,$3,'selected','https://local.example/callback',$4,$5,ARRAY['integrations:read'],ARRAY['integrations:read'])`,
-    [f.tenantId, f.userId, selected, grant, f.auth.sessionVersion]);
+      VALUES($1,$2,$3,'selected','https://local.example/callback',$4,$5,$6,$6)`,
+    [f.tenantId, f.userId, selected, grant, f.auth.sessionVersion, [scope]]);
     const authorize = async () => {};
-    const owner = new HetznerSshService(f.env, f.auth, authorize, authorize);
+    const owner = new HetznerSshService(f.env, f.auth, authorize);
     const broker = new HetznerSshBroker({} as DurableObjectState, f.env);
     const dispatch = (url: string, init: RequestInit) => broker.fetch(new Request(url, init));
     f.env.HETZNER_SSH = { idFromName: (value: string) => value, get: () => ({ fetch: dispatch }) } as unknown as DurableObjectNamespace;
     await owner.enroll({ serverId: 41, username: "fixture-check", hostFingerprint: "SHA256:" + "A".repeat(43), clientInstallationId: selected });
-    const auth = { ...f.auth, authMethod: "oauth" as const, oauthInstallationId: selected, oauthGrantId: grant, oauthExpiresAt: Date.now()/1000 + 60 };
-    const caller = new HetznerSshService(f.env, auth, authorize, authorize);
+    const auth = { ...f.auth, scopes:[scope], authMethod: "oauth" as const, oauthInstallationId: selected, oauthGrantId: grant, oauthExpiresAt: Date.now()/1000 + 60 };
+    const caller = new HetznerSshService(f.env, auth, authorize);
     expect(await caller.checkAsClient(41)).toEqual({ serverId: 41, authenticated: true, reusedConnection: false });
     expect(providerGet).toHaveBeenCalledTimes(2);
     expect(authenticateHetznerSsh).toHaveBeenCalledTimes(1);

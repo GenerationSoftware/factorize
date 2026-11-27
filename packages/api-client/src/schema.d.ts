@@ -718,7 +718,7 @@ export interface paths {
         get?: never;
         /**
          * Save the selected permissions for one OAuth connection
-         * @description The authenticated owner sets the connection policy. Removals take effect immediately; additions need a fresh authorization for this same connection. This never enlarges an existing bearer or refresh credential.
+         * @description The authenticated owner sets the connection policy. Removals and Hetzner access changes take effect immediately. Other additions need a fresh authorization for this same connection. This never enlarges an existing bearer or refresh credential.
          *
          *     Requires the triggers:write scope.
          *
@@ -5717,7 +5717,7 @@ export interface operations {
                             username: string;
                             hostFingerprint: string;
                             /** Format: uuid */
-                            clientInstallationId: string;
+                            clientInstallationId?: string;
                             publicKey: string;
                         }[];
                     };
@@ -5747,7 +5747,7 @@ export interface operations {
                     username: string;
                     hostFingerprint: string;
                     /** Format: uuid */
-                    clientInstallationId: string;
+                    clientInstallationId?: string;
                 };
             };
         };
@@ -5763,7 +5763,7 @@ export interface operations {
                         username: string;
                         hostFingerprint: string;
                         /** Format: uuid */
-                        clientInstallationId: string;
+                        clientInstallationId?: string;
                         publicKey: string;
                     };
                 };
@@ -7714,7 +7714,7 @@ export interface operations {
                             name: string;
                             description: string | null;
                             /** @enum {string} */
-                            kind: "bearer" | "github" | "linear" | "model" | "fly" | "exe" | "amp" | "clickup" | "x" | "cloudflare";
+                            kind: "bearer" | "github" | "linear" | "model" | "fly" | "exe" | "amp" | "clickup" | "x" | "cloudflare" | "hetzner";
                             /** @enum {string} */
                             policy: "baseline" | "requestable" | "disabled";
                             available: boolean;
@@ -8538,7 +8538,7 @@ export interface operations {
                             name: string;
                             description: string | null;
                             /** @enum {string} */
-                            kind: "bearer" | "github" | "linear" | "model" | "fly" | "exe" | "amp" | "clickup" | "x" | "cloudflare";
+                            kind: "bearer" | "github" | "linear" | "model" | "fly" | "exe" | "amp" | "clickup" | "x" | "cloudflare" | "hetzner";
                             /** @enum {string} */
                             policy: "baseline" | "requestable" | "disabled";
                             available: boolean;
@@ -8591,7 +8591,7 @@ export interface operations {
                             name: string;
                             description: string | null;
                             /** @enum {string} */
-                            kind: "bearer" | "github" | "linear" | "model" | "fly" | "exe" | "amp" | "clickup" | "x" | "cloudflare";
+                            kind: "bearer" | "github" | "linear" | "model" | "fly" | "exe" | "amp" | "clickup" | "x" | "cloudflare" | "hetzner";
                             /** @enum {string} */
                             policy: "baseline" | "requestable" | "disabled";
                             available: boolean;

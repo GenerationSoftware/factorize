@@ -79,7 +79,7 @@ export class AgentApiService {
   async authorize(integration: string) {
     const identity = await this.identity();
     const row = (await this.database.pool.query<AgentIntegration>("SELECT * FROM app.agent_integrations WHERE tenant_id=$1 AND id=$2", [this.auth.tenantId, integration])).rows[0];
-    if (!row || row.policy==="disabled") throw forbidden();
+    if (!row || row.kind === "hetzner" || row.policy==="disabled") throw forbidden();
     if (identity.kind === "vm" && (!row.available || !identity.scopes.includes(requiredIntegrationScope(row)))) throw forbidden();
     const access = connectionAccess(row, identity.scopes, identity.policy, identity.explicit || this.auth.explicitIntegrationScopes);
     if (access === "blocked") throw forbidden();
@@ -91,7 +91,9 @@ export class AgentApiService {
     const rows = (await this.database.pool.query<AgentIntegration>("SELECT * FROM app.agent_integrations WHERE tenant_id=$1 ORDER BY name,id", [this.auth.tenantId])).rows;
     const result = [];
     for (const row of rows) {
-      if (row.policy === "disabled" || (identity.kind === "vm" && !identity.scopes.includes(requiredIntegrationScope(row)))) continue;
+      // Hetzner is surfaced in permission settings and by its typed MCP tools,
+      // never as a generic request_api destination.
+      if (row.kind === "hetzner" || row.policy === "disabled" || (identity.kind === "vm" && !identity.scopes.includes(requiredIntegrationScope(row)))) continue;
       let access: "granted" | "requestable" | "unavailable" = "granted";
       try { await this.authorize(row.id); } catch (error) {
         if (!(error instanceof AgentApiError) || error.status === 401) throw error;

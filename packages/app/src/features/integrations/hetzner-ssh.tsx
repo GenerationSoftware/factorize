@@ -2,7 +2,6 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "factorize-api-client";
 import { Button, Input, Label } from "../../shared/ui";
-import { clientsQuery } from "../access-control/queries";
 import { messageOf } from "../auth/session";
 
 const path = "/api/v1/hetzner/ssh";
@@ -13,7 +12,6 @@ export function HetznerSsh({ servers }: { servers: Array<{ id: number; name: str
   const [server, setServer] = useState("");
   const [username, setUsername] = useState("");
   const [fingerprint, setFingerprint] = useState("");
-  const [client, setClient] = useState("");
   const [notice, setNotice] = useState("");
   const [confirm, setConfirm] = useState<number | null>(null);
   const enrolled = useQuery({ queryKey: key, retry: false, queryFn: async ({ signal }) => {
@@ -21,14 +19,13 @@ export function HetznerSsh({ servers }: { servers: Array<{ id: number; name: str
     if (!data || error) throw new Error(messageOf(error));
     return data.servers;
   } });
-  const clients = useQuery(clientsQuery);
   const install = useMutation({ mutationFn: async () => {
     const { data, error } = await api.POST(path, { body: {
-      serverId: Number(server), username: username.trim(), hostFingerprint: fingerprint.trim(), clientInstallationId: client,
+      serverId: Number(server), username: username.trim(), hostFingerprint: fingerprint.trim(),
     } });
     if (!data || error) throw new Error(messageOf(error));
   }, onSuccess: async () => {
-    setServer(""); setUsername(""); setFingerprint(""); setClient("");
+    setServer(""); setUsername(""); setFingerprint("");
     setNotice("Enrollment saved. Install its public key before checking SSH.");
     await cache.invalidateQueries({ queryKey: key });
   } });
@@ -51,9 +48,9 @@ export function HetznerSsh({ servers }: { servers: Array<{ id: number; name: str
   const available = servers.filter(s => !enrolled.data?.some(e => e.serverId === s.id));
   return <section className="mt-5 space-y-4" aria-label="Hetzner SSH">
     <h3 className="font-semibold">SSH health checks</h3>
-    <p>Choose one MCP client and a dedicated non-root server account. Get the server’s Ed25519 fingerprint from its trusted console. Factorize never shows the private key.</p>
+    <p>Use a dedicated non-root server account. Clients with Hetzner access can check enrolled servers. Get the server’s Ed25519 fingerprint from its trusted console. Factorize never shows the private key.</p>
     {notice && <p role="status">{notice}</p>}
-    {[enrolled.error, clients.error, install.error, action.error].filter(Boolean).map((error, index) => <p key={index} role="alert">{error?.message}</p>)}
+    {[enrolled.error, install.error, action.error].filter(Boolean).map((error, index) => <p key={index} role="alert">{error?.message}</p>)}
     {enrolled.data?.map(item => <div key={item.serverId} className="space-y-2">
       <h4 className="font-semibold">{servers.find(s => s.id === item.serverId)?.name ?? `Server ${item.serverId}`}</h4>
       <Label>Authorized keys entry for {item.username}<Input readOnly value={`restrict,command="/bin/true" ${item.publicKey}`} onFocus={event => event.target.select()} /></Label>
@@ -73,10 +70,7 @@ export function HetznerSsh({ servers }: { servers: Array<{ id: number; name: str
       </select></Label>
       <Label>SSH user<Input value={username} required maxLength={32} onChange={event => setUsername(event.target.value)} disabled={pending} /></Label>
       <Label>Ed25519 host fingerprint<Input value={fingerprint} placeholder="SHA256:…" required onChange={event => setFingerprint(event.target.value)} disabled={pending} /></Label>
-      <Label>Authorized MCP client<select value={client} onChange={event => setClient(event.target.value)} required disabled={pending}>
-        <option value="">Select a client</option>{clients.data?.filter(c => c.credentialScopes.includes("integrations:read")).map(c => <option key={c.grantId} value={c.grantId}>{c.clientName}</option>)}
-      </select></Label>
-      <Button type="submit" variant="primary" disabled={pending || !server || !username || !fingerprint || !client}>Generate SSH key</Button>
+      <Button type="submit" variant="primary" disabled={pending || !server || !username || !fingerprint}>Generate SSH key</Button>
     </form>}
   </section>;
 }

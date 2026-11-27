@@ -53,7 +53,7 @@ test("an owner saves a read-only Hetzner project, views inventory, and confirms 
   await add.getByRole("button", { name: "Save connection" }).click();
   await expect(add).not.toBeVisible();
   const row = page.getByRole("row", { name: /Fixture project/ });
-  await expect(row.getByRole("cell", { name: "Owner only" })).toBeVisible();
+  await expect(row.getByText("Owner only")).toHaveCount(0);
   expect(requests).not.toContain("inventory");
   await row.getByRole("button", { name: "Actions for Hetzner Cloud · Fixture project" }).click();
   await page.getByRole("menuitem", { name: "View servers" }).click();

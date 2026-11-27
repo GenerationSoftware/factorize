@@ -82,7 +82,7 @@ export const accessRoutes = [
   }, (service, { params, body }) => service.access.renameAuthorizedClient(params.grantId, body), { ownerSession: true, body: clientNameInput }),
   route("PUT", "/api/v1/access/authorizations/{grantId}/permissions", "triggers:write", {
     summary: "Save the selected permissions for one OAuth connection",
-    description: "The authenticated owner sets the connection policy. Removals take effect immediately; additions need a fresh authorization for this same connection. This never enlarges an existing bearer or refresh credential.",
+    description: "The authenticated owner sets the connection policy. Removals and Hetzner access changes take effect immediately. Other additions need a fresh authorization for this same connection. This never enlarges an existing bearer or refresh credential.",
     responses: {"200": {description: "Permissions saved", content: {"application/json": {schema: jsonSchema(okResult, "output")}}}},
   }, (service, {params, body}) => service.access.updateClientPermissions(params.grantId, body), {ownerSession: true, body: clientPermissionsUpdate}),
   route("GET", "/api/v1/team-permissions", "team:read", {
