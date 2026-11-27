@@ -1,3 +1,4 @@
+import { fetchWithoutRedirects } from "../../transport/http/fetch-without-redirects";
 import { browserOwner as owner } from "../../auth/transport/browser-owner";
 import { databaseFor } from "../../postgres/database";
 import type { BrowserRouter } from "../../runtime/browser-router";
@@ -24,10 +25,10 @@ export function mountLinearOAuthRoutes(app: BrowserRouter) {
     const state = rawState ? await readSetupState(rawState, c.env.SESSION_SIGNING_SECRET) : null;
     if (!session || !code || !state || rawState !== getCookie(c, "linear_oauth_state") || state.tenantId !== session.tenantId || state.userId !== session.userId) return c.text("Invalid OAuth state", 400);
     deleteCookie(c, "linear_oauth_state", { path: "/auth/linear" });
-    const tokenResponse = await fetch("https://api.linear.app/oauth/token", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ code, redirect_uri: `${c.env.APP_ORIGIN}/auth/linear/callback`, client_id: c.env.LINEAR_CLIENT_ID, client_secret: c.env.LINEAR_CLIENT_SECRET, grant_type: "authorization_code" }) });
+    const tokenResponse = await fetchWithoutRedirects("https://api.linear.app/oauth/token", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ code, redirect_uri: `${c.env.APP_ORIGIN}/auth/linear/callback`, client_id: c.env.LINEAR_CLIENT_ID, client_secret: c.env.LINEAR_CLIENT_SECRET, grant_type: "authorization_code" }) });
     const tokens = await tokenResponse.json() as { access_token?: string; refresh_token?: string; expires_in?: number };
     if (!tokenResponse.ok || !tokens.access_token || !tokens.refresh_token) return c.text("Linear token exchange failed", 502);
-    const meResponse = await fetch("https://api.linear.app/graphql", { method: "POST", headers: { Authorization: `Bearer ${tokens.access_token}`, "Content-Type": "application/json" }, body: JSON.stringify({ query: "query { viewer { id email } organization { id name } }" }) });
+    const meResponse = await fetchWithoutRedirects("https://api.linear.app/graphql", { method: "POST", headers: { Authorization: `Bearer ${tokens.access_token}`, "Content-Type": "application/json" }, body: JSON.stringify({ query: "query { viewer { id email } organization { id name } }" }) });
     const me = await meResponse.json() as any;
     const organization = me.data?.organization;
     const viewer = me.data?.viewer;
