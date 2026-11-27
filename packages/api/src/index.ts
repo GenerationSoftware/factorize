@@ -6,14 +6,14 @@ import type { Session } from "./session";
 import { readBrowserSession } from "./browser-session";
 export { readSession, signSession, requestCookie, type Session } from "./session";
 import { equalHmac, hmac } from "./crypto";
-import { createAppJwt, githubHeaders, readSetupState, signSetupState } from "./github";
+import { createAppJwt, githubHeaders, readSetupState, signSetupState } from "./integrations/providers/github";
 import type { Env } from "./types";
 import { databaseFor } from "./postgres/database";
 import { AuthRepository } from "./postgres/auth-repository";
 import { IdentityRepository } from "./postgres/identity-repository";
-import { ConnectionRepository } from "./postgres/connection-repository";
-import { GitHubRepository } from "./postgres/github-repository";
-import { WebhookService } from "./postgres/webhook-service";
+import { ConnectionRepository } from "./credentials/storage/connection-repository";
+import { GitHubRepository } from "./credentials/storage/github-repository";
+import { WebhookService } from "./triggers/application/webhook-service";
 
 const app = new Hono<{ Bindings: Env; Variables: { authorizationDuration: number } }>();
 

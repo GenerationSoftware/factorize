@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { constantTimeText, githubClaimKey, normalizeRepository, readSetupState, renderGitHubPrompt, signSetupState } from "../src/github";
+import { constantTimeText, githubClaimKey, normalizeRepository, readSetupState, renderGitHubPrompt, signSetupState } from "../src/integrations/providers/github";
 
 describe("GitHub integration primitives", () => {
   it("signs expiring setup state and rejects tampering", async () => {

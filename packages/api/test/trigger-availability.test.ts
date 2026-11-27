@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { installedEventAvailability, sameProviderReference } from "../src/trigger-availability";
+import { installedEventAvailability, sameProviderReference } from "../src/triggers/domain/trigger-availability";
 
 describe("trigger event availability", () => {
   it("only offers universal events with zero installations", () => {

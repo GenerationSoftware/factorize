@@ -1,7 +1,7 @@
 import { Buffer } from "node:buffer";
 import { generateKeyPairSync, sign } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
-import { discoverVendorIssuerTrust, verifyVendorMachineIdentity } from "../src/vm-oidc";
+import { discoverVendorIssuerTrust, verifyVendorMachineIdentity } from "../src/vm-grants/domain/vm-oidc";
 
 const binding = {
   provider: "fly.io" as const,

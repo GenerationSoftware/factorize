@@ -1,10 +1,11 @@
-import { lockIntegrationTopology } from "./postgres/integration-removal-topology";
+import { appConfig } from "./config/runtime";
+import { lockIntegrationTopology } from "./integrations/storage/integration-removal-topology";
 import { OAuthError, type TokenExchangeCallbackOptions } from "@cloudflare/workers-oauth-provider";
 import { normalizeScopes } from "./access-tokens";
 import { applyConnectionScopes, type ConnectionScopePolicy } from "./oauth-connection-settings";
 import { databaseFor, type DatabaseClient } from "./postgres/database";
 import { lockOAuthPolicy } from "./oauth-reconnect";
-import { lockMcpEventGrant } from "./postgres/mcp-event-outbox";
+import { lockMcpEventGrant } from "./subscriptions/storage/mcp-event-outbox";
 import { getOAuthInstallation, installationScopes, type OAuthInstallation } from "./oauth-installations";
 import type { Env, OAuthProps } from "./types";
 
@@ -15,7 +16,7 @@ export function authDiagnostic(stage: "resource" | "refresh", reason: Rejection)
 }
 export function mcpOAuthChallenge(env: Env, reason?: Rejection, scopes?: readonly string[]) {
   if (reason) authDiagnostic("resource", reason);
-  const attributes = ['resource_metadata="' + env.APP_ORIGIN + '/.well-known/oauth-protected-resource/mcp"'];
+  const attributes = ['resource_metadata="' + appConfig(env).origin + '/.well-known/oauth-protected-resource/mcp"'];
   if (scopes) attributes.unshift('error="insufficient_scope"', 'scope="' + scopes.join(" ") + '"');
   else if (reason) attributes.unshift('error="invalid_token"');
   return Response.json({ error: { code: scopes ? "insufficient_scope" : "invalid_token" } }, {

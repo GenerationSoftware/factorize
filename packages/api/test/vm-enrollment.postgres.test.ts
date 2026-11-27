@@ -2,13 +2,13 @@ import { example } from "./helpers/docs-example";
 import { Buffer } from "node:buffer";
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
-import { FlyConnectionRepository } from "../src/postgres/fly-connection-repository";
-import { VmGrantRepository } from "../src/postgres/vm-grant-repository";
-import { provisionVmGrant } from "../src/vm-enrollment";
-import { requireVmGrantProvider } from "../src/vm-grant-provider";
+import { FlyConnectionRepository } from "../src/credentials/storage/fly-connection-repository";
+import { VmGrantRepository } from "../src/vm-grants/storage/vm-grant-repository";
+import { provisionVmGrant } from "../src/vm-grants/application/vm-enrollment";
+import { requireVmGrantProvider } from "../src/vm-grants/application/vm-grant-provider";
 import { loadingFixture } from "./helpers/loading-fixture";
 import worker from "../src/worker";
-import { vmGrantAudience } from "../src/vm-grant-provider";
+import { vmGrantAudience } from "../src/vm-grants/application/vm-grant-provider";
 
 vi.mock("cloudflare:workers", () => ({ WorkerEntrypoint: class {}, DurableObject: class {}, WorkflowEntrypoint: class {} }));
 vi.mock("@cloudflare/workers-oauth-provider", () => ({ OAuthProvider: class {}, AuthorizationError: class extends Error {}, getOAuthApi: vi.fn() }));

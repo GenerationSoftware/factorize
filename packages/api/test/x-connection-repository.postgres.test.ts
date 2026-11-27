@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { decrypt } from "../src/crypto";
-import { XConnectionRepository, XReconnectRequiredError } from "../src/postgres/x-connection-repository";
+import { XConnectionRepository, XReconnectRequiredError } from "../src/credentials/storage/x-connection-repository";
 import { loadingFixture } from "./helpers/loading-fixture";
 
 vi.mock("cloudflare:workers", () => ({ WorkerEntrypoint: class {}, DurableObject: class {} }));

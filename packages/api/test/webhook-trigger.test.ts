@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { adaptWebhook, publicWebhookConfig } from "../src/webhook-trigger";
+import { adaptWebhook, publicWebhookConfig } from "../src/triggers/domain/webhook-trigger";
 
 describe("webhook Trigger event adapters", () => {
   it("matches Linear and derives a stable delivery key plus normalized payload", () => {

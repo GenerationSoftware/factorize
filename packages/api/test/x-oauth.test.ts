@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { createXPKCE, readXOAuthState, signXOAuthState, validateXOAuthScopes, X_SUGGESTED_SCOPES } from "../src/x-oauth";
+import { createXPKCE, readXOAuthState, signXOAuthState, validateXOAuthScopes, X_SUGGESTED_SCOPES } from "../src/integrations/providers/x-oauth";
 
 const session = { tenantId: "tenant-a", userId: "owner-a", sessionVersion: 3 };
 const stateValue = {

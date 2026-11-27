@@ -1,8 +1,9 @@
+import { appConfig, googleConfig, signingConfig } from "./config/runtime";
 import { beginTotpEnrollment, beginTotpLogin, clearTotpEnrollCookie, clearTotpLoginCookie, disableTotp, enableTotp, finishTotpLogin, totpStatus } from "./totp";
 import { clearGoogleCookie, finishGooglePassword, finishGoogleSignIn, googleEnabled, googlePending, googleUsernameAvailable, redeemGoogleCallback, requestGoogleEmail, startGoogleSignIn, verifyGoogleEmail, type GoogleIdentity } from "./google-sign-in";
 import { GoogleCallbackFailure, reportGoogleCallbackFailure } from "./google-callback-diagnostics";
 import { usernameSchema } from "./usernames";
-import { integrationConsentLabels } from "./agent-api";
+import { integrationConsentLabels } from "./proxy/application/agent-api";
 import { ACCESS_SCOPES } from "./access-tokens";
 import { connectionFor, originalBrowser, startConnection, connectionDestination } from "./oauth-continuation";
 import { inspectDevice, decideDevice, deviceConsentSignature, safeEqual } from "./device-oauth";
@@ -75,19 +76,20 @@ export function safeReturnTo(value: string | undefined): string {
 }
 
 export function validBrowserOrigin(request: Request, env: Env): boolean {
-  return request.headers.get("Origin") === env.APP_ORIGIN && request.headers.get("Sec-Fetch-Site") !== "cross-site";
+  return request.headers.get("Origin") === appConfig(env).origin && request.headers.get("Sec-Fetch-Site") !== "cross-site";
 }
 export function authJson(body: unknown, status = 200): Response {
   return Response.json(body, { status, headers: { "X-Factorize-Contract": "gen-2157-static-v1", "X-Factorize-Webhook-Conditions": "v1", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", Pragma: "no-cache" } });
 }
 const failure = (status: number, message: string) => authJson({ error: { code: status === 401 ? "invalid_token" : status === 403 ? "forbidden" : "invalid_request", message } }, status);
 function sessionCookie(env: Env, value: string, maxAge: number): string {
-  return serialize("factorize_session", value, { httpOnly: true, secure: new URL(env.APP_ORIGIN).protocol === "https:", sameSite: "Lax", path: "/", maxAge });
+  return serialize("factorize_session", value, { httpOnly: true, secure: new URL(appConfig(env).origin).protocol === "https:", sameSite: "Lax", path: "/", maxAge });
 }
 async function limitGoogleStart(request: Request, env: Env) {
-  if (!env.GOOGLE_SIGN_IN_START_LIMIT) return failure(503, "Google sign-in is temporarily unavailable.");
+  const { rateLimit } = googleConfig(env);
+  if (!rateLimit) return failure(503, "Google sign-in is temporarily unavailable.");
   // Cloudflare sets CF-Connecting-IP on ingress. Do not trust X-Forwarded-For.
-  const { success } = await env.GOOGLE_SIGN_IN_START_LIMIT.limit({ key: request.headers.get("CF-Connecting-IP") ?? "unknown" });
+  const { success } = await rateLimit.limit({ key: request.headers.get("CF-Connecting-IP") ?? "unknown" });
   if (success) return null;
   const response = failure(429, "Too many Google sign-in attempts. Try again in a minute.");
   response.headers.set("Retry-After", "60");
@@ -109,7 +111,7 @@ export async function executeAuth(action: AuthAction, request: Request, env: Env
     const result = await finishTotpLogin(request, env, authInputs.totpCode.parse(input).code);
     if ("status" in result) return failure(result.status, result.message);
     let returnTo = result.returnTo;
-    const next = new URL(returnTo, env.APP_ORIGIN);
+    const next = new URL(returnTo, appConfig(env).origin);
     const connectionId = ["/authorize", "/device"].includes(next.pathname) ? next.searchParams.get("connection") : null;
     if (connectionId) {
       const pending = await connectionFor(env, connectionId);
@@ -362,7 +364,7 @@ async function completeInteractiveSignIn(request: Request, env: Env, identity: G
 export async function googleSignInCallback(request: Request, env: Env) {
   if (request.method !== "GET") return new Response(null, { status: 405, headers: { Allow: "GET" } });
   const redirect = (target: string) => new Response(null, { status: 303, headers: {
-    Location: new URL(target, env.APP_ORIGIN).href, "Cache-Control": "no-store", "Referrer-Policy": "no-referrer",
+    Location: new URL(target, appConfig(env).origin).href, "Cache-Control": "no-store", "Referrer-Policy": "no-referrer",
   } });
   if (request.headers.has("Authorization")) {
     reportGoogleCallbackFailure(request, "authorization_header");
@@ -407,6 +409,6 @@ async function signedIn(env: Env, identity: GoogleIdentity, body: { ok?: boolean
 async function issueSession(env: Env, identity: GoogleIdentity, body: unknown) {
   const lifetime = 7 * 24 * 60 * 60;
   const response = authJson(body);
-  response.headers.append("Set-Cookie", sessionCookie(env, await signSession({ tenantId: identity.tenantId, userId: identity.userId, email: identity.email, sessionVersion: identity.sessionVersion, browserNonce: crypto.randomUUID(), exp: Math.floor(Date.now() / 1000) + lifetime }, env.SESSION_SIGNING_SECRET), lifetime));
+  response.headers.append("Set-Cookie", sessionCookie(env, await signSession({ tenantId: identity.tenantId, userId: identity.userId, email: identity.email, sessionVersion: identity.sessionVersion, browserNonce: crypto.randomUUID(), exp: Math.floor(Date.now() / 1000) + lifetime }, signingConfig(env).sessionSecret), lifetime));
   return response;
 }

@@ -1,309 +1,5 @@
 // Generated from packages/docs/openapi.yaml. Do not edit.
 export interface paths {
-    "/api/v1/integrations/removal/preview": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Preview what removing one installed integration affects
-         * @description Requires the integrations:write scope.
-         *
-         *     An interactive owner session is required; bearer tokens cannot call this operation.
-         */
-        post: operations["post_api_v1_integrations_removal_preview"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/integrations/removal/confirm": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Remove one installed integration with verified impact
-         * @description The owner must explicitly confirm affected references. An outdated impact fingerprint returns 409 without any change.
-         *
-         *     Requires the integrations:write scope.
-         *
-         *     An interactive owner session is required; bearer tokens cannot call this operation.
-         */
-        post: operations["post_api_v1_integrations_removal_confirm"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/integrations/cloudflare": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Read Cloudflare connections
-         * @description Requires the integrations:read scope.
-         *
-         *     An interactive owner session is required; bearer tokens cannot call this operation.
-         */
-        get: operations["get_api_v1_integrations_cloudflare"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/integrations/cloudflare/authorize": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Start authorization on Cloudflare
-         * @description Requires the integrations:write scope.
-         *
-         *     An interactive owner session is required; bearer tokens cannot call this operation.
-         */
-        post: operations["post_api_v1_integrations_cloudflare_authorize"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/integrations/cloudflare/{connectionId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /**
-         * Disconnect Cloudflare from this workspace
-         * @description Requires the integrations:write scope.
-         *
-         *     An interactive owner session is required; bearer tokens cannot call this operation.
-         */
-        delete: operations["delete_api_v1_integrations_cloudflare_connectionId"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/x/connections": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List X connections
-         * @description Requires an interactive owner session. Returns named connection metadata, account identity, selected/granted scopes, and status. Client secrets and OAuth tokens are never returned.
-         *
-         *     Requires the integrations:read scope.
-         *
-         *     An interactive owner session is required; bearer tokens cannot call this operation.
-         */
-        get: operations["get_api_v1_x_connections"];
-        put?: never;
-        /**
-         * Add a user-owned X app connection
-         * @description Requires an interactive owner session. Stores the X OAuth client secret in Factorize-managed encrypted storage and never returns it. Selected scopes are validated before saving.
-         *
-         *     Requires the integrations:write scope.
-         *
-         *     An interactive owner session is required; bearer tokens cannot call this operation.
-         */
-        post: operations["post_api_v1_x_connections"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/x/connections/{connectionId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /**
-         * Delete an X connection
-         * @description Requires an interactive owner session. Immediately clears the encrypted credential and revokes the connection. A secret-free tombstone prevents revoked access from being revived if an identifier is reused.
-         *
-         *     Requires the integrations:write scope.
-         *
-         *     An interactive owner session is required; bearer tokens cannot call this operation.
-         */
-        delete: operations["delete_api_v1_x_connections_connectionId"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/x/connections/{connectionId}/authorize": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Start X OAuth authorization
-         * @description Requires an interactive owner session. Starts a short-lived PKCE authorization bound to this owner, tenant, session, connection, and selected scopes. The one-time state is set in an HttpOnly cookie.
-         *
-         *     Requires the integrations:write scope.
-         *
-         *     An interactive owner session is required; bearer tokens cannot call this operation.
-         */
-        post: operations["post_api_v1_x_connections_connectionId_authorize"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/x/connections/{connectionId}/test": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Test an X connection
-         * @description Requires an interactive owner session. Performs a non-mutating GET to X /2/users/me using the saved access token. Returns only a safe status and the already stored account handle; it never returns tokens, credentials, or upstream error bodies. The verification read may incur X API usage charges.
-         *
-         *     Requires the integrations:read scope.
-         *
-         *     An interactive owner session is required; bearer tokens cannot call this operation.
-         */
-        post: operations["post_api_v1_x_connections_connectionId_test"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/x/connections/{connectionId}/credentials": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * Replace X app credentials
-         * @description Requires an interactive owner session. Replaces the encrypted client credentials, invalidates saved access and refresh tokens and pending OAuth attempts, preserves the existing account identity binding, and requires reauthorization. Reauthorization cannot switch the connection to a different X account; create a new connection for another account. Client access remains unavailable until authorization succeeds.
-         *
-         *     Requires the integrations:write scope.
-         *
-         *     An interactive owner session is required; bearer tokens cannot call this operation.
-         */
-        put: operations["put_api_v1_x_connections_connectionId_credentials"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/integrations/bearer": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List bearer integration metadata
-         * @description Requires an interactive owner browser session. Returns secret-safe metadata only; stored bearer credentials are never returned.
-         *
-         *     Requires the integrations:read scope.
-         *
-         *     An interactive owner session is required; bearer tokens cannot call this operation.
-         */
-        get: operations["get_api_v1_integrations_bearer"];
-        put?: never;
-        /**
-         * Create a bearer integration
-         * @description Requires an interactive owner browser session. Accepts the secret over the authenticated connection and encrypts it with Factorize-managed storage before persistence. The secret is never returned.
-         *
-         *     Requires the integrations:write scope.
-         *
-         *     An interactive owner session is required; bearer tokens cannot call this operation.
-         */
-        post: operations["post_api_v1_integrations_bearer"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/integrations/bearer/{integrationId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * Update a bearer integration
-         * @description Requires an interactive owner browser session and the current collection revision. Accepts a replacement secret and encrypts it with Factorize-managed storage before persistence. The secret is never returned.
-         *
-         *     Requires the integrations:write scope.
-         *
-         *     An interactive owner session is required; bearer tokens cannot call this operation.
-         */
-        put: operations["put_api_v1_integrations_bearer_integrationId"];
-        post?: never;
-        /**
-         * Delete an encrypted bearer integration
-         * @description Requires an interactive owner browser session and the current collection revision.
-         *
-         *     Requires the integrations:write scope.
-         *
-         *     An interactive owner session is required; bearer tokens cannot call this operation.
-         */
-        delete: operations["delete_api_v1_integrations_bearer_integrationId"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/auth/connections": {
         parameters: {
             query?: never;
@@ -916,7 +612,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/event-contexts": {
+    "/api/v1/access/authorized-clients": {
         parameters: {
             query?: never;
             header?: never;
@@ -924,15 +620,813 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get template autocomplete metadata
+         * List authorized OAuth clients
+         * @description Requires the triggers:read scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        get: operations["get_api_v1_access_authorized_clients"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/access-tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List access tokens
+         * @description Requires the triggers:read scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        get: operations["get_api_v1_access_tokens"];
+        put?: never;
+        /**
+         * Create an access token
+         * @description Requires the triggers:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        post: operations["post_api_v1_access_tokens"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/access-tokens/{tokenId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke an access token
+         * @description Requires the triggers:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        delete: operations["delete_api_v1_access_tokens_tokenId"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/access/authorizations/{grantId}/name": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Rename an authorized OAuth connection
+         * @description Interactive owner session required. Changes only this connection’s display name, not the registered app name or permissions.
+         *
+         *     Requires the triggers:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        put: operations["put_api_v1_access_authorizations_grantId_name"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/access/authorizations/{grantId}/permissions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Save the selected permissions for one OAuth connection
+         * @description The authenticated owner sets the connection policy. Removals take effect immediately; additions need a fresh authorization for this same connection. This never enlarges an existing bearer or refresh credential.
+         *
+         *     Requires the triggers:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        put: operations["put_api_v1_access_authorizations_grantId_permissions"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/team-permissions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List workspace consent defaults
+         * @description Requires the team:read scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        get: operations["get_api_v1_team_permissions"];
+        /**
+         * Change one workspace consent default
+         * @description Requires the team:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        put: operations["put_api_v1_team_permissions"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/access/authorizations/{grantId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke one isolated OAuth connection
+         * @description Other connections, including copies of the same client, retain their approvals.
+         *
+         *     Requires the triggers:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        delete: operations["delete_api_v1_access_authorizations_grantId"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/access/authorized-clients/{clientId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke a client only when it has one connection
+         * @description If this app has several connections, use the exact connection endpoint instead.
+         *
+         *     Requires the triggers:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        delete: operations["delete_api_v1_access_authorized_clients_clientId"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/team": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the current team
+         * @description Requires the team:read scope.
+         *
+         *     Accepts a scoped bearer token or interactive owner session.
+         */
+        get: operations["get_api_v1_team"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/app-consent/{requestId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Preview a registered app sign-in request
+         * @description Requires the team:read scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        get: operations["get_api_v1_app_consent_requestId"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/app-consent/decision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Allow or deny a registered app sign-in request
+         * @description Requires the team:read scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        post: operations["post_api_v1_app_consent_decision"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/apps": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the team's app registrations
+         * @description Requires the apps:manage scope.
+         *
+         *     Accepts a scoped bearer token or interactive owner session.
+         */
+        get: operations["get_api_v1_apps"];
+        put?: never;
+        /**
+         * Register a server-side application
+         * @description Requires the apps:manage scope.
+         *
+         *     Accepts a scoped bearer token or interactive owner session.
+         */
+        post: operations["post_api_v1_apps"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/apps/{appId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read an app registration
+         * @description Requires the apps:manage scope.
+         *
+         *     Accepts a scoped bearer token or interactive owner session.
+         */
+        get: operations["get_api_v1_apps_appId"];
+        /**
+         * Change an app registration, its visibility, or its enabled state
+         * @description Requires the apps:manage scope.
+         *
+         *     Accepts a scoped bearer token or interactive owner session.
+         */
+        put: operations["put_api_v1_apps_appId"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/apps/{appId}/secret": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Issue or rotate a client secret in a browser session
+         * @description Requires the apps:manage scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        post: operations["post_api_v1_apps_appId_secret"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/app-connections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List sign-in apps authorized by the current user
+         * @description Requires the team:read scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        get: operations["get_api_v1_app_connections"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/app-connections/{connectionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke one sign-in app connection
+         * @description Requires the team:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        delete: operations["delete_api_v1_app_connections_connectionId"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/events/{eventId}/occurrence-summaries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List bounded, payload-free Event occurrence summaries
+         * @description Newest first, with occurrence IDs and safe source classifications. The full occurrence endpoint is unchanged.
+         *
+         *     Requires the triggers:read scope.
+         *
+         *     Accepts a scoped bearer token or interactive owner session.
+         */
+        get: operations["get_api_v1_events_eventId_occurrence_summaries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Events
          * @description Requires the triggers:read scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
-        get: operations["get_api_v1_event_contexts"];
+        get: operations["get_api_v1_events"];
+        put?: never;
+        /**
+         * Create an Event
+         * @description Requires the triggers:write scope.
+         *
+         *     Accepts a scoped bearer token or interactive owner session.
+         */
+        post: operations["post_api_v1_events"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/events/{eventId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get an Event
+         * @description Requires the triggers:read scope.
+         *
+         *     Accepts a scoped bearer token or interactive owner session.
+         */
+        get: operations["get_api_v1_events_eventId"];
+        /**
+         * Update an Event payload schema
+         * @description Requires the triggers:write scope.
+         *
+         *     Accepts a scoped bearer token or interactive owner session.
+         */
+        put: operations["put_api_v1_events_eventId"];
+        post?: never;
+        /**
+         * Delete an Event, its Triggers, subscriptions, and occurrences
+         * @description Permanently deletes the Event, all attached Triggers, their input configurations, subscriptions, and the Event's occurrence history.
+         *
+         *     Requires the triggers:write scope.
+         *
+         *     Accepts a scoped bearer token or interactive owner session.
+         */
+        delete: operations["delete_api_v1_events_eventId"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/events/{eventId}/evaluations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read recent safe Event evaluation diagnostics
+         * @description Requires the triggers:read scope.
+         *
+         *     Accepts a scoped bearer token or interactive owner session.
+         */
+        get: operations["get_api_v1_events_eventId_evaluations"];
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/events/{eventId}/occurrences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List durable Event occurrences
+         * @description Requires the triggers:read scope.
+         *
+         *     Accepts a scoped bearer token or interactive owner session.
+         */
+        get: operations["get_api_v1_events_eventId_occurrences"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integrations/removal/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview what removing one installed integration affects
+         * @description Requires the integrations:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        post: operations["post_api_v1_integrations_removal_preview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integrations/removal/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Remove one installed integration with verified impact
+         * @description The owner must explicitly confirm affected references. An outdated impact fingerprint returns 409 without any change.
+         *
+         *     Requires the integrations:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        post: operations["post_api_v1_integrations_removal_confirm"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integrations/cloudflare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Cloudflare connections
+         * @description Requires the integrations:read scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        get: operations["get_api_v1_integrations_cloudflare"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integrations/cloudflare/authorize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start authorization on Cloudflare
+         * @description Requires the integrations:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        post: operations["post_api_v1_integrations_cloudflare_authorize"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integrations/cloudflare/{connectionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Disconnect Cloudflare from this workspace
+         * @description Requires the integrations:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        delete: operations["delete_api_v1_integrations_cloudflare_connectionId"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/x/connections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List X connections
+         * @description Requires an interactive owner session. Returns named connection metadata, account identity, selected/granted scopes, and status. Client secrets and OAuth tokens are never returned.
+         *
+         *     Requires the integrations:read scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        get: operations["get_api_v1_x_connections"];
+        put?: never;
+        /**
+         * Add a user-owned X app connection
+         * @description Requires an interactive owner session. Stores the X OAuth client secret in Factorize-managed encrypted storage and never returns it. Selected scopes are validated before saving.
+         *
+         *     Requires the integrations:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        post: operations["post_api_v1_x_connections"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/x/connections/{connectionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete an X connection
+         * @description Requires an interactive owner session. Immediately clears the encrypted credential and revokes the connection. A secret-free tombstone prevents revoked access from being revived if an identifier is reused.
+         *
+         *     Requires the integrations:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        delete: operations["delete_api_v1_x_connections_connectionId"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/x/connections/{connectionId}/authorize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start X OAuth authorization
+         * @description Requires an interactive owner session. Starts a short-lived PKCE authorization bound to this owner, tenant, session, connection, and selected scopes. The one-time state is set in an HttpOnly cookie.
+         *
+         *     Requires the integrations:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        post: operations["post_api_v1_x_connections_connectionId_authorize"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/x/connections/{connectionId}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test an X connection
+         * @description Requires an interactive owner session. Performs a non-mutating GET to X /2/users/me using the saved access token. Returns only a safe status and the already stored account handle; it never returns tokens, credentials, or upstream error bodies. The verification read may incur X API usage charges.
+         *
+         *     Requires the integrations:read scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        post: operations["post_api_v1_x_connections_connectionId_test"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/x/connections/{connectionId}/credentials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Replace X app credentials
+         * @description Requires an interactive owner session. Replaces the encrypted client credentials, invalidates saved access and refresh tokens and pending OAuth attempts, preserves the existing account identity binding, and requires reauthorization. Reauthorization cannot switch the connection to a different X account; create a new connection for another account. Client access remains unavailable until authorization succeeds.
+         *
+         *     Requires the integrations:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        put: operations["put_api_v1_x_connections_connectionId_credentials"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integrations/bearer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List bearer integration metadata
+         * @description Requires an interactive owner browser session. Returns secret-safe metadata only; stored bearer credentials are never returned.
+         *
+         *     Requires the integrations:read scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        get: operations["get_api_v1_integrations_bearer"];
+        put?: never;
+        /**
+         * Create a bearer integration
+         * @description Requires an interactive owner browser session. Accepts the secret over the authenticated connection and encrypts it with Factorize-managed storage before persistence. The secret is never returned.
+         *
+         *     Requires the integrations:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        post: operations["post_api_v1_integrations_bearer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integrations/bearer/{integrationId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Update a bearer integration
+         * @description Requires an interactive owner browser session and the current collection revision. Accepts a replacement secret and encrypts it with Factorize-managed storage before persistence. The secret is never returned.
+         *
+         *     Requires the integrations:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        put: operations["put_api_v1_integrations_bearer_integrationId"];
+        post?: never;
+        /**
+         * Delete an encrypted bearer integration
+         * @description Requires an interactive owner browser session and the current collection revision.
+         *
+         *     Requires the integrations:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        delete: operations["delete_api_v1_integrations_bearer_integrationId"];
         options?: never;
         head?: never;
         patch?: never;
@@ -976,50 +1470,6 @@ export interface paths {
         get: operations["get_api_v1_github_installations"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/trigger-event-availability": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List available event kinds
-         * @description Requires the triggers:read scope.
-         *
-         *     Accepts a scoped bearer token or interactive owner session.
-         */
-        get: operations["get_api_v1_trigger_event_availability"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/schedules/preview": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Preview schedule
-         * @description Requires the triggers:read scope.
-         *
-         *     Accepts a scoped bearer token or interactive owner session.
-         */
-        post: operations["post_api_v1_schedules_preview"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1288,272 +1738,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/access/authorized-clients": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List authorized OAuth clients
-         * @description Requires the triggers:read scope.
-         *
-         *     An interactive owner session is required; bearer tokens cannot call this operation.
-         */
-        get: operations["get_api_v1_access_authorized_clients"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/access-tokens": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List access tokens
-         * @description Requires the triggers:read scope.
-         *
-         *     An interactive owner session is required; bearer tokens cannot call this operation.
-         */
-        get: operations["get_api_v1_access_tokens"];
-        put?: never;
-        /**
-         * Create an access token
-         * @description Requires the triggers:write scope.
-         *
-         *     An interactive owner session is required; bearer tokens cannot call this operation.
-         */
-        post: operations["post_api_v1_access_tokens"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/access-tokens/{tokenId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /**
-         * Revoke an access token
-         * @description Requires the triggers:write scope.
-         *
-         *     An interactive owner session is required; bearer tokens cannot call this operation.
-         */
-        delete: operations["delete_api_v1_access_tokens_tokenId"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/access/authorizations/{grantId}/name": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * Rename an authorized OAuth connection
-         * @description Interactive owner session required. Changes only this connection’s display name, not the registered app name or permissions.
-         *
-         *     Requires the triggers:write scope.
-         *
-         *     An interactive owner session is required; bearer tokens cannot call this operation.
-         */
-        put: operations["put_api_v1_access_authorizations_grantId_name"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/access/authorizations/{grantId}/permissions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * Save the selected permissions for one OAuth connection
-         * @description The authenticated owner sets the connection policy. Removals take effect immediately; additions need a fresh authorization for this same connection. This never enlarges an existing bearer or refresh credential.
-         *
-         *     Requires the triggers:write scope.
-         *
-         *     An interactive owner session is required; bearer tokens cannot call this operation.
-         */
-        put: operations["put_api_v1_access_authorizations_grantId_permissions"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/vms": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List VMs with active Factorize permission grants
-         * @description Requires the vms:read scope.
-         *
-         *     Accepts a scoped bearer token or interactive owner session.
-         */
-        get: operations["get_api_v1_vms"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/vms/grants": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Grant or replace Factorize permissions for an existing VM
-         * @description Supply a preset ID or an explicit scope list. Factorize saves the resolved scope snapshot and rejects the entire request if any scope exceeds the caller's effective access. Use one requestKey per initial enrollment and reuse it for a retry. Supply the current revision when editing an existing grant.
-         *
-         *     Requires the vms:edit scope.
-         *
-         *     Accepts a scoped bearer token or interactive owner session.
-         */
-        post: operations["post_api_v1_vms_grants"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/vms/grants/{grantId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /**
-         * Revoke a VM's Factorize permission grant
-         * @description Factorize immediately denies access under this grant. The VM keeps running. Retrying the same revocation is safe.
-         *
-         *     Requires the vms:edit scope.
-         *
-         *     Accepts a scoped bearer token or interactive owner session.
-         */
-        delete: operations["delete_api_v1_vms_grants_grantId"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/team-permissions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List workspace consent defaults
-         * @description Requires the team:read scope.
-         *
-         *     An interactive owner session is required; bearer tokens cannot call this operation.
-         */
-        get: operations["get_api_v1_team_permissions"];
-        /**
-         * Change one workspace consent default
-         * @description Requires the team:write scope.
-         *
-         *     An interactive owner session is required; bearer tokens cannot call this operation.
-         */
-        put: operations["put_api_v1_team_permissions"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/access/authorizations/{grantId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /**
-         * Revoke one isolated OAuth connection
-         * @description Other connections, including copies of the same client, retain their approvals.
-         *
-         *     Requires the triggers:write scope.
-         *
-         *     An interactive owner session is required; bearer tokens cannot call this operation.
-         */
-        delete: operations["delete_api_v1_access_authorizations_grantId"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/access/authorized-clients/{clientId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /**
-         * Revoke a client only when it has one connection
-         * @description If this app has several connections, use the exact connection endpoint instead.
-         *
-         *     Requires the triggers:write scope.
-         *
-         *     An interactive owner session is required; bearer tokens cannot call this operation.
-         */
-        delete: operations["delete_api_v1_access_authorized_clients_clientId"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/integrations/exe/{connectionId}": {
         parameters: {
             query?: never;
@@ -1681,304 +1865,6 @@ export interface paths {
          *     Accepts a scoped bearer token or interactive owner session.
          */
         delete: operations["delete_api_v1_providers_github_installations_installationId"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/team": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get the current team
-         * @description Requires the team:read scope.
-         *
-         *     Accepts a scoped bearer token or interactive owner session.
-         */
-        get: operations["get_api_v1_team"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/event-subscriptions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List the signed-in owner's Event subscriptions in the current workspace
-         * @description Shows registration lifecycle, not current delivery capability. Does not expose webhook configuration.
-         *
-         *     Requires the triggers:read scope.
-         *
-         *     An interactive owner session is required; bearer tokens cannot call this operation.
-         */
-        get: operations["get_api_v1_event_subscriptions"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/event-subscriptions/{subscriptionId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get a signed-in owner's Event subscription in the current workspace
-         * @description Requires the triggers:read scope.
-         *
-         *     An interactive owner session is required; bearer tokens cannot call this operation.
-         */
-        get: operations["get_api_v1_event_subscriptions_subscriptionId"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/event-subscriptions/{subscriptionId}/occurrences": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List matched occurrences for the signed-in owner's exact subscription
-         * @description Newest first. HTTP acceptance confirms receipt, not processing. Acknowledgment is independent. Webhook configuration and payloads are omitted.
-         *
-         *     Requires the triggers:read scope.
-         *
-         *     An interactive owner session is required; bearer tokens cannot call this operation.
-         */
-        get: operations["get_api_v1_event_subscriptions_subscriptionId_occurrences"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/events/{eventId}/occurrence-summaries": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List bounded, payload-free Event occurrence summaries
-         * @description Newest first, with occurrence IDs and safe source classifications. The full occurrence endpoint is unchanged.
-         *
-         *     Requires the triggers:read scope.
-         *
-         *     Accepts a scoped bearer token or interactive owner session.
-         */
-        get: operations["get_api_v1_events_eventId_occurrence_summaries"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/events": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List Events
-         * @description Requires the triggers:read scope.
-         *
-         *     Accepts a scoped bearer token or interactive owner session.
-         */
-        get: operations["get_api_v1_events"];
-        put?: never;
-        /**
-         * Create an Event
-         * @description Requires the triggers:write scope.
-         *
-         *     Accepts a scoped bearer token or interactive owner session.
-         */
-        post: operations["post_api_v1_events"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/events/{eventId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get an Event
-         * @description Requires the triggers:read scope.
-         *
-         *     Accepts a scoped bearer token or interactive owner session.
-         */
-        get: operations["get_api_v1_events_eventId"];
-        /**
-         * Update an Event payload schema
-         * @description Requires the triggers:write scope.
-         *
-         *     Accepts a scoped bearer token or interactive owner session.
-         */
-        put: operations["put_api_v1_events_eventId"];
-        post?: never;
-        /**
-         * Delete an Event, its Triggers, subscriptions, and occurrences
-         * @description Permanently deletes the Event, all attached Triggers, their input configurations, subscriptions, and the Event's occurrence history.
-         *
-         *     Requires the triggers:write scope.
-         *
-         *     Accepts a scoped bearer token or interactive owner session.
-         */
-        delete: operations["delete_api_v1_events_eventId"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/events/{eventId}/evaluations": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Read recent safe Event evaluation diagnostics
-         * @description Requires the triggers:read scope.
-         *
-         *     Accepts a scoped bearer token or interactive owner session.
-         */
-        get: operations["get_api_v1_events_eventId_evaluations"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/events/{eventId}/occurrences": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List durable Event occurrences
-         * @description Requires the triggers:read scope.
-         *
-         *     Accepts a scoped bearer token or interactive owner session.
-         */
-        get: operations["get_api_v1_events_eventId_occurrences"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/triggers": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List triggers
-         * @description Requires the triggers:read scope.
-         *
-         *     Accepts a scoped bearer token or interactive owner session.
-         */
-        get: operations["get_api_v1_triggers"];
-        put?: never;
-        /**
-         * Create trigger
-         * @description Requires the triggers:write scope.
-         *
-         *     Accepts a scoped bearer token or interactive owner session.
-         */
-        post: operations["post_api_v1_triggers"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/triggers/{triggerId}/fire": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Fire a Trigger and create an Event occurrence
-         * @description Requires the triggers:write scope.
-         *
-         *     Accepts a scoped bearer token or interactive owner session.
-         */
-        post: operations["post_api_v1_triggers_triggerId_fire"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/trigger-conditions/test": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Test webhook conditions
-         * @description Evaluates supplied prepared webhook context only; does not authenticate the example, route events, verify GitHub state, or invoke triggers.
-         *
-         *     Requires the triggers:write scope.
-         *
-         *     Accepts a scoped bearer token or interactive owner session.
-         */
-        post: operations["post_api_v1_trigger_conditions_test"];
-        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -2324,6 +2210,216 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/event-subscriptions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the signed-in owner's Event subscriptions in the current workspace
+         * @description Shows registration lifecycle, not current delivery capability. Does not expose webhook configuration.
+         *
+         *     Requires the triggers:read scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        get: operations["get_api_v1_event_subscriptions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/event-subscriptions/{subscriptionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a signed-in owner's Event subscription in the current workspace
+         * @description Requires the triggers:read scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        get: operations["get_api_v1_event_subscriptions_subscriptionId"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/event-subscriptions/{subscriptionId}/occurrences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List matched occurrences for the signed-in owner's exact subscription
+         * @description Newest first. HTTP acceptance confirms receipt, not processing. Acknowledgment is independent. Webhook configuration and payloads are omitted.
+         *
+         *     Requires the triggers:read scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        get: operations["get_api_v1_event_subscriptions_subscriptionId_occurrences"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/event-contexts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get template autocomplete metadata
+         * @description Requires the triggers:read scope.
+         *
+         *     Accepts a scoped bearer token or interactive owner session.
+         */
+        get: operations["get_api_v1_event_contexts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/trigger-event-availability": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List available event kinds
+         * @description Requires the triggers:read scope.
+         *
+         *     Accepts a scoped bearer token or interactive owner session.
+         */
+        get: operations["get_api_v1_trigger_event_availability"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/schedules/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview schedule
+         * @description Requires the triggers:read scope.
+         *
+         *     Accepts a scoped bearer token or interactive owner session.
+         */
+        post: operations["post_api_v1_schedules_preview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/triggers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List triggers
+         * @description Requires the triggers:read scope.
+         *
+         *     Accepts a scoped bearer token or interactive owner session.
+         */
+        get: operations["get_api_v1_triggers"];
+        put?: never;
+        /**
+         * Create trigger
+         * @description Requires the triggers:write scope.
+         *
+         *     Accepts a scoped bearer token or interactive owner session.
+         */
+        post: operations["post_api_v1_triggers"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/triggers/{triggerId}/fire": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Fire a Trigger and create an Event occurrence
+         * @description Requires the triggers:write scope.
+         *
+         *     Accepts a scoped bearer token or interactive owner session.
+         */
+        post: operations["post_api_v1_triggers_triggerId_fire"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/trigger-conditions/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test webhook conditions
+         * @description Evaluates supplied prepared webhook context only; does not authenticate the example, route events, verify GitHub state, or invoke triggers.
+         *
+         *     Requires the triggers:write scope.
+         *
+         *     Accepts a scoped bearer token or interactive owner session.
+         */
+        post: operations["post_api_v1_trigger_conditions_test"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/triggers/{triggerId}/events": {
         parameters: {
             query?: never;
@@ -2470,7 +2566,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/app-consent/{requestId}": {
+    "/api/v1/vms": {
         parameters: {
             query?: never;
             header?: never;
@@ -2478,12 +2574,12 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Preview a registered app sign-in request
-         * @description Requires the team:read scope.
+         * List VMs with active Factorize permission grants
+         * @description Requires the vms:read scope.
          *
-         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         *     Accepts a scoped bearer token or interactive owner session.
          */
-        get: operations["get_api_v1_app_consent_requestId"];
+        get: operations["get_api_v1_vms"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2492,7 +2588,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/app-consent/decision": {
+    "/api/v1/vms/grants": {
         parameters: {
             query?: never;
             header?: never;
@@ -2502,119 +2598,21 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Allow or deny a registered app sign-in request
-         * @description Requires the team:read scope.
+         * Grant or replace Factorize permissions for an existing VM
+         * @description Supply a preset ID or an explicit scope list. Factorize saves the resolved scope snapshot and rejects the entire request if any scope exceeds the caller's effective access. Use one requestKey per initial enrollment and reuse it for a retry. Supply the current revision when editing an existing grant.
          *
-         *     An interactive owner session is required; bearer tokens cannot call this operation.
-         */
-        post: operations["post_api_v1_app_consent_decision"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/apps": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List the team's app registrations
-         * @description Requires the apps:manage scope.
+         *     Requires the vms:edit scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
-        get: operations["get_api_v1_apps"];
-        put?: never;
-        /**
-         * Register a server-side application
-         * @description Requires the apps:manage scope.
-         *
-         *     Accepts a scoped bearer token or interactive owner session.
-         */
-        post: operations["post_api_v1_apps"];
+        post: operations["post_api_v1_vms_grants"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/apps/{appId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Read an app registration
-         * @description Requires the apps:manage scope.
-         *
-         *     Accepts a scoped bearer token or interactive owner session.
-         */
-        get: operations["get_api_v1_apps_appId"];
-        /**
-         * Change an app registration, its visibility, or its enabled state
-         * @description Requires the apps:manage scope.
-         *
-         *     Accepts a scoped bearer token or interactive owner session.
-         */
-        put: operations["put_api_v1_apps_appId"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/apps/{appId}/secret": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Issue or rotate a client secret in a browser session
-         * @description Requires the apps:manage scope.
-         *
-         *     An interactive owner session is required; bearer tokens cannot call this operation.
-         */
-        post: operations["post_api_v1_apps_appId_secret"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/app-connections": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List sign-in apps authorized by the current user
-         * @description Requires the team:read scope.
-         *
-         *     An interactive owner session is required; bearer tokens cannot call this operation.
-         */
-        get: operations["get_api_v1_app_connections"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/app-connections/{connectionId}": {
+    "/api/v1/vms/grants/{grantId}": {
         parameters: {
             query?: never;
             header?: never;
@@ -2625,12 +2623,14 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Revoke one sign-in app connection
-         * @description Requires the team:write scope.
+         * Revoke a VM's Factorize permission grant
+         * @description Factorize immediately denies access under this grant. The VM keeps running. Retrying the same revocation is safe.
          *
-         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         *     Requires the vms:edit scope.
+         *
+         *     Accepts a scoped bearer token or interactive owner session.
          */
-        delete: operations["delete_api_v1_app_connections_connectionId"];
+        delete: operations["delete_api_v1_vms_grants_grantId"];
         options?: never;
         head?: never;
         patch?: never;
@@ -2848,656 +2848,6 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    post_api_v1_integrations_removal_preview: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    /** @enum {string} */
-                    kind: "exe" | "amp" | "github" | "cloudflareTail" | "cloudflare" | "fly" | "bearer";
-                    id: string;
-                };
-            };
-        };
-        responses: {
-            /** @description Exact references and an impact fingerprint */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        fingerprint: string;
-                        needsConfirmation: boolean;
-                        sources: {
-                            id: string;
-                            triggerId: string;
-                            triggerName: string;
-                            eventId: string;
-                            eventName: string;
-                            sourceName: string;
-                            deleteTrigger: boolean;
-                        }[];
-                        lookups: {
-                            eventId: string;
-                            eventName: string;
-                            name: string;
-                            cascaded: boolean;
-                        }[];
-                        pausedEvents: {
-                            id: string;
-                            name: string;
-                        }[];
-                        clients: {
-                            id: string;
-                            name: string;
-                        }[];
-                        workloads: {
-                            id: string;
-                            name: string;
-                            revoked: boolean;
-                        }[];
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            415: components["responses"]["Error415"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    post_api_v1_integrations_removal_confirm: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    /** @enum {string} */
-                    kind: "exe" | "amp" | "github" | "cloudflareTail" | "cloudflare" | "fly" | "bearer";
-                    id: string;
-                    fingerprint: string;
-                    confirmImpact: boolean;
-                };
-            };
-        };
-        responses: {
-            /** @description Removed */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /** @constant */
-                        deleted: true;
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            415: components["responses"]["Error415"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    get_api_v1_integrations_cloudflare: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Cloudflare OAuth metadata */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        configured: boolean;
-                        connections: {
-                            /** Format: uuid */
-                            id: string;
-                            name: string;
-                            connected: boolean;
-                            reconnectRequired: boolean;
-                        }[];
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    post_api_v1_integrations_cloudflare_authorize: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Cloudflare authorization URL */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /** Format: uri */
-                        authorizationUrl: string;
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    delete_api_v1_integrations_cloudflare_connectionId: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                connectionId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Cloudflare disconnected */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        ok: boolean;
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    get_api_v1_x_connections: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description X connection metadata */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        connections: {
-                            /** Format: uuid */
-                            id: string;
-                            name: string;
-                            clientId: string;
-                            scopes: string[];
-                            accountId: string | null;
-                            accountHandle: string | null;
-                            grantedScopes: string[];
-                            /** @enum {string} */
-                            status: "pending" | "connected" | "reconnect_required" | "revoked";
-                            createdAt: string;
-                            updatedAt: string;
-                        }[];
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    post_api_v1_x_connections: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    /** Format: uuid */
-                    id: string;
-                    name: string;
-                    clientId: string;
-                    clientSecret: string;
-                    scopes: ("tweet.read" | "tweet.write" | "tweet.moderate.write" | "users.email" | "users.read" | "follows.read" | "follows.write" | "offline.access" | "space.read" | "mute.read" | "mute.write" | "like.read" | "like.write" | "list.read" | "list.write" | "block.read" | "block.write" | "bookmark.read" | "bookmark.write" | "dm.read" | "dm.write" | "media.write" | "broadcast.read" | "broadcast.write")[];
-                };
-            };
-        };
-        responses: {
-            /** @description X connection created */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /** Format: uuid */
-                        id: string;
-                        name: string;
-                        clientId: string;
-                        scopes: string[];
-                        accountId: string | null;
-                        accountHandle: string | null;
-                        grantedScopes: string[];
-                        /** @enum {string} */
-                        status: "pending" | "connected" | "reconnect_required" | "revoked";
-                        createdAt: string;
-                        updatedAt: string;
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            415: components["responses"]["Error415"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    delete_api_v1_x_connections_connectionId: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                connectionId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description X connection deleted */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /** Format: uuid */
-                        id: string;
-                        /** @constant */
-                        deleted: true;
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    post_api_v1_x_connections_connectionId_authorize: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                connectionId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": Record<string, never>;
-            };
-        };
-        responses: {
-            /** @description X authorization URL */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /** Format: uri */
-                        authorizationUrl: string;
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            415: components["responses"]["Error415"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    post_api_v1_x_connections_connectionId_test: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                connectionId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": Record<string, never>;
-            };
-        };
-        responses: {
-            /** @description Safe connection test result */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /** @enum {string} */
-                        status: "connected" | "failed" | "reconnect_required";
-                        accountHandle: string | null;
-                        message: string;
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            415: components["responses"]["Error415"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    put_api_v1_x_connections_connectionId_credentials: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                connectionId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    clientId: string;
-                    clientSecret: string;
-                };
-            };
-        };
-        responses: {
-            /** @description Updated safe connection metadata */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /** Format: uuid */
-                        id: string;
-                        name: string;
-                        clientId: string;
-                        scopes: string[];
-                        accountId: string | null;
-                        accountHandle: string | null;
-                        grantedScopes: string[];
-                        /** @enum {string} */
-                        status: "pending" | "connected" | "reconnect_required" | "revoked";
-                        createdAt: string;
-                        updatedAt: string;
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            415: components["responses"]["Error415"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    get_api_v1_integrations_bearer: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Bearer integration metadata */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        revision: number;
-                        integrations: {
-                            /** @constant */
-                            kind?: "bearer";
-                            /** Format: uuid */
-                            id: string;
-                            name: string;
-                            origin: string;
-                            description: string | null;
-                            revision: number;
-                        }[];
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    post_api_v1_integrations_bearer: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    /** Format: uuid */
-                    id: string;
-                    expectedRevision: number;
-                    /** Format: uuid */
-                    idempotencyKey: string;
-                    name: string;
-                    /** Format: uri */
-                    origin: string;
-                    description: string | null;
-                    token: string;
-                };
-            };
-        };
-        responses: {
-            /** @description Created integration */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        revision: number;
-                        duplicate: boolean;
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            415: components["responses"]["Error415"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    put_api_v1_integrations_bearer_integrationId: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                integrationId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    expectedRevision: number;
-                    /** Format: uuid */
-                    idempotencyKey: string;
-                    name: string;
-                    /** Format: uri */
-                    origin: string;
-                    description: string | null;
-                    token: string;
-                };
-            };
-        };
-        responses: {
-            /** @description Updated integration */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        revision: number;
-                        duplicate: boolean;
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            415: components["responses"]["Error415"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    delete_api_v1_integrations_bearer_integrationId: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                integrationId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    expectedRevision: number;
-                    /** Format: uuid */
-                    idempotencyKey: string;
-                };
-            };
-        };
-        responses: {
-            /** @description Deleted integration */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /** Format: uuid */
-                        id: string;
-                        /** @constant */
-                        deleted: true;
-                        revision: number;
-                        duplicate: boolean;
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            415: components["responses"]["Error415"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
     post_api_v1_auth_connections: {
         parameters: {
             query?: never;
@@ -4886,7 +4236,7 @@ export interface operations {
             503: components["responses"]["Error503"];
         };
     };
-    get_api_v1_event_contexts: {
+    get_api_v1_access_authorized_clients: {
         parameters: {
             query?: never;
             header?: never;
@@ -4895,19 +4245,1254 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Paths by event kind/provider */
+            /** @description Clients */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
-                        [key: string]: {
-                            path: string;
+                        availableScopes: string[];
+                        /** @default {} */
+                        scopeLabels: {
+                            [key: string]: string;
+                        };
+                        /** @default {} */
+                        integrationOverrides: {
+                            [key: string]: string | false;
+                        };
+                        revision: number;
+                        grantId: string;
+                        clientId: string;
+                        clientName: string;
+                        appName?: string;
+                        ownerUsername?: string;
+                        scopes: string[];
+                        credentialScopes: string[];
+                        pendingScopes: string[];
+                        authorizationDate: string;
+                        expiresAt: string | null;
+                        lastUsedAt: string | null;
+                    }[];
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    get_api_v1_access_tokens: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Token metadata */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        id: string;
+                        name: string;
+                        scopes: ("team:read" | "team:write" | "triggers:read" | "triggers:write" | "integrations:read" | "integrations:write" | "vms:read" | "vms:edit")[];
+                        created_at: string;
+                        expires_at: string;
+                        last_used_at?: string | null;
+                        revoked_at?: string | null;
+                    }[];
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_access_tokens: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    name: string;
+                    scopes: ("team:read" | "team:write" | "triggers:read" | "triggers:write" | "integrations:read" | "integrations:write" | "vms:read" | "vms:edit")[];
+                    expiryDays: 7 | 30 | 90;
+                };
+            };
+        };
+        responses: {
+            /** @description Created token */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        id: string;
+                        name: string;
+                        scopes: ("team:read" | "team:write" | "triggers:read" | "triggers:write" | "integrations:read" | "integrations:write" | "vms:read" | "vms:edit")[];
+                        created_at: string;
+                        expires_at: string;
+                        last_used_at?: string | null;
+                        revoked_at?: string | null;
+                        token: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    delete_api_v1_access_tokens_tokenId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tokenId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Revoked */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    put_api_v1_access_authorizations_grantId_name: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                grantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    name: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Connection renamed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        name: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    put_api_v1_access_authorizations_grantId_permissions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                grantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description Complete owner-selected effective scope set for this connection. */
+                    scopes?: string[];
+                    disabledScopes?: ("team:read" | "team:write" | "triggers:read" | "triggers:write" | "integrations:read" | "integrations:write" | "vms:read" | "vms:edit" | "proxy:use" | "apps:manage")[];
+                    /** @description Integration ID to approved epoch-bound scope, or false to block. Explicit approval is required to re-enable a blocked integration, including when scopes are supplied. */
+                    integrationOverrides?: {
+                        [key: string]: string | false;
+                    };
+                    expectedRevision?: number;
+                };
+            };
+        };
+        responses: {
+            /** @description Permissions saved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ok: boolean;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    get_api_v1_team_permissions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Team permission defaults */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        scope: string;
+                        name: string;
+                        isDefault: boolean;
+                        integrationId: string | null;
+                        kind: string | null;
+                        credentialId: string | null;
+                        preferenceSet: boolean;
+                        available: boolean;
+                    }[];
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    put_api_v1_team_permissions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    scope: string;
+                    isDefault: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Default updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ok: boolean;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    delete_api_v1_access_authorizations_grantId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                grantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Authorization revoked */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        revoked: number;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    delete_api_v1_access_authorized_clients_clientId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clientId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Revoked one OAuth connection */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    get_api_v1_team: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Team */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        name: string | null;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    get_api_v1_app_consent_requestId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                requestId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Requested app permissions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        appName: string;
+                        scopes: string[];
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_app_consent_decision: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    requestId: string;
+                    /** @enum {string} */
+                    decision: "allow" | "deny";
+                };
+            };
+        };
+        responses: {
+            /** @description Registered redirect destination */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        redirectTo: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    get_api_v1_apps: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Registered apps */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        name: string;
+                        redirectUris: string[];
+                        public: boolean;
+                        enabled: boolean;
+                        secretConfigured: boolean;
+                    }[];
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_apps: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    name: string;
+                    redirectUris: string[];
+                    /** @default false */
+                    public?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Registered app */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        name: string;
+                        redirectUris: string[];
+                        public: boolean;
+                        enabled: boolean;
+                        secretConfigured: boolean;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    get_api_v1_apps_appId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                appId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Registered app */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        name: string;
+                        redirectUris: string[];
+                        public: boolean;
+                        enabled: boolean;
+                        secretConfigured: boolean;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    put_api_v1_apps_appId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                appId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    name: string;
+                    redirectUris: string[];
+                    /** @default false */
+                    public?: boolean;
+                    enabled: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Registered app */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        name: string;
+                        redirectUris: string[];
+                        public: boolean;
+                        enabled: boolean;
+                        secretConfigured: boolean;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_apps_appId_secret: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                appId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One-time secret */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        clientId: string;
+                        clientSecret: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    get_api_v1_app_connections: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Connected apps */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        /** Format: uuid */
+                        appId: string;
+                        name: string;
+                        scopes: string[];
+                        /** Format: date-time */
+                        authorizedAt: string;
+                    }[];
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    delete_api_v1_app_connections_connectionId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                connectionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Connection revoked */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ok: boolean;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    get_api_v1_events_eventId_occurrence_summaries: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                eventId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Event occurrence summaries */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: {
+                            /** Format: uuid */
+                            id: string;
+                            /** Format: date-time */
+                            occurredAt: string;
                             /** @enum {string} */
-                            type: "string" | "number" | "boolean" | "object" | "array" | "unknown";
-                            description: string;
-                            example?: unknown;
+                            source: "manual" | "schedule" | "github" | "linear" | "cloudflare" | "webhook" | "unknown";
+                        }[];
+                        nextCursor: string | null;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            /** @description Event not found */
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    get_api_v1_events: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Events and current revisions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        name: string;
+                        description: string;
+                        revision: number;
+                        payloadSchema: {
+                            [key: string]: unknown;
+                        };
+                        enrichment?: {
+                            extraDataUrls: {
+                                name: string;
+                                /** Format: uuid */
+                                integration: string;
+                                /** @enum {string} */
+                                method: "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS";
+                                path: string;
+                            }[];
+                            rule: string;
+                        };
+                        /** @constant */
+                        enrichmentPauseReason?: "integration_removed";
+                        createdAt: string;
+                        updatedAt: string;
+                        triggerCount: number;
+                        occurrenceCount: number;
+                    }[];
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_events: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    name: string;
+                    /** @default  */
+                    description?: string;
+                    enrichment?: {
+                        extraDataUrls: {
+                            name: string;
+                            /** Format: uuid */
+                            integration: string;
+                            /** @enum {string} */
+                            method: "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS";
+                            path: string;
+                        }[];
+                        rule: string;
+                    } | null;
+                    /**
+                     * @default {
+                     *       "type": "object"
+                     *     }
+                     */
+                    payloadSchema?: {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+        responses: {
+            /** @description Created Event */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        name: string;
+                        description: string;
+                        revision: number;
+                        payloadSchema: {
+                            [key: string]: unknown;
+                        };
+                        enrichment?: {
+                            extraDataUrls: {
+                                name: string;
+                                /** Format: uuid */
+                                integration: string;
+                                /** @enum {string} */
+                                method: "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS";
+                                path: string;
+                            }[];
+                            rule: string;
+                        };
+                        /** @constant */
+                        enrichmentPauseReason?: "integration_removed";
+                        createdAt: string;
+                        updatedAt: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    get_api_v1_events_eventId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                eventId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Event */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        name: string;
+                        description: string;
+                        revision: number;
+                        payloadSchema: {
+                            [key: string]: unknown;
+                        };
+                        enrichment?: {
+                            extraDataUrls: {
+                                name: string;
+                                /** Format: uuid */
+                                integration: string;
+                                /** @enum {string} */
+                                method: "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS";
+                                path: string;
+                            }[];
+                            rule: string;
+                        };
+                        /** @constant */
+                        enrichmentPauseReason?: "integration_removed";
+                        createdAt: string;
+                        updatedAt: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    put_api_v1_events_eventId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                eventId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    name: string;
+                    /** @default  */
+                    description?: string;
+                    enrichment?: {
+                        extraDataUrls: {
+                            name: string;
+                            /** Format: uuid */
+                            integration: string;
+                            /** @enum {string} */
+                            method: "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS";
+                            path: string;
+                        }[];
+                        rule: string;
+                    } | null;
+                    /**
+                     * @default {
+                     *       "type": "object"
+                     *     }
+                     */
+                    payloadSchema?: {
+                        [key: string]: unknown;
+                    };
+                    expectedRevision: number;
+                };
+            };
+        };
+        responses: {
+            /** @description Updated Event */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        name: string;
+                        description: string;
+                        revision: number;
+                        payloadSchema: {
+                            [key: string]: unknown;
+                        };
+                        enrichment?: {
+                            extraDataUrls: {
+                                name: string;
+                                /** Format: uuid */
+                                integration: string;
+                                /** @enum {string} */
+                                method: "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS";
+                                path: string;
+                            }[];
+                            rule: string;
+                        };
+                        /** @constant */
+                        enrichmentPauseReason?: "integration_removed";
+                        createdAt: string;
+                        updatedAt: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    delete_api_v1_events_eventId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                eventId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    get_api_v1_events_eventId_evaluations: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                eventId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Evaluations */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        /** Format: uuid */
+                        triggerId: string;
+                        /** Format: date-time */
+                        createdAt: string;
+                        /** @enum {string} */
+                        state: "running" | "matched" | "excluded" | "failed";
+                        stage: string | null;
+                        reason: string | null;
+                        input: {
+                            [key: string]: string | number | boolean;
+                        } | null;
+                        steps: {
+                            name: string;
+                            /** @enum {string} */
+                            outcome: "ok" | "failed";
+                            status?: number;
+                        }[];
+                    }[];
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    get_api_v1_events_eventId_occurrences: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                eventId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Occurrences */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: {
+                            /** Format: uuid */
+                            id: string;
+                            revision: number;
+                            occurredAt: string;
+                            payload: {
+                                [key: string]: unknown;
+                            };
+                            producer: {
+                                [key: string]: unknown;
+                            };
+                            createdAt: string;
+                        }[];
+                        nextCursor?: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_integrations_removal_preview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    kind: "exe" | "amp" | "github" | "cloudflareTail" | "cloudflare" | "fly" | "bearer";
+                    id: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Exact references and an impact fingerprint */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        fingerprint: string;
+                        needsConfirmation: boolean;
+                        sources: {
+                            id: string;
+                            triggerId: string;
+                            triggerName: string;
+                            eventId: string;
+                            eventName: string;
+                            sourceName: string;
+                            deleteTrigger: boolean;
+                        }[];
+                        lookups: {
+                            eventId: string;
+                            eventName: string;
+                            name: string;
+                            cascaded: boolean;
+                        }[];
+                        pausedEvents: {
+                            id: string;
+                            name: string;
+                        }[];
+                        clients: {
+                            id: string;
+                            name: string;
+                        }[];
+                        workloads: {
+                            id: string;
+                            name: string;
+                            revoked: boolean;
                         }[];
                     };
                 };
@@ -4917,6 +5502,589 @@ export interface operations {
             403: components["responses"]["Error403"];
             404: components["responses"]["Error404"];
             409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_integrations_removal_confirm: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    kind: "exe" | "amp" | "github" | "cloudflareTail" | "cloudflare" | "fly" | "bearer";
+                    id: string;
+                    fingerprint: string;
+                    confirmImpact: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Removed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        deleted: true;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    get_api_v1_integrations_cloudflare: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cloudflare OAuth metadata */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        configured: boolean;
+                        connections: {
+                            /** Format: uuid */
+                            id: string;
+                            name: string;
+                            connected: boolean;
+                            reconnectRequired: boolean;
+                        }[];
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_integrations_cloudflare_authorize: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cloudflare authorization URL */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uri */
+                        authorizationUrl: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    delete_api_v1_integrations_cloudflare_connectionId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                connectionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cloudflare disconnected */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ok: boolean;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    get_api_v1_x_connections: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description X connection metadata */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        connections: {
+                            /** Format: uuid */
+                            id: string;
+                            name: string;
+                            clientId: string;
+                            scopes: string[];
+                            accountId: string | null;
+                            accountHandle: string | null;
+                            grantedScopes: string[];
+                            /** @enum {string} */
+                            status: "pending" | "connected" | "reconnect_required" | "revoked";
+                            createdAt: string;
+                            updatedAt: string;
+                        }[];
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_x_connections: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    id: string;
+                    name: string;
+                    clientId: string;
+                    clientSecret: string;
+                    scopes: ("tweet.read" | "tweet.write" | "tweet.moderate.write" | "users.email" | "users.read" | "follows.read" | "follows.write" | "offline.access" | "space.read" | "mute.read" | "mute.write" | "like.read" | "like.write" | "list.read" | "list.write" | "block.read" | "block.write" | "bookmark.read" | "bookmark.write" | "dm.read" | "dm.write" | "media.write" | "broadcast.read" | "broadcast.write")[];
+                };
+            };
+        };
+        responses: {
+            /** @description X connection created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        name: string;
+                        clientId: string;
+                        scopes: string[];
+                        accountId: string | null;
+                        accountHandle: string | null;
+                        grantedScopes: string[];
+                        /** @enum {string} */
+                        status: "pending" | "connected" | "reconnect_required" | "revoked";
+                        createdAt: string;
+                        updatedAt: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    delete_api_v1_x_connections_connectionId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                connectionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description X connection deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        /** @constant */
+                        deleted: true;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_x_connections_connectionId_authorize: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                connectionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description X authorization URL */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uri */
+                        authorizationUrl: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_x_connections_connectionId_test: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                connectionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description Safe connection test result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        status: "connected" | "failed" | "reconnect_required";
+                        accountHandle: string | null;
+                        message: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    put_api_v1_x_connections_connectionId_credentials: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                connectionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    clientId: string;
+                    clientSecret: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Updated safe connection metadata */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        name: string;
+                        clientId: string;
+                        scopes: string[];
+                        accountId: string | null;
+                        accountHandle: string | null;
+                        grantedScopes: string[];
+                        /** @enum {string} */
+                        status: "pending" | "connected" | "reconnect_required" | "revoked";
+                        createdAt: string;
+                        updatedAt: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    get_api_v1_integrations_bearer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Bearer integration metadata */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        revision: number;
+                        integrations: {
+                            /** @constant */
+                            kind?: "bearer";
+                            /** Format: uuid */
+                            id: string;
+                            name: string;
+                            origin: string;
+                            description: string | null;
+                            revision: number;
+                        }[];
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_integrations_bearer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    id: string;
+                    expectedRevision: number;
+                    /** Format: uuid */
+                    idempotencyKey: string;
+                    name: string;
+                    /** Format: uri */
+                    origin: string;
+                    description: string | null;
+                    token: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Created integration */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        revision: number;
+                        duplicate: boolean;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    put_api_v1_integrations_bearer_integrationId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                integrationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    expectedRevision: number;
+                    /** Format: uuid */
+                    idempotencyKey: string;
+                    name: string;
+                    /** Format: uri */
+                    origin: string;
+                    description: string | null;
+                    token: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Updated integration */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        revision: number;
+                        duplicate: boolean;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    delete_api_v1_integrations_bearer_integrationId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                integrationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    expectedRevision: number;
+                    /** Format: uuid */
+                    idempotencyKey: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Deleted integration */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        /** @constant */
+                        deleted: true;
+                        revision: number;
+                        duplicate: boolean;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
             429: components["responses"]["Error429"];
             500: components["responses"]["Error500"];
             503: components["responses"]["Error503"];
@@ -4983,82 +6151,6 @@ export interface operations {
             403: components["responses"]["Error403"];
             404: components["responses"]["Error404"];
             409: components["responses"]["Error409"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    get_api_v1_trigger_event_availability: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Availability */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /** @constant */
-                        manual: true;
-                        /** @constant */
-                        schedule: true;
-                        linear: boolean;
-                        clickup: boolean;
-                        github: boolean;
-                        cloudflareTail: boolean;
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    post_api_v1_schedules_preview: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    cron: string;
-                    timezone: string;
-                };
-            };
-        };
-        responses: {
-            /** @description Next occurrence */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /** Format: date-time */
-                        nextRunAt: string;
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            415: components["responses"]["Error415"];
             429: components["responses"]["Error429"];
             500: components["responses"]["Error500"];
             503: components["responses"]["Error503"];
@@ -5576,539 +6668,6 @@ export interface operations {
             503: components["responses"]["Error503"];
         };
     };
-    get_api_v1_access_authorized_clients: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Clients */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        availableScopes: string[];
-                        /** @default {} */
-                        scopeLabels: {
-                            [key: string]: string;
-                        };
-                        /** @default {} */
-                        integrationOverrides: {
-                            [key: string]: string | false;
-                        };
-                        revision: number;
-                        grantId: string;
-                        clientId: string;
-                        clientName: string;
-                        appName?: string;
-                        ownerUsername?: string;
-                        scopes: string[];
-                        credentialScopes: string[];
-                        pendingScopes: string[];
-                        authorizationDate: string;
-                        expiresAt: string | null;
-                        lastUsedAt: string | null;
-                    }[];
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    get_api_v1_access_tokens: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Token metadata */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        id: string;
-                        name: string;
-                        scopes: ("team:read" | "team:write" | "triggers:read" | "triggers:write" | "integrations:read" | "integrations:write" | "vms:read" | "vms:edit")[];
-                        created_at: string;
-                        expires_at: string;
-                        last_used_at?: string | null;
-                        revoked_at?: string | null;
-                    }[];
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    post_api_v1_access_tokens: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    name: string;
-                    scopes: ("team:read" | "team:write" | "triggers:read" | "triggers:write" | "integrations:read" | "integrations:write" | "vms:read" | "vms:edit")[];
-                    expiryDays: 7 | 30 | 90;
-                };
-            };
-        };
-        responses: {
-            /** @description Created token */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        id: string;
-                        name: string;
-                        scopes: ("team:read" | "team:write" | "triggers:read" | "triggers:write" | "integrations:read" | "integrations:write" | "vms:read" | "vms:edit")[];
-                        created_at: string;
-                        expires_at: string;
-                        last_used_at?: string | null;
-                        revoked_at?: string | null;
-                        token: string;
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            415: components["responses"]["Error415"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    delete_api_v1_access_tokens_tokenId: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                tokenId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Revoked */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": Record<string, never>;
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    put_api_v1_access_authorizations_grantId_name: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                grantId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    name: string;
-                };
-            };
-        };
-        responses: {
-            /** @description Connection renamed */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        name: string;
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            415: components["responses"]["Error415"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    put_api_v1_access_authorizations_grantId_permissions: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                grantId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    /** @description Complete owner-selected effective scope set for this connection. */
-                    scopes?: string[];
-                    disabledScopes?: ("team:read" | "team:write" | "triggers:read" | "triggers:write" | "integrations:read" | "integrations:write" | "vms:read" | "vms:edit" | "proxy:use" | "apps:manage")[];
-                    /** @description Integration ID to approved epoch-bound scope, or false to block. Explicit approval is required to re-enable a blocked integration, including when scopes are supplied. */
-                    integrationOverrides?: {
-                        [key: string]: string | false;
-                    };
-                    expectedRevision?: number;
-                };
-            };
-        };
-        responses: {
-            /** @description Permissions saved */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        ok: boolean;
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            415: components["responses"]["Error415"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    get_api_v1_vms: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Active team VM grants */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /** Format: uuid */
-                        id: string;
-                        /** Format: uuid */
-                        providerId: string;
-                        /** @enum {string} */
-                        provider: "exe.dev" | "fly.io";
-                        vm: string;
-                        app: string | null;
-                        scopes: string[];
-                        revision: number;
-                        /** Format: date-time */
-                        createdAt: string;
-                        /** Format: date-time */
-                        updatedAt: string;
-                    }[];
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    post_api_v1_vms_grants: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    target: {
-                        /** @constant */
-                        kind: "machine";
-                        /** Format: uuid */
-                        providerId: string;
-                        vm: string;
-                        app?: string;
-                        requestKey: string;
-                    } | {
-                        /** @constant */
-                        kind: "existing";
-                        /** Format: uuid */
-                        grantId: string;
-                        expectedRevision: number;
-                    };
-                    permissions: {
-                        scopes: string[];
-                    };
-                };
-            };
-        };
-        responses: {
-            /** @description VM grant and guest authentication metadata */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /** Format: uuid */
-                        id: string;
-                        /** Format: uuid */
-                        providerId: string;
-                        /** @enum {string} */
-                        provider: "exe.dev" | "fly.io";
-                        vm: string;
-                        app: string | null;
-                        scopes: string[];
-                        revision: number;
-                        /** Format: date-time */
-                        createdAt: string;
-                        /** Format: date-time */
-                        updatedAt: string;
-                        authentication: {
-                            audience: string;
-                            guestKeyPath: string;
-                        };
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            415: components["responses"]["Error415"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    delete_api_v1_vms_grants_grantId: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                grantId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description VM grant revoked */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /** Format: uuid */
-                        id: string;
-                        /** @constant */
-                        revoked: true;
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    get_api_v1_team_permissions: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Team permission defaults */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        scope: string;
-                        name: string;
-                        isDefault: boolean;
-                        integrationId: string | null;
-                        kind: string | null;
-                        credentialId: string | null;
-                        preferenceSet: boolean;
-                        available: boolean;
-                    }[];
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    put_api_v1_team_permissions: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    scope: string;
-                    isDefault: boolean;
-                };
-            };
-        };
-        responses: {
-            /** @description Default updated */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        ok: boolean;
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            415: components["responses"]["Error415"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    delete_api_v1_access_authorizations_grantId: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                grantId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Authorization revoked */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        revoked: number;
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    delete_api_v1_access_authorized_clients_clientId: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                clientId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Revoked one OAuth connection */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": Record<string, never>;
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
     delete_api_v1_integrations_exe_connectionId: {
         parameters: {
             query?: never;
@@ -6305,983 +6864,6 @@ export interface operations {
             403: components["responses"]["Error403"];
             404: components["responses"]["Error404"];
             409: components["responses"]["Error409"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    get_api_v1_team: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Team */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /** Format: uuid */
-                        id: string;
-                        name: string | null;
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    get_api_v1_event_subscriptions: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Event subscriptions */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        id: string;
-                        /** Format: uuid */
-                        eventId: string;
-                        eventName: string;
-                        grantId: string;
-                        /** @enum {string} */
-                        status: "active" | "expired" | "stopped";
-                        /** @enum {string} */
-                        acknowledgmentMode: "required" | "off";
-                        /** @description Start of the last effective cooldown, when recorded. */
-                        lastCooldownStartedAt: string | null;
-                        /** @description Scheduled end of the last effective cooldown, if known. Retained after expiry or cancellation; not an indication of an active cooldown. */
-                        lastCooldownEndsAt: string | null;
-                        /** Format: date-time */
-                        expiresAt: string;
-                    }[];
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    get_api_v1_event_subscriptions_subscriptionId: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                subscriptionId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Event subscription */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        id: string;
-                        /** Format: uuid */
-                        eventId: string;
-                        eventName: string;
-                        grantId: string;
-                        /** @enum {string} */
-                        status: "active" | "expired" | "stopped";
-                        /** @enum {string} */
-                        acknowledgmentMode: "required" | "off";
-                        /** @description Start of the last effective cooldown, when recorded. */
-                        lastCooldownStartedAt: string | null;
-                        /** @description Scheduled end of the last effective cooldown, if known. Retained after expiry or cancellation; not an indication of an active cooldown. */
-                        lastCooldownEndsAt: string | null;
-                        /** Format: date-time */
-                        expiresAt: string;
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            /** @description Event subscription not found */
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    get_api_v1_event_subscriptions_subscriptionId_occurrences: {
-        parameters: {
-            query?: {
-                limit?: number;
-                cursor?: string;
-            };
-            header?: never;
-            path: {
-                subscriptionId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Subscription occurrence summaries */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        items: {
-                            /** Format: uuid */
-                            id: string;
-                            /** Format: date-time */
-                            occurredAt: string;
-                            /** @enum {string} */
-                            source: "manual" | "schedule" | "github" | "linear" | "cloudflare" | "webhook" | "unknown";
-                            /** @enum {string} */
-                            delivery: "pending" | "sending" | "accepted" | "failed" | "cancelled";
-                            /** @enum {string} */
-                            acknowledgment: "off" | "pending" | "awaiting_ack" | "processed" | "waived" | "exhausted" | "cancelled";
-                        }[];
-                        nextCursor: string | null;
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            /** @description Event subscription not found */
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    get_api_v1_events_eventId_occurrence_summaries: {
-        parameters: {
-            query?: {
-                limit?: number;
-                cursor?: string;
-            };
-            header?: never;
-            path: {
-                eventId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Event occurrence summaries */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        items: {
-                            /** Format: uuid */
-                            id: string;
-                            /** Format: date-time */
-                            occurredAt: string;
-                            /** @enum {string} */
-                            source: "manual" | "schedule" | "github" | "linear" | "cloudflare" | "webhook" | "unknown";
-                        }[];
-                        nextCursor: string | null;
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            /** @description Event not found */
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    get_api_v1_events: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Events and current revisions */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /** Format: uuid */
-                        id: string;
-                        name: string;
-                        description: string;
-                        revision: number;
-                        payloadSchema: {
-                            [key: string]: unknown;
-                        };
-                        enrichment?: {
-                            extraDataUrls: {
-                                name: string;
-                                /** Format: uuid */
-                                integration: string;
-                                /** @enum {string} */
-                                method: "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS";
-                                path: string;
-                            }[];
-                            rule: string;
-                        };
-                        /** @constant */
-                        enrichmentPauseReason?: "integration_removed";
-                        createdAt: string;
-                        updatedAt: string;
-                        triggerCount: number;
-                        occurrenceCount: number;
-                    }[];
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    post_api_v1_events: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    name: string;
-                    /** @default  */
-                    description?: string;
-                    enrichment?: {
-                        extraDataUrls: {
-                            name: string;
-                            /** Format: uuid */
-                            integration: string;
-                            /** @enum {string} */
-                            method: "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS";
-                            path: string;
-                        }[];
-                        rule: string;
-                    } | null;
-                    /**
-                     * @default {
-                     *       "type": "object"
-                     *     }
-                     */
-                    payloadSchema?: {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-        };
-        responses: {
-            /** @description Created Event */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /** Format: uuid */
-                        id: string;
-                        name: string;
-                        description: string;
-                        revision: number;
-                        payloadSchema: {
-                            [key: string]: unknown;
-                        };
-                        enrichment?: {
-                            extraDataUrls: {
-                                name: string;
-                                /** Format: uuid */
-                                integration: string;
-                                /** @enum {string} */
-                                method: "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS";
-                                path: string;
-                            }[];
-                            rule: string;
-                        };
-                        /** @constant */
-                        enrichmentPauseReason?: "integration_removed";
-                        createdAt: string;
-                        updatedAt: string;
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            415: components["responses"]["Error415"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    get_api_v1_events_eventId: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                eventId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Event */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /** Format: uuid */
-                        id: string;
-                        name: string;
-                        description: string;
-                        revision: number;
-                        payloadSchema: {
-                            [key: string]: unknown;
-                        };
-                        enrichment?: {
-                            extraDataUrls: {
-                                name: string;
-                                /** Format: uuid */
-                                integration: string;
-                                /** @enum {string} */
-                                method: "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS";
-                                path: string;
-                            }[];
-                            rule: string;
-                        };
-                        /** @constant */
-                        enrichmentPauseReason?: "integration_removed";
-                        createdAt: string;
-                        updatedAt: string;
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    put_api_v1_events_eventId: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                eventId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    name: string;
-                    /** @default  */
-                    description?: string;
-                    enrichment?: {
-                        extraDataUrls: {
-                            name: string;
-                            /** Format: uuid */
-                            integration: string;
-                            /** @enum {string} */
-                            method: "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS";
-                            path: string;
-                        }[];
-                        rule: string;
-                    } | null;
-                    /**
-                     * @default {
-                     *       "type": "object"
-                     *     }
-                     */
-                    payloadSchema?: {
-                        [key: string]: unknown;
-                    };
-                    expectedRevision: number;
-                };
-            };
-        };
-        responses: {
-            /** @description Updated Event */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /** Format: uuid */
-                        id: string;
-                        name: string;
-                        description: string;
-                        revision: number;
-                        payloadSchema: {
-                            [key: string]: unknown;
-                        };
-                        enrichment?: {
-                            extraDataUrls: {
-                                name: string;
-                                /** Format: uuid */
-                                integration: string;
-                                /** @enum {string} */
-                                method: "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS";
-                                path: string;
-                            }[];
-                            rule: string;
-                        };
-                        /** @constant */
-                        enrichmentPauseReason?: "integration_removed";
-                        createdAt: string;
-                        updatedAt: string;
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            415: components["responses"]["Error415"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    delete_api_v1_events_eventId: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                eventId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Deleted */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": Record<string, never>;
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    get_api_v1_events_eventId_evaluations: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                eventId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Evaluations */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /** Format: uuid */
-                        id: string;
-                        /** Format: uuid */
-                        triggerId: string;
-                        /** Format: date-time */
-                        createdAt: string;
-                        /** @enum {string} */
-                        state: "running" | "matched" | "excluded" | "failed";
-                        stage: string | null;
-                        reason: string | null;
-                        input: {
-                            [key: string]: string | number | boolean;
-                        } | null;
-                        steps: {
-                            name: string;
-                            /** @enum {string} */
-                            outcome: "ok" | "failed";
-                            status?: number;
-                        }[];
-                    }[];
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    get_api_v1_events_eventId_occurrences: {
-        parameters: {
-            query?: {
-                limit?: number;
-                cursor?: string;
-            };
-            header?: never;
-            path: {
-                eventId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Occurrences */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        items: {
-                            /** Format: uuid */
-                            id: string;
-                            revision: number;
-                            occurredAt: string;
-                            payload: {
-                                [key: string]: unknown;
-                            };
-                            producer: {
-                                [key: string]: unknown;
-                            };
-                            createdAt: string;
-                        }[];
-                        nextCursor?: string;
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    get_api_v1_triggers: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Triggers */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        inputMapping?: {
-                            [key: string]: string;
-                        };
-                        /** Format: uuid */
-                        id: string;
-                        name: string;
-                        description: string;
-                        enabled: boolean;
-                        /** Format: uuid */
-                        eventId: string;
-                        sources: ({
-                            /** Format: uuid */
-                            id: string;
-                            slug: string;
-                            /** @constant */
-                            kind: "manual";
-                            template?: string;
-                            /** @default true */
-                            enabled: boolean;
-                            /** @default {} */
-                            config: Record<string, never>;
-                            /** Format: uuid */
-                            triggerId: string;
-                            createdAt: string;
-                            updatedAt: string;
-                        } | {
-                            /** Format: uuid */
-                            id: string;
-                            slug: string;
-                            /** @constant */
-                            kind: "schedule";
-                            template?: string;
-                            /** @default true */
-                            enabled: boolean;
-                            config: {
-                                cron: string;
-                                timezone: string;
-                            };
-                            /** Format: uuid */
-                            triggerId: string;
-                            createdAt: string;
-                            updatedAt: string;
-                        } | {
-                            /** Format: uuid */
-                            id: string;
-                            slug: string;
-                            /** @constant */
-                            kind: "webhook";
-                            template?: string;
-                            /** @default true */
-                            enabled: boolean;
-                            config: {
-                                conditions?: {
-                                    [key: string]: unknown;
-                                };
-                                /** @constant */
-                                provider: "linear";
-                                projectId: string;
-                                matchRules: {
-                                    /** @enum {string} */
-                                    type: "owner" | "creator" | "status" | "label" | "assignee";
-                                    targetId: string;
-                                }[];
-                                secretConfigured?: boolean;
-                            } | {
-                                conditions?: {
-                                    [key: string]: unknown;
-                                };
-                                /** @constant */
-                                provider: "clickup";
-                                listId: string;
-                                matchRules: {
-                                    /** @enum {string} */
-                                    type: "owner" | "creator" | "status" | "label" | "assignee";
-                                    targetId: string;
-                                }[];
-                                secretConfigured?: boolean;
-                            } | {
-                                conditions?: {
-                                    [key: string]: unknown;
-                                };
-                                /** @constant */
-                                provider: "github";
-                                installationId: number;
-                                repositoryId: number;
-                                event?: string;
-                                action?: string;
-                                matchRules?: {
-                                    /** @enum {string} */
-                                    type: "owner" | "creator" | "status" | "label" | "assignee";
-                                    targetId: string;
-                                }[];
-                                secretConfigured?: boolean;
-                            } | {
-                                conditions?: {
-                                    [key: string]: unknown;
-                                };
-                                /** @constant */
-                                provider: "cloudflareTail";
-                                integrationId: string;
-                                destination?: string;
-                                secretConfigured?: boolean;
-                            };
-                            /** Format: uuid */
-                            triggerId: string;
-                            createdAt: string;
-                            updatedAt: string;
-                        })[];
-                        createdAt: string;
-                        updatedAt: string;
-                    }[];
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    post_api_v1_triggers: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["TriggerInput"];
-            };
-        };
-        responses: {
-            /** @description Created */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        inputMapping?: {
-                            [key: string]: string;
-                        };
-                        /** Format: uuid */
-                        id: string;
-                        name: string;
-                        description: string;
-                        enabled: boolean;
-                        /** Format: uuid */
-                        eventId: string;
-                        sources: ({
-                            /** Format: uuid */
-                            id: string;
-                            slug: string;
-                            /** @constant */
-                            kind: "manual";
-                            template?: string;
-                            /** @default true */
-                            enabled: boolean;
-                            /** @default {} */
-                            config: Record<string, never>;
-                            /** Format: uuid */
-                            triggerId: string;
-                            createdAt: string;
-                            updatedAt: string;
-                        } | {
-                            /** Format: uuid */
-                            id: string;
-                            slug: string;
-                            /** @constant */
-                            kind: "schedule";
-                            template?: string;
-                            /** @default true */
-                            enabled: boolean;
-                            config: {
-                                cron: string;
-                                timezone: string;
-                            };
-                            /** Format: uuid */
-                            triggerId: string;
-                            createdAt: string;
-                            updatedAt: string;
-                        } | {
-                            /** Format: uuid */
-                            id: string;
-                            slug: string;
-                            /** @constant */
-                            kind: "webhook";
-                            template?: string;
-                            /** @default true */
-                            enabled: boolean;
-                            config: {
-                                conditions?: {
-                                    [key: string]: unknown;
-                                };
-                                /** @constant */
-                                provider: "linear";
-                                projectId: string;
-                                matchRules: {
-                                    /** @enum {string} */
-                                    type: "owner" | "creator" | "status" | "label" | "assignee";
-                                    targetId: string;
-                                }[];
-                                secretConfigured?: boolean;
-                            } | {
-                                conditions?: {
-                                    [key: string]: unknown;
-                                };
-                                /** @constant */
-                                provider: "clickup";
-                                listId: string;
-                                matchRules: {
-                                    /** @enum {string} */
-                                    type: "owner" | "creator" | "status" | "label" | "assignee";
-                                    targetId: string;
-                                }[];
-                                secretConfigured?: boolean;
-                            } | {
-                                conditions?: {
-                                    [key: string]: unknown;
-                                };
-                                /** @constant */
-                                provider: "github";
-                                installationId: number;
-                                repositoryId: number;
-                                event?: string;
-                                action?: string;
-                                matchRules?: {
-                                    /** @enum {string} */
-                                    type: "owner" | "creator" | "status" | "label" | "assignee";
-                                    targetId: string;
-                                }[];
-                                secretConfigured?: boolean;
-                            } | {
-                                conditions?: {
-                                    [key: string]: unknown;
-                                };
-                                /** @constant */
-                                provider: "cloudflareTail";
-                                integrationId: string;
-                                destination?: string;
-                                secretConfigured?: boolean;
-                            };
-                            /** Format: uuid */
-                            triggerId: string;
-                            createdAt: string;
-                            updatedAt: string;
-                        })[];
-                        createdAt: string;
-                        updatedAt: string;
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            415: components["responses"]["Error415"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    post_api_v1_triggers_triggerId_fire: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                triggerId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["FireTriggerInput"];
-            };
-        };
-        responses: {
-            /** @description Event occurrence receipt */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        occurrenceId: string | null;
-                        duplicate: boolean;
-                        /** Format: uuid */
-                        evaluationId?: string;
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            415: components["responses"]["Error415"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    post_api_v1_trigger_conditions_test: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["TriggerConditionsTest"];
-            };
-        };
-        responses: {
-            /** @description Decision */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /** @enum {string} */
-                        decision: "match" | "no-match" | "error";
-                        error?: string;
-                        details: {
-                            [key: string]: unknown;
-                        }[];
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            415: components["responses"]["Error415"];
             429: components["responses"]["Error429"];
             500: components["responses"]["Error500"];
             503: components["responses"]["Error503"];
@@ -8226,6 +7808,620 @@ export interface operations {
             503: components["responses"]["Error503"];
         };
     };
+    get_api_v1_event_subscriptions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Event subscriptions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        id: string;
+                        /** Format: uuid */
+                        eventId: string;
+                        eventName: string;
+                        grantId: string;
+                        /** @enum {string} */
+                        status: "active" | "expired" | "stopped";
+                        /** @enum {string} */
+                        acknowledgmentMode: "required" | "off";
+                        /** @description Start of the last effective cooldown, when recorded. */
+                        lastCooldownStartedAt: string | null;
+                        /** @description Scheduled end of the last effective cooldown, if known. Retained after expiry or cancellation; not an indication of an active cooldown. */
+                        lastCooldownEndsAt: string | null;
+                        /** Format: date-time */
+                        expiresAt: string;
+                    }[];
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    get_api_v1_event_subscriptions_subscriptionId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                subscriptionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Event subscription */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        id: string;
+                        /** Format: uuid */
+                        eventId: string;
+                        eventName: string;
+                        grantId: string;
+                        /** @enum {string} */
+                        status: "active" | "expired" | "stopped";
+                        /** @enum {string} */
+                        acknowledgmentMode: "required" | "off";
+                        /** @description Start of the last effective cooldown, when recorded. */
+                        lastCooldownStartedAt: string | null;
+                        /** @description Scheduled end of the last effective cooldown, if known. Retained after expiry or cancellation; not an indication of an active cooldown. */
+                        lastCooldownEndsAt: string | null;
+                        /** Format: date-time */
+                        expiresAt: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            /** @description Event subscription not found */
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    get_api_v1_event_subscriptions_subscriptionId_occurrences: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                subscriptionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Subscription occurrence summaries */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: {
+                            /** Format: uuid */
+                            id: string;
+                            /** Format: date-time */
+                            occurredAt: string;
+                            /** @enum {string} */
+                            source: "manual" | "schedule" | "github" | "linear" | "cloudflare" | "webhook" | "unknown";
+                            /** @enum {string} */
+                            delivery: "pending" | "sending" | "accepted" | "failed" | "cancelled";
+                            /** @enum {string} */
+                            acknowledgment: "off" | "pending" | "awaiting_ack" | "processed" | "waived" | "exhausted" | "cancelled";
+                        }[];
+                        nextCursor: string | null;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            /** @description Event subscription not found */
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    get_api_v1_event_contexts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paths by event kind/provider */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: {
+                            path: string;
+                            /** @enum {string} */
+                            type: "string" | "number" | "boolean" | "object" | "array" | "unknown";
+                            description: string;
+                            example?: unknown;
+                        }[];
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    get_api_v1_trigger_event_availability: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Availability */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        manual: true;
+                        /** @constant */
+                        schedule: true;
+                        linear: boolean;
+                        clickup: boolean;
+                        github: boolean;
+                        cloudflareTail: boolean;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_schedules_preview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    cron: string;
+                    timezone: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Next occurrence */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: date-time */
+                        nextRunAt: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    get_api_v1_triggers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Triggers */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        inputMapping?: {
+                            [key: string]: string;
+                        };
+                        /** Format: uuid */
+                        id: string;
+                        name: string;
+                        description: string;
+                        enabled: boolean;
+                        /** Format: uuid */
+                        eventId: string;
+                        sources: ({
+                            /** Format: uuid */
+                            id: string;
+                            slug: string;
+                            /** @constant */
+                            kind: "manual";
+                            template?: string;
+                            /** @default true */
+                            enabled: boolean;
+                            /** @default {} */
+                            config: Record<string, never>;
+                            /** Format: uuid */
+                            triggerId: string;
+                            createdAt: string;
+                            updatedAt: string;
+                        } | {
+                            /** Format: uuid */
+                            id: string;
+                            slug: string;
+                            /** @constant */
+                            kind: "schedule";
+                            template?: string;
+                            /** @default true */
+                            enabled: boolean;
+                            config: {
+                                cron: string;
+                                timezone: string;
+                            };
+                            /** Format: uuid */
+                            triggerId: string;
+                            createdAt: string;
+                            updatedAt: string;
+                        } | {
+                            /** Format: uuid */
+                            id: string;
+                            slug: string;
+                            /** @constant */
+                            kind: "webhook";
+                            template?: string;
+                            /** @default true */
+                            enabled: boolean;
+                            config: {
+                                conditions?: {
+                                    [key: string]: unknown;
+                                };
+                                /** @constant */
+                                provider: "linear";
+                                projectId: string;
+                                matchRules: {
+                                    /** @enum {string} */
+                                    type: "owner" | "creator" | "status" | "label" | "assignee";
+                                    targetId: string;
+                                }[];
+                                secretConfigured?: boolean;
+                            } | {
+                                conditions?: {
+                                    [key: string]: unknown;
+                                };
+                                /** @constant */
+                                provider: "clickup";
+                                listId: string;
+                                matchRules: {
+                                    /** @enum {string} */
+                                    type: "owner" | "creator" | "status" | "label" | "assignee";
+                                    targetId: string;
+                                }[];
+                                secretConfigured?: boolean;
+                            } | {
+                                conditions?: {
+                                    [key: string]: unknown;
+                                };
+                                /** @constant */
+                                provider: "github";
+                                installationId: number;
+                                repositoryId: number;
+                                event?: string;
+                                action?: string;
+                                matchRules?: {
+                                    /** @enum {string} */
+                                    type: "owner" | "creator" | "status" | "label" | "assignee";
+                                    targetId: string;
+                                }[];
+                                secretConfigured?: boolean;
+                            } | {
+                                conditions?: {
+                                    [key: string]: unknown;
+                                };
+                                /** @constant */
+                                provider: "cloudflareTail";
+                                integrationId: string;
+                                destination?: string;
+                                secretConfigured?: boolean;
+                            };
+                            /** Format: uuid */
+                            triggerId: string;
+                            createdAt: string;
+                            updatedAt: string;
+                        })[];
+                        createdAt: string;
+                        updatedAt: string;
+                    }[];
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_triggers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TriggerInput"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        inputMapping?: {
+                            [key: string]: string;
+                        };
+                        /** Format: uuid */
+                        id: string;
+                        name: string;
+                        description: string;
+                        enabled: boolean;
+                        /** Format: uuid */
+                        eventId: string;
+                        sources: ({
+                            /** Format: uuid */
+                            id: string;
+                            slug: string;
+                            /** @constant */
+                            kind: "manual";
+                            template?: string;
+                            /** @default true */
+                            enabled: boolean;
+                            /** @default {} */
+                            config: Record<string, never>;
+                            /** Format: uuid */
+                            triggerId: string;
+                            createdAt: string;
+                            updatedAt: string;
+                        } | {
+                            /** Format: uuid */
+                            id: string;
+                            slug: string;
+                            /** @constant */
+                            kind: "schedule";
+                            template?: string;
+                            /** @default true */
+                            enabled: boolean;
+                            config: {
+                                cron: string;
+                                timezone: string;
+                            };
+                            /** Format: uuid */
+                            triggerId: string;
+                            createdAt: string;
+                            updatedAt: string;
+                        } | {
+                            /** Format: uuid */
+                            id: string;
+                            slug: string;
+                            /** @constant */
+                            kind: "webhook";
+                            template?: string;
+                            /** @default true */
+                            enabled: boolean;
+                            config: {
+                                conditions?: {
+                                    [key: string]: unknown;
+                                };
+                                /** @constant */
+                                provider: "linear";
+                                projectId: string;
+                                matchRules: {
+                                    /** @enum {string} */
+                                    type: "owner" | "creator" | "status" | "label" | "assignee";
+                                    targetId: string;
+                                }[];
+                                secretConfigured?: boolean;
+                            } | {
+                                conditions?: {
+                                    [key: string]: unknown;
+                                };
+                                /** @constant */
+                                provider: "clickup";
+                                listId: string;
+                                matchRules: {
+                                    /** @enum {string} */
+                                    type: "owner" | "creator" | "status" | "label" | "assignee";
+                                    targetId: string;
+                                }[];
+                                secretConfigured?: boolean;
+                            } | {
+                                conditions?: {
+                                    [key: string]: unknown;
+                                };
+                                /** @constant */
+                                provider: "github";
+                                installationId: number;
+                                repositoryId: number;
+                                event?: string;
+                                action?: string;
+                                matchRules?: {
+                                    /** @enum {string} */
+                                    type: "owner" | "creator" | "status" | "label" | "assignee";
+                                    targetId: string;
+                                }[];
+                                secretConfigured?: boolean;
+                            } | {
+                                conditions?: {
+                                    [key: string]: unknown;
+                                };
+                                /** @constant */
+                                provider: "cloudflareTail";
+                                integrationId: string;
+                                destination?: string;
+                                secretConfigured?: boolean;
+                            };
+                            /** Format: uuid */
+                            triggerId: string;
+                            createdAt: string;
+                            updatedAt: string;
+                        })[];
+                        createdAt: string;
+                        updatedAt: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_triggers_triggerId_fire: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                triggerId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FireTriggerInput"];
+            };
+        };
+        responses: {
+            /** @description Event occurrence receipt */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        occurrenceId: string | null;
+                        duplicate: boolean;
+                        /** Format: uuid */
+                        evaluationId?: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_trigger_conditions_test: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TriggerConditionsTest"];
+            };
+        };
+        responses: {
+            /** @description Decision */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        decision: "match" | "no-match" | "error";
+                        error?: string;
+                        details: {
+                            [key: string]: unknown;
+                        }[];
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
     get_api_v1_triggers_triggerId_events: {
         parameters: {
             query?: {
@@ -8801,306 +8997,36 @@ export interface operations {
             503: components["responses"]["Error503"];
         };
     };
-    get_api_v1_app_consent_requestId: {
+    get_api_v1_vms: {
         parameters: {
             query?: never;
             header?: never;
-            path: {
-                requestId: string;
-            };
+            path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Requested app permissions */
+            /** @description Active team VM grants */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
-                        appName: string;
+                        /** Format: uuid */
+                        id: string;
+                        /** Format: uuid */
+                        providerId: string;
+                        /** @enum {string} */
+                        provider: "exe.dev" | "fly.io";
+                        vm: string;
+                        app: string | null;
                         scopes: string[];
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    post_api_v1_app_consent_decision: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    /** Format: uuid */
-                    requestId: string;
-                    /** @enum {string} */
-                    decision: "allow" | "deny";
-                };
-            };
-        };
-        responses: {
-            /** @description Registered redirect destination */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        redirectTo: string;
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            415: components["responses"]["Error415"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    get_api_v1_apps: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Registered apps */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /** Format: uuid */
-                        id: string;
-                        name: string;
-                        redirectUris: string[];
-                        public: boolean;
-                        enabled: boolean;
-                        secretConfigured: boolean;
-                    }[];
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    post_api_v1_apps: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    name: string;
-                    redirectUris: string[];
-                    /** @default false */
-                    public?: boolean;
-                };
-            };
-        };
-        responses: {
-            /** @description Registered app */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /** Format: uuid */
-                        id: string;
-                        name: string;
-                        redirectUris: string[];
-                        public: boolean;
-                        enabled: boolean;
-                        secretConfigured: boolean;
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            415: components["responses"]["Error415"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    get_api_v1_apps_appId: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                appId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Registered app */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /** Format: uuid */
-                        id: string;
-                        name: string;
-                        redirectUris: string[];
-                        public: boolean;
-                        enabled: boolean;
-                        secretConfigured: boolean;
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    put_api_v1_apps_appId: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                appId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    name: string;
-                    redirectUris: string[];
-                    /** @default false */
-                    public?: boolean;
-                    enabled: boolean;
-                };
-            };
-        };
-        responses: {
-            /** @description Registered app */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /** Format: uuid */
-                        id: string;
-                        name: string;
-                        redirectUris: string[];
-                        public: boolean;
-                        enabled: boolean;
-                        secretConfigured: boolean;
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            415: components["responses"]["Error415"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    post_api_v1_apps_appId_secret: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                appId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description One-time secret */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /** Format: uuid */
-                        clientId: string;
-                        clientSecret: string;
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    get_api_v1_app_connections: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Connected apps */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /** Format: uuid */
-                        id: string;
-                        /** Format: uuid */
-                        appId: string;
-                        name: string;
-                        scopes: string[];
+                        revision: number;
                         /** Format: date-time */
-                        authorizedAt: string;
+                        createdAt: string;
+                        /** Format: date-time */
+                        updatedAt: string;
                     }[];
                 };
             };
@@ -9114,25 +9040,99 @@ export interface operations {
             503: components["responses"]["Error503"];
         };
     };
-    delete_api_v1_app_connections_connectionId: {
+    post_api_v1_vms_grants: {
         parameters: {
             query?: never;
             header?: never;
-            path: {
-                connectionId: string;
-            };
+            path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": {
+                    target: {
+                        /** @constant */
+                        kind: "machine";
+                        /** Format: uuid */
+                        providerId: string;
+                        vm: string;
+                        app?: string;
+                        requestKey: string;
+                    } | {
+                        /** @constant */
+                        kind: "existing";
+                        /** Format: uuid */
+                        grantId: string;
+                        expectedRevision: number;
+                    };
+                    permissions: {
+                        scopes: string[];
+                    };
+                };
+            };
+        };
         responses: {
-            /** @description Connection revoked */
+            /** @description VM grant and guest authentication metadata */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
-                        ok: boolean;
+                        /** Format: uuid */
+                        id: string;
+                        /** Format: uuid */
+                        providerId: string;
+                        /** @enum {string} */
+                        provider: "exe.dev" | "fly.io";
+                        vm: string;
+                        app: string | null;
+                        scopes: string[];
+                        revision: number;
+                        /** Format: date-time */
+                        createdAt: string;
+                        /** Format: date-time */
+                        updatedAt: string;
+                        authentication: {
+                            audience: string;
+                            guestKeyPath: string;
+                        };
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    delete_api_v1_vms_grants_grantId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                grantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description VM grant revoked */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        /** @constant */
+                        revoked: true;
                     };
                 };
             };

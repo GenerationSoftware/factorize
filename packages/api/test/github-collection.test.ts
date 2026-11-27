@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { githubCollection } from "../src/github";
+import { githubCollection } from "../src/integrations/providers/github";
 
 describe("githubCollection", () => {
   it("loads subsequent pages so all issue filter choices are available", async () => {

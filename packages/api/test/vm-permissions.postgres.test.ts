@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { VmGrantRepository } from "../src/postgres/vm-grant-repository";
-import { currentVmScopes, resolveVmPermissions, writeVmPermissionSnapshot } from "../src/vm-permissions";
+import { VmGrantRepository } from "../src/vm-grants/storage/vm-grant-repository";
+import { currentVmScopes, resolveVmPermissions, writeVmPermissionSnapshot } from "../src/vm-grants/application/vm-permissions";
 import { loadingFixture } from "./helpers/loading-fixture";
-import { AgentApiService } from "../src/agent-api";
-import { requestApiInput } from "../src/agent-api-contracts";
-import { processProxyOperation, ProxyOperations } from "../src/proxy-operations";
+import { AgentApiService } from "../src/proxy/application/agent-api";
+import { requestApiInput } from "../src/proxy/api/agent-api-contracts";
+import { processProxyOperation, ProxyOperations } from "../src/proxy/application/proxy-operations";
 import type { Env } from "../src/types";
 
 const url = process.env.AUTH_TEST_DATABASE_URL;

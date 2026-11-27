@@ -1,9 +1,10 @@
+import { appConfig, emailConfig } from "./config/runtime";
 import { validEmail } from "./auth";
 import type { Env } from "./types";
 
 export function validateAuthEmailConfig(env: Env): void {
-  const origin = new URL(env.APP_ORIGIN);
-  if (origin.protocol !== "https:" || origin.origin !== env.APP_ORIGIN || !env.POSTMARK_SERVER_TOKEN?.trim() || !validEmail(env.POSTMARK_FROM_EMAIL ?? "") || !env.POSTMARK_MESSAGE_STREAM?.trim()) {
+  const origin = new URL(appConfig(env).origin);
+  if (origin.protocol !== "https:" || origin.origin !== appConfig(env).origin || !emailConfig(env).serverToken?.trim() || !validEmail(emailConfig(env).fromEmail ?? "") || !emailConfig(env).messageStream?.trim()) {
     throw new Error("Authentication email requires an HTTPS APP_ORIGIN, POSTMARK_SERVER_TOKEN, POSTMARK_FROM_EMAIL and POSTMARK_MESSAGE_STREAM.");
   }
 }
@@ -12,13 +13,13 @@ export async function sendAuthEmail(env: Env, email: string, token: string, purp
   validateAuthEmailConfig(env);
   const google = purpose === "google-verify" || purpose === "google-password";
   const action = purpose === "google-password" ? "Set your Factorize password" : purpose === "google-verify" ? "Confirm your Factorize email" : purpose === "verify" ? "Verify your Factorize email" : "Reset your Factorize password";
-  const url = new URL(google ? "/auth/google" : purpose === "verify" ? "/auth/verify" : "/auth/password-reset", env.APP_ORIGIN);
+  const url = new URL(google ? "/auth/google" : purpose === "verify" ? "/auth/verify" : "/auth/password-reset", appConfig(env).origin);
   url.searchParams.set("token", token);
   if (connection) url.searchParams.set("connection", connection);
   const response = await fetch("https://api.postmarkapp.com/email", {
     method: "POST",
-    headers: { "Content-Type": "application/json", "X-Postmark-Server-Token": env.POSTMARK_SERVER_TOKEN! },
-    body: JSON.stringify({ From: env.POSTMARK_FROM_EMAIL, To: email, MessageStream: env.POSTMARK_MESSAGE_STREAM,
+    headers: { "Content-Type": "application/json", "X-Postmark-Server-Token": emailConfig(env).serverToken! },
+    body: JSON.stringify({ From: emailConfig(env).fromEmail, To: email, MessageStream: emailConfig(env).messageStream,
       Subject: action,
       TextBody: google ? `${action} in the browser where you confirmed Google: ${url}\n\nThis link expires when your Google verification attempt expires. If you did not request this, ignore this email.` : `${purpose === "verify" ? "Verify your email" : "Reset your password"}: ${url}\n\nThis link expires in one hour and can be used once. If you did not request this, ignore this email.` }),
   });

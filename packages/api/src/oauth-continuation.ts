@@ -1,3 +1,4 @@
+import { appConfig, signingConfig } from "./config/runtime";
 import { serialize } from "hono/utils/cookie";
 import { databaseFor } from "./postgres/database";
 import { tokenDigest } from "./auth";
@@ -14,7 +15,7 @@ export async function connectionFor(env: Env, id: string): Promise<Connection | 
 }
 export async function originalBrowser(request: Request, env: Env, connection: Connection): Promise<boolean> {
   const cookie = requestCookie(request, connectionCookie(connection.id));
-  return !!cookie && await tokenDigest(cookie, env.SESSION_SIGNING_SECRET) === connection.browser_digest;
+  return !!cookie && await tokenDigest(cookie, signingConfig(env).sessionSecret) === connection.browser_digest;
 }
 // Native clients select a free HTTP loopback port at login (RFC 8252 §7.3).
 // Preserve the exact registered URI outside the port, including path and query.
@@ -28,8 +29,8 @@ export function matchesRegisteredRedirect(uri: string, registered: string[]): bo
 
 export async function startConnection(request: Request, env: Env, destination: string) {
   if (!destination.startsWith("/") || destination.startsWith("//") || /[\\\x00-\x20]/.test(destination)) return null;
-  const url = new URL(destination, env.APP_ORIGIN);
-  if (url.origin !== env.APP_ORIGIN || !["/authorize", "/device"].includes(url.pathname)) return null;
+  const url = new URL(destination, appConfig(env).origin);
+  if (url.origin !== appConfig(env).origin || !["/authorize", "/device"].includes(url.pathname)) return null;
   url.searchParams.delete("connection"); url.hash = "";
   let deviceUserCode: string | null = null, clientName: string, kind: "callback" | "device", expiresAt = new Date(Date.now() + 3600_000);
   if (url.pathname === "/authorize") {
@@ -49,8 +50,8 @@ export async function startConnection(request: Request, env: Env, destination: s
   // Keep expired history only briefly; email tokens outlive neither this retention nor their own TTL.
   await databaseFor(env).pool.query("DELETE FROM app.oauth_connections WHERE expires_at<now()-interval '1 day'");
   const id = crypto.randomUUID(), browser = crypto.randomUUID() + crypto.randomUUID();
-  await databaseFor(env).pool.query("INSERT INTO app.oauth_connections(id,browser_digest,destination,client_name,kind,expires_at,device_user_code) VALUES ($1,$2,$3,$4,$5,$6,$7)", [id, await tokenDigest(browser, env.SESSION_SIGNING_SECRET), url.pathname + url.search, clientName, kind, expiresAt, deviceUserCode]);
-  return { connection: id, clientName, expiresAt: expiresAt.toISOString(), cookie: serialize(connectionCookie(id), browser, { httpOnly: true, secure: new URL(env.APP_ORIGIN).protocol === "https:", sameSite: "Lax", path: "/", maxAge: Math.max(1, Math.floor((expiresAt.getTime() - Date.now()) / 1000)) }) };
+  await databaseFor(env).pool.query("INSERT INTO app.oauth_connections(id,browser_digest,destination,client_name,kind,expires_at,device_user_code) VALUES ($1,$2,$3,$4,$5,$6,$7)", [id, await tokenDigest(browser, signingConfig(env).sessionSecret), url.pathname + url.search, clientName, kind, expiresAt, deviceUserCode]);
+  return { connection: id, clientName, expiresAt: expiresAt.toISOString(), cookie: serialize(connectionCookie(id), browser, { httpOnly: true, secure: new URL(appConfig(env).origin).protocol === "https:", sameSite: "Lax", path: "/", maxAge: Math.max(1, Math.floor((expiresAt.getTime() - Date.now()) / 1000)) }) };
 }
 export function connectionDestination(connection: Connection) {
   const url = new URL(connection.destination, "https://local.invalid");

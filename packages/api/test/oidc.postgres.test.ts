@@ -32,8 +32,8 @@ describe.skipIf(!dbUrl)("Sign in with Factorize", () => {
   const reqId = (response: Response) => new URL(response.headers.get("Location")!).searchParams.get("request")!;
   const appApi = (tenantId = f.tenantId) => new ApiService(f.env, { ...f.auth, tenantId, scopes: ["apps:manage", "team:read", "team:write"] });
   async function register(isPublic = false) {
-    const app = await appApi().createApp({ name: "Sample server", redirectUris: [redirectUri], public: isPublic });
-    const { clientSecret } = await appApi().rotateAppSecret(app.id);
+    const app = await appApi().apps.createApp({ name: "Sample server", redirectUris: [redirectUri], public: isPublic });
+    const { clientSecret } = await appApi().apps.rotateAppSecret(app.id);
     return { id: app.id, secret: clientSecret };
   }
   async function receiveCode(id: string, cookie = f.cookie, options?: Record<string,string>) {
@@ -120,8 +120,8 @@ describe.skipIf(!dbUrl)("Sign in with Factorize", () => {
     expect(refreshed.status).toBe(200);
     expect((await refresh(id, secret, issued.refresh_token)).status).toBe(400);
     const next = await refreshed.json() as { refresh_token: string };
-    const connection = (await appApi().listConnectedApps()).find(value => value.appId === id)!;
-    await appApi().revokeConnectedApp(connection.id);
+    const connection = (await appApi().apps.listConnectedApps()).find(value => value.appId === id)!;
+    await appApi().apps.revokeConnectedApp(connection.id);
     expect((await request("/api/v1/events", { headers: apiHeaders })).status).toBe(401);
     expect((await refresh(id, secret, next.refresh_token)).status).toBe(400);
   });
@@ -135,7 +135,7 @@ describe.skipIf(!dbUrl)("Sign in with Factorize", () => {
     }, f.env.SESSION_SIGNING_SECRET);
     const { id, secret } = await register();
     expect((await decide(reqId(await authorize(id)), cookie)).status).toBe(404);
-    await appApi().updateApp(id, { name:"Sample server", redirectUris:[redirectUri], public:true, enabled:true });
+    await appApi().apps.updateApp(id, { name:"Sample server", redirectUris:[redirectUri], public:true, enabled:true });
     const code = await receiveCode(id, cookie, {scope:"openid offline_access triggers:read"});
     const response = await exchange(id, secret, code);
     expect(response.status).toBe(200);
@@ -145,13 +145,13 @@ describe.skipIf(!dbUrl)("Sign in with Factorize", () => {
     const result = await request("/api/v1/events", { headers:apiHeaders });
     expect(result.status).toBe(200);
     expect(await result.json()).toEqual(expect.arrayContaining([expect.objectContaining({ id: definitionId, name: expect.any(String), triggerCount: 1, occurrenceCount: 0 })]));
-    const rotated = await appApi().rotateAppSecret(id);
+    const rotated = await appApi().apps.rotateAppSecret(id);
     expect((await refresh(id, secret, issued.refresh_token)).status).toBe(401);
     expect((await refresh(id, rotated.clientSecret, issued.refresh_token)).status).toBe(400);
     expect((await request("/api/v1/events", { headers:apiHeaders })).status).toBe(401);
     const newCode = await receiveCode(id,cookie,{scope:"openid triggers:read"});
     const newest = await (await exchange(id,rotated.clientSecret,newCode)).json() as {access_token:string};
-    await appApi().updateApp(id,{name:"Sample server",redirectUris:[redirectUri],public:true,enabled:false});
+    await appApi().apps.updateApp(id,{name:"Sample server",redirectUris:[redirectUri],public:true,enabled:false});
     expect((await request("/api/v1/events",{headers:{Authorization:"Bearer "+newest.access_token}})).status).toBe(401);
   });
 });

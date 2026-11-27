@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { matchingClickUpTask } from "../src/clickup";
+import { matchingClickUpTask } from "../src/integrations/providers/clickup";
 
 describe("ClickUp task matching", () => {
   const task = { id: "task-1", list: { id: "list-1" }, status: { status: "in progress" }, assignees: [{ id: 7 }], tags: [{ name: "agent" }], creator: { id: 9 } };

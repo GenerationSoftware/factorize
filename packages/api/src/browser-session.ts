@@ -1,10 +1,11 @@
+import { signingConfig } from "./config/runtime";
 import { databaseFor } from "./postgres/database";
 import { readSession, requestCookie, type Session } from "./session";
 import type { Env } from "./types";
 
 async function browserCredential(request: Request, env: Env) {
   const value = requestCookie(request, "factorize_session");
-  const session = await readSession(value, env.SESSION_SIGNING_SECRET);
+  const session = await readSession(value, signingConfig(env).sessionSecret);
   if (!session || !value || typeof session.tenantId !== "string" || typeof session.userId !== "string"
       || typeof session.email !== "string" || !Number.isSafeInteger(session.exp)
       || !Number.isSafeInteger(session.sessionVersion)) return null;

@@ -4,7 +4,7 @@ import { build } from "esbuild";
 import { Miniflare } from "miniflare";
 import { readFile } from "node:fs/promises";
 test("actual shared evaluator runs in workerd without Node compatibility or a worker loader", async () => {
-  const result = await build({ stdin: { contents: `import { evaluateWebhookConditions } from './packages/api/src/webhook-conditions.ts'; export default { async fetch(request) { const { conditions, webhook } = await request.json(); return Response.json(await evaluateWebhookConditions(conditions, webhook)); } };`, resolveDir: process.cwd() }, bundle: true, platform: "browser", format: "esm", write: false });
+  const result = await build({ stdin: { contents: `import { evaluateWebhookConditions } from './packages/api/src/triggers/domain/webhook-conditions.ts'; export default { async fetch(request) { const { conditions, webhook } = await request.json(); return Response.json(await evaluateWebhookConditions(conditions, webhook)); } };`, resolveDir: process.cwd() }, bundle: true, platform: "browser", format: "esm", write: false });
   const worker = new Miniflare({ workers: [{ config: { name: "conditions", type: "worker", manifest: { mainModule: "conditions.js", modules: { "conditions.js": { type: "esm", contents: result.outputFiles[0].text } } }, compatibilityDate: "2026-09-10", compatibilityFlags: ["global_fetch_strictly_public"] } }] });
   try {
     const conditions = JSON.parse(await readFile(new URL("../packages/api/migrations/build-manager-conditions.json", import.meta.url), "utf8"));

@@ -1,6 +1,6 @@
 import { example } from "./helpers/docs-example";
 import { expect, it, vi } from "vitest";
-import { cloudflarePath, cloudflareSettings } from "../src/cloudflare-oauth";
+import { cloudflarePath, cloudflareSettings } from "../src/integrations/providers/cloudflare-oauth";
 import { encrypt } from "../src/crypto";
 import type { Env } from "../src/types";
 import worker from "../src/worker";

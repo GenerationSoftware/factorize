@@ -1,3 +1,4 @@
+import { signingConfig } from "../config/runtime";
 import { usernameSchema } from "../usernames";
 import { hashPassword, normalizeEmail, tokenDigest, validEmail, validPassword, verifyPassword } from "../auth";
 import { sendAuthEmail, validateAuthEmailConfig } from "../auth-email";
@@ -74,7 +75,7 @@ export class AuthRepository {
       const bound = await this.database.pool.query("UPDATE app.oauth_connections SET user_id=$2 WHERE id=$1 AND expires_at>now() AND used_at IS NULL AND (user_id IS NULL OR user_id=$2) RETURNING id", [connection, userId]);
       if (!bound.rows.length) throw new Error("Invalid or expired connection. Restart from your MCP client.");
     }
-    const token = crypto.randomUUID() + crypto.randomUUID(), digest = await tokenDigest(token, this.env.SESSION_SIGNING_SECRET);
+    const token = crypto.randomUUID() + crypto.randomUUID(), digest = await tokenDigest(token, signingConfig(this.env).sessionSecret);
     await this.database.pool.query("INSERT INTO app.auth_reset_tokens(digest,user_id,expires_at,purpose,connection_id) VALUES ($1,$2,now()+interval '1 hour',$3,$4)", [digest, userId, purpose, connection ?? null]);
     try { await sendAuthEmail(this.env, email, token, purpose, connection); }
     catch (error) { await this.database.pool.query("DELETE FROM app.auth_reset_tokens WHERE digest=$1", [digest]); throw error; }
@@ -108,7 +109,7 @@ export class AuthRepository {
   }
   private async consumeToken(token: string, purpose: "verify" | "reset", passwordHash?: string): Promise<AuthResult> {
     if (!token) return invalidLink();
-    const digest = await tokenDigest(token, this.env.SESSION_SIGNING_SECRET);
+    const digest = await tokenDigest(token, signingConfig(this.env).sessionSecret);
     try {
       const completed = await this.database.transaction(async client => {
         // Always lock the user before tokens/accounts, including across different

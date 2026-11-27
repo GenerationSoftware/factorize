@@ -1,10 +1,10 @@
-import { pruneRevokedMcpSubscriptions } from "../src/postgres/mcp-event-outbox";
+import { pruneRevokedMcpSubscriptions } from "../src/subscriptions/storage/mcp-event-outbox";
 import { example } from "./helpers/docs-example";
 import { createHmac } from "node:crypto";
 import { AlarmCoordinator } from "../src/alarm-coordinator";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { dispatchMcpEvents } from "../src/mcp-event-subscriptions";
-import { EventMatchRepository } from "../src/postgres/event-match-repository";
+import { dispatchMcpEvents } from "../src/subscriptions/application/mcp-event-subscriptions";
+import { EventMatchRepository } from "../src/events/storage/event-match-repository";
 import { IdentityRepository } from "../src/postgres/identity-repository";
 import worker from "../src/worker";
 import app from "../src/index";

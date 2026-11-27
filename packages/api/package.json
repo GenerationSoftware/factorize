@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "wrangler dev --local-protocol https --var APP_ORIGIN:https://localhost:5173",
     "check": "npm run check:openapi && npm run check:api-boundaries && node --test scripts/validate-auth-email.check.mjs && bun check --no-script && vitest run && wrangler deploy --dry-run",
-    "check:api-boundaries": "node scripts/check-api-boundaries.mjs",
+    "check:api-boundaries": "node --test scripts/capability-boundaries.check.mjs && node scripts/check-api-boundaries.mjs",
     "test": "vitest run",
     "deploy": "node ../../scripts/prepare-app-deploy.mjs && wrangler deploy",
     "db:migrate": "node scripts/migrate.mjs",
@@ -14,7 +14,7 @@
     "db:studio": "drizzle-kit studio --config drizzle.config.ts",
     "auth:validate-email": "node scripts/validate-auth-email.mjs",
     "generate:openapi": "tsx scripts/generate-openapi.ts",
-    "check:openapi": "tsx scripts/generate-openapi.ts --check",
+    "check:openapi": "node --import tsx scripts/generate-openapi.ts --check",
     "deploy:prepared": "wrangler deploy",
     "predeploy": "node ../../scripts/generate-builtin-skills.mjs",
     "predeploy:prepared": "node ../../scripts/generate-builtin-skills.mjs"

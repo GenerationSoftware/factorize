@@ -1,0 +1,201 @@
+import type { EvaluatorAuthority } from "../application/event-enrichment";
+import type { EventEnrichment } from "../api/event-enrichment-contracts";
+import { lockIntegrationTopology, validateEnrichmentRegistrations } from "../../integrations/storage/integration-removal-topology";
+import type { Database, DatabaseClient } from "../../postgres/database";
+
+interface RecordedOccurrence {
+  id: string;
+  definition_id: string;
+  definition_revision: number;
+  occurred_at: Date;
+  recorded_at: string;
+  payload: Record<string, unknown>;
+}
+
+function presentRecorded(row: RecordedOccurrence) {
+  return {
+    occurrenceId: row.id,
+    definitionId: row.definition_id,
+    definitionRevision: row.definition_revision,
+    occurredAt: row.occurred_at.toISOString(),
+    recordedAt: row.recorded_at,
+    payload: row.payload,
+  };
+}
+
+// Preserve PostgreSQL's fractional precision for cursor comparisons.
+const recordedFields = `id,definition_id,definition_revision,occurred_at,payload,
+  to_char(created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS recorded_at`;
+
+type DeliveryStatus = "pending" | "sending" | "accepted" | "failed" | "cancelled";
+interface DeliveryDiagnosticRow {
+  occurrence_id: string;
+  subscription_id: string | null;
+  status: DeliveryStatus | null;
+  attempts: number;
+  last_outcome: string | null;
+  http_status: number | null;
+  updated_at: Date;
+  next_attempt_at: Date;
+  ack_state: string | null;
+  ack_due_at: Date | null;
+  ack_updated_at: Date | null;
+  recovery_attempts: number;
+}
+const deliveryOutcomeCodes = new Set([
+  "accepted", "http_error", "connection_failed", "timeout", "forbidden_destination",
+  "subscription_inactive", "authorization_inactive", "claim_interrupted", "event_mismatch",
+]);
+const deliveryDiagnosticsLimit = 100;
+
+export interface EventDefinitionInput {
+  name: string;
+  description?: string;
+  payloadSchema?: Record<string, unknown>;
+  enrichment?: EventEnrichment | null;
+  evaluatorAuthority?: EvaluatorAuthority | null;
+}
+
+export class EventDefinitionRepository {
+  constructor(private database: Database, private tenantId: string) {
+    if (!tenantId) throw new Error("tenantId is required");
+  }
+
+  private async present(client: Pick<DatabaseClient, "query">, id: string) {
+    const row = (await client.query<any>(`SELECT d.id,d.name,d.description,d.current_revision,d.created_at,d.updated_at,
+        r.payload_schema,r.enrichment,r.enrichment_pause_reason
+      FROM app.event_definitions d JOIN app.event_definition_revisions r
+        ON r.tenant_id=d.tenant_id AND r.definition_id=d.id AND r.revision=d.current_revision
+      WHERE d.tenant_id=$1 AND d.id=$2`, [this.tenantId, id])).rows[0];
+    return row && { id: row.id, name: row.name, description: row.description, revision: row.current_revision, payloadSchema: row.payload_schema, ...(row.enrichment ? { enrichment: row.enrichment } : {}), ...(row.enrichment_pause_reason ? { enrichmentPauseReason: row.enrichment_pause_reason } : {}), createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString() };
+  }
+
+  async list() {
+    // Aggregate each child table independently so trigger and history rows never multiply.
+    const rows = await this.database.pool.query<any>(`SELECT d.id,d.name,d.description,d.current_revision,d.created_at,d.updated_at,
+        r.payload_schema,coalesce(t.trigger_count,0) AS trigger_count,coalesce(o.occurrence_count,0) AS occurrence_count
+      FROM app.event_definitions d JOIN app.event_definition_revisions r
+        ON r.tenant_id=d.tenant_id AND r.definition_id=d.id AND r.revision=d.current_revision
+      LEFT JOIN (
+        SELECT event_definition_id,count(*)::int AS trigger_count
+        FROM app.triggers WHERE tenant_id=$1 GROUP BY event_definition_id
+      ) t ON t.event_definition_id=d.id
+      LEFT JOIN (
+        SELECT definition_id,count(*)::int AS occurrence_count
+        FROM app.event_occurrences WHERE tenant_id=$1 GROUP BY definition_id
+      ) o ON o.definition_id=d.id
+      WHERE d.tenant_id=$1 ORDER BY d.name,d.id`, [this.tenantId]);
+    return rows.rows.map(row => ({ id: row.id, name: row.name, description: row.description, revision: row.current_revision, payloadSchema: row.payload_schema, triggerCount: row.trigger_count, occurrenceCount: row.occurrence_count, createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString() }));
+  }
+
+  async occurrence(id: string) {
+    const row = (await this.database.pool.query<RecordedOccurrence>(
+      `SELECT ${recordedFields} FROM app.event_occurrences WHERE tenant_id=$1 AND id=$2`, [this.tenantId, id],
+    )).rows[0];
+    return row && presentRecorded(row);
+  }
+
+  async deliveryDiagnostics(occurrenceId: string) {
+    // One tenant-scoped snapshot distinguishes a missing occurrence from an
+    // existing one with no outbox rows without fetching payload or callback data.
+    const { rows } = await this.database.pool.query<DeliveryDiagnosticRow>(
+      `SELECT o.id AS occurrence_id,d.subscription_id,d.status,d.attempts,d.last_outcome,d.http_status,d.updated_at,d.next_attempt_at,d.ack_state,d.ack_due_at,d.ack_updated_at,d.recovery_attempts
+       FROM app.event_occurrences o LEFT JOIN LATERAL (
+         SELECT subscription_id,status,attempts,last_outcome,http_status,updated_at,next_attempt_at,ack_state,ack_due_at,ack_updated_at,recovery_attempts
+         FROM app.mcp_event_deliveries
+         WHERE tenant_id=o.tenant_id AND occurrence_id=o.id
+         ORDER BY updated_at DESC,subscription_id LIMIT $3
+       ) d ON TRUE
+       WHERE o.tenant_id=$1 AND o.id=$2
+       ORDER BY d.updated_at DESC,d.subscription_id`, [this.tenantId, occurrenceId, deliveryDiagnosticsLimit + 1],
+    );
+    if (!rows.length) return null;
+    const items = rows.flatMap(row => row.status === null ? [] : [{
+      subscriptionId: row.subscription_id && /^sub_[a-f0-9]{64}$/.test(row.subscription_id) ? row.subscription_id : null,
+      status: row.status,
+      attempts: row.attempts,
+      lastOutcome: row.last_outcome === null ? null : deliveryOutcomeCodes.has(row.last_outcome) ? row.last_outcome : "unclassified",
+      httpStatus: row.http_status !== null && row.http_status >= 100 && row.http_status <= 599 ? row.http_status : null,
+      updatedAt: row.updated_at.toISOString(),
+      nextAttemptAt: row.status === "pending" ? row.next_attempt_at.toISOString() : null,
+      ...(row.ack_state === null ? {} : { processing: {
+        state: row.ack_state, recoveryAttempts: Math.min(row.recovery_attempts, 4),
+        updatedAt: row.ack_updated_at?.toISOString() ?? null,
+        nextRecoveryAt: row.ack_due_at?.toISOString() ?? null,
+      } }),
+    }]);
+    return {
+      occurrenceId: rows[0].occurrence_id,
+      state: items.length ? "delivery_records_present" : "no_delivery_records",
+      items: items.slice(0, deliveryDiagnosticsLimit),
+      truncated: items.length > deliveryDiagnosticsLimit,
+    };
+  }
+
+  async recordedOccurrences(definitionId: string, since: string, limit: number, boundary?: [string, string]) {
+    const rows = (await this.database.pool.query<RecordedOccurrence>(
+      `SELECT ${recordedFields} FROM app.event_occurrences
+       WHERE tenant_id=$1 AND definition_id=$2 AND created_at>=$3
+         AND ($4::timestamptz IS NULL OR (created_at,id)>($4,$5::uuid))
+       ORDER BY created_at,id LIMIT $6`,
+      [this.tenantId, definitionId, since, boundary?.[0] ?? null, boundary?.[1] ?? null, limit + 1],
+    )).rows;
+    const items = rows.slice(0, limit).map(presentRecorded);
+    const last = items.at(-1);
+    return {
+      items,
+      nextCursor: rows.length > limit && last ? btoa(JSON.stringify([definitionId, since, last.recordedAt, last.occurrenceId])) : null,
+    };
+  }
+
+  async get(id: string) { return this.present(this.database.pool, id); }
+
+  async create(input: EventDefinitionInput) {
+    const id = crypto.randomUUID();
+    await this.database.transaction(async client => {
+      await lockIntegrationTopology(client,this.tenantId);
+      await validateEnrichmentRegistrations(client,this.tenantId,input.enrichment);
+      await client.query(`INSERT INTO app.event_definitions(tenant_id,id,name,description,current_revision) VALUES($1,$2,$3,$4,1)`, [this.tenantId, id, input.name, input.description ?? ""]);
+      await client.query(`INSERT INTO app.event_definition_revisions(tenant_id,definition_id,revision,payload_schema,enrichment,evaluator_authority) VALUES($1,$2,1,$3,$4,$5)`, [this.tenantId, id, input.payloadSchema ?? { type: "object" }, input.enrichment ?? null,input.evaluatorAuthority ?? null]);
+    });
+    return this.get(id);
+  }
+
+  async update(id: string, input: EventDefinitionInput, expectedRevision: number) {
+    return this.database.transaction(async client => {
+      await lockIntegrationTopology(client,this.tenantId);
+      const current = (await client.query<any>(`SELECT current_revision FROM app.event_definitions WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, [this.tenantId, id])).rows[0];
+      if (!current) return null;
+      if (current.current_revision !== expectedRevision) throw new EventDefinitionConflict();
+      const revision = current.current_revision + 1;
+      if (input.enrichment !== undefined) await validateEnrichmentRegistrations(client,this.tenantId,input.enrichment);
+      const previous = input.enrichment === undefined ? (await client.query<{ enrichment: EventEnrichment; evaluator_authority: EvaluatorAuthority; enrichment_pause_reason: string | null }>(
+        "SELECT enrichment,evaluator_authority,enrichment_pause_reason FROM app.event_definition_revisions WHERE tenant_id=$1 AND definition_id=$2 AND revision=$3",
+        [this.tenantId,id,current.current_revision])).rows[0] : undefined;
+      await client.query(`INSERT INTO app.event_definition_revisions(tenant_id,definition_id,revision,payload_schema,enrichment,evaluator_authority,enrichment_pause_reason)
+        VALUES($1,$2,$3,$4,$5,$6,$7)`, [this.tenantId,id,revision,input.payloadSchema ?? {type:"object"},previous?.enrichment ?? input.enrichment ?? null,
+          previous?.evaluator_authority ?? input.evaluatorAuthority ?? null,previous?.enrichment_pause_reason ?? null]);
+      await client.query(`UPDATE app.event_definitions SET name=$3,description=$4,current_revision=$5,updated_at=now() WHERE tenant_id=$1 AND id=$2`, [this.tenantId, id, input.name, input.description ?? "", revision]);
+      return this.present(client, id);
+    });
+  }
+
+  async delete(id: string) {
+    return this.database.transaction(async sql=>{
+      await lockIntegrationTopology(sql,this.tenantId);
+      const result = await sql.query(`DELETE FROM app.event_definitions WHERE tenant_id=$1 AND id=$2 RETURNING id`, [this.tenantId, id]);
+      return !!result.rowCount;
+    });
+  }
+
+  async occurrences(id: string, limit = 50, cursor?: string) {
+    const definition = await this.database.pool.query(`SELECT 1 FROM app.event_definitions WHERE tenant_id=$1 AND id=$2`, [this.tenantId, id]);
+    if (!definition.rowCount) return null;
+    const rows = await this.database.pool.query<any>(`SELECT id,definition_revision,occurred_at,payload,producer_identity,created_at
+      FROM app.event_occurrences WHERE tenant_id=$1 AND definition_id=$2 AND ($3::uuid IS NULL OR (occurred_at,id)<(SELECT occurred_at,id FROM app.event_occurrences WHERE tenant_id=$1 AND definition_id=$2 AND id=$3))
+      ORDER BY occurred_at DESC,id DESC LIMIT $4`, [this.tenantId, id, cursor ?? null, limit]);
+    return { items: rows.rows.map(row => ({ id: row.id, revision: row.definition_revision, occurredAt: row.occurred_at.toISOString(), payload: row.payload, producer: row.producer_identity, createdAt: row.created_at.toISOString() })), nextCursor: rows.rows.length === limit ? rows.rows.at(-1)?.id : undefined };
+  }
+}
+
+export class EventDefinitionConflict extends Error {}

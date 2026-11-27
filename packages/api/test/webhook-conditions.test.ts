@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
-import { CONDITION_LIMITS, evaluateWebhookConditions, validateConditions } from "../src/webhook-conditions";
-import { webhookSourceConfigSchema } from "../src/trigger-schemas";
+import { CONDITION_LIMITS, evaluateWebhookConditions, validateConditions } from "../src/triggers/domain/webhook-conditions";
+import { webhookSourceConfigSchema } from "../src/triggers/api/trigger-schemas";
 const build = JSON.parse(readFileSync(new URL("../migrations/build-manager-conditions.json", import.meta.url), "utf8"));
 export const leaf = (path: string, operator: string, value: unknown) => ({ fact: "webhook", path, operator, value });
 const decision = async (conditions: unknown, webhook: Record<string, unknown>) => (await evaluateWebhookConditions(conditions, webhook)).decision;

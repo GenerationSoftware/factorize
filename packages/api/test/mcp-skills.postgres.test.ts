@@ -4,7 +4,7 @@ import {mcpRequest} from "./helpers/mcp-request";
 import {SKILLS_EXTENSION} from "../src/mcp-skills";
 import {builtinSkillDocuments,builtinSkillUri} from "../src/builtin-skills";
 import {IdentityRepository} from "../src/postgres/identity-repository";
-import {EventMatchRepository} from "../src/postgres/event-match-repository";
+import {EventMatchRepository} from "../src/events/storage/event-match-repository";
 import type {OAuthProps} from "../src/types";
 vi.mock("cloudflare:workers",()=>({WorkerEntrypoint:class{},WorkflowEntrypoint:class{},DurableObject:class{}}));
 vi.mock("@cloudflare/workers-oauth-provider",()=>({OAuthProvider:class{},AuthorizationError:class extends Error{},getOAuthApi:vi.fn()}));

@@ -20,3 +20,15 @@ describe("Events and Triggers API contract", () => {
     expect(JSON.stringify(openapi)).not.toMatch(/RunPage|RunDetail|HarnessLog|TraceReplayResult/);
   });
 });
+
+describe("capability route registries", () => {
+  it("contains one declaration per operation and keeps fixed paths separate from parameterized paths", () => {
+    const keys = API_ROUTES.map(route => `${route.method} ${route.path}`);
+    expect(new Set(keys).size).toBe(keys.length);
+    const fire = matchApiOperation("POST", "/api/v1/triggers/abc/fire");
+    expect(fire?.route.scope).toBe("triggers:write");
+    expect(fire?.params).toEqual({ triggerId: "abc" });
+    expect(matchApiOperation("POST", "/api/v1/proxy-payloads/append")?.route.path).toBe("/api/v1/proxy-payloads/append");
+    expect(matchApiOperation("GET", "/api/v1/proxy-payloads/append")?.params).toEqual({ handle: "append" });
+  });
+});

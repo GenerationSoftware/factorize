@@ -2,19 +2,19 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { checkInventory } from "./inventory.mjs";
+import { checkInventory, registeredTools } from "./inventory.mjs";
 import { checkContent } from "./content.mjs";
 import { root, renderExports, syncExports } from "./exports.mjs";
 
 test("navigation, three pathways, skill links, redirects and contracts remain complete", checkContent);
 test("MCP inventory rejects a missing, invented, or duplicated tool", async () => {
-  const implementation = await readFile(resolve(root, "../api/src/protected-api.ts"), "utf8");
+  const tools = await registeredTools();
   const reference = await readFile(resolve(root, "mcp/tools.mdx"), "utf8");
   for (const changed of [
     reference.replace(/^\| `create_event`.*\n/m, ""),
     reference + "\n| `invented_tool` | Invented tool |",
     reference + "\n| `get_event` | Duplicate |",
-  ]) assert.throws(() => checkInventory(implementation, changed), /inventory differs/);
+  ]) assert.throws(() => checkInventory(tools, changed), /inventory differs/);
 });
 test("generated exports include all three recipes, operator setup and registered inventory", async () => {
   const exports = await renderExports();

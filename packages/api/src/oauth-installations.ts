@@ -1,13 +1,13 @@
-import { lockIntegrationTopology } from "./postgres/integration-removal-topology";
+import { lockIntegrationTopology } from "./integrations/storage/integration-removal-topology";
 import type { AuthRequest, GrantSummary } from "@cloudflare/workers-oauth-provider";
 import { normalizeScopes } from "./access-tokens";
-import { connectionAccess, requiredIntegrationScope, type AgentIntegration } from "./agent-integration-access";
+import { connectionAccess, requiredIntegrationScope, type AgentIntegration } from "./proxy/application/agent-integration-access";
 import { databaseFor, type DatabaseClient } from "./postgres/database";
 import { applyConnectionScopes, type ConnectionScopePolicy } from "./oauth-connection-settings";
 import { initialIntegrationOverrides, lockOAuthPolicy } from "./oauth-reconnect";
 import type { Env } from "./types";
 import type { Session } from "./session";
-import { lockMcpEventGrant } from "./postgres/mcp-event-outbox";
+import { lockMcpEventGrant } from "./subscriptions/storage/mcp-event-outbox";
 
 export type OAuthInstallation = {
   tenant_id: string; user_id: string; id: string; client_id: string; redirect_uri: string; display_name: string | null;

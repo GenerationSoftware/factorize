@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { resourceName } from "../src/resource-names";
-import { triggerInputSchema } from "../src/trigger-schemas";
+import { triggerInputSchema } from "../src/triggers/api/trigger-schemas";
 import { loadingFixture } from "./helpers/loading-fixture";
 
 vi.mock("@cloudflare/workers-oauth-provider", () => ({ OAuthProvider: class {}, AuthorizationError: class extends Error {}, getOAuthApi: vi.fn() }));

@@ -1,10 +1,10 @@
 import {beforeAll,afterAll,describe,it,expect,vi} from "vitest";
 import {createHash} from "node:crypto";
 import {loadingFixture} from "./helpers/loading-fixture";
-import {ProxyPayloads,createPayloadInput,appendPayloadInput,attachmentInput,proxyRequestBody} from "../src/proxy-payloads";
-import {CredentialRepository} from "../src/postgres/credential-repository";
-import {AgentApiService} from "../src/agent-api";
-import {requestApiInput} from "../src/agent-api-contracts";
+import {ProxyPayloads,createPayloadInput,appendPayloadInput,attachmentInput,proxyRequestBody} from "../src/proxy/application/proxy-payloads";
+import {CredentialRepository} from "../src/credentials/storage/credential-repository";
+import {AgentApiService} from "../src/proxy/application/agent-api";
+import {requestApiInput} from "../src/proxy/api/agent-api-contracts";
 import {protectedApiFetch} from "../src/protected-api";
 vi.mock("cloudflare:workers",()=>({WorkerEntrypoint:class{},WorkflowEntrypoint:class{},DurableObject:class{}}));
 vi.mock("@cloudflare/workers-oauth-provider",()=>({OAuthProvider:class{},AuthorizationError:class extends Error{},getOAuthApi:vi.fn()}));

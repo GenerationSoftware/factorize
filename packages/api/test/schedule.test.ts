@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { catchUpOccurrence, nextOccurrence, simpleIntervalFromSchedule, simpleIntervalToCron, validateScheduleConfig } from "../src/schedule";
+import { catchUpOccurrence, nextOccurrence, simpleIntervalFromSchedule, simpleIntervalToCron, validateScheduleConfig } from "../src/triggers/domain/schedule";
 
 describe("durable schedules", () => {
   it("calculates occurrences in the configured IANA timezone", () => {

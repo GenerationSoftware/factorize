@@ -1,8 +1,8 @@
 import { expect, it } from "vitest";
-import type { EventEnrichment } from "../src/event-enrichment-contracts";
-import { EventDefinitionRepository } from "../src/postgres/event-definition-repository";
-import { EventMatchRepository } from "../src/postgres/event-match-repository";
-import { applyIntegrationTopology, inspectIntegrationTopology, IntegrationTopologyChanged, lockIntegrationTopology, removedLookupSteps } from "../src/postgres/integration-removal-topology";
+import type { EventEnrichment } from "../src/events/api/event-enrichment-contracts";
+import { EventDefinitionRepository } from "../src/events/storage/event-definition-repository";
+import { EventMatchRepository } from "../src/events/storage/event-match-repository";
+import { applyIntegrationTopology, inspectIntegrationTopology, IntegrationTopologyChanged, lockIntegrationTopology, removedLookupSteps } from "../src/integrations/storage/integration-removal-topology";
 import { loadingFixture } from "./helpers/loading-fixture";
 
 const url = process.env.AUTH_TEST_DATABASE_URL;
