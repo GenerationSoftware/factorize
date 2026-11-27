@@ -6,6 +6,7 @@ import { SecretInput } from "../../shared/credential-fields";
 import { Button, Input, Label, Table, tableCellClasses, tableHeadClasses, tableRowClasses } from "../../shared/ui";
 import { messageOf, sessionQuery } from "../auth/session";
 import { IntegrationRow, ProviderTile } from "./integration-ui";
+import { HetznerSshCommands } from "./hetzner-ssh-commands";
 import { HetznerSsh } from "./hetzner-ssh";
 import { withRequestReference } from "./request-reference";
 
@@ -69,14 +70,14 @@ export function useHetznerIntegration() {
         <form autoComplete="off" method="post" className="grid gap-3" onSubmit={event => { event.preventDefault(); write.mutate("save"); }}>
           <Label>Project name <Input value={name} maxLength={120} required disabled={write.isPending} onChange={event => setName(event.target.value)} /></Label>
           <Label>Project API token <SecretInput name="hetzner-project-token" value={token} maxLength={256} required disabled={write.isPending} onChange={event => setToken(event.target.value)} /></Label>
-          <p className="text-sm">Choose Read for inventory only. A Read & Write token lets clients with the Hetzner checkbox create billable resources, modify them, or delete them. The checkbox also grants enrolled SSH access.</p>
-          {connection && <p className="text-sm">Replacing the connection removes saved SSH keys and clears client access. Reassign the Hetzner checkbox for clients you still want to use it.</p>}
+          <p className="text-sm">Choose Read for inventory only. A Read & Write token lets clients with the Hetzner checkbox create billable resources, modify them, or delete them. The checkbox also lets a client select this project’s servers for SSH. The server still decides whether to accept the client’s key.</p>
+          {connection && <p className="text-sm">Replacing the connection clears this project’s saved host fingerprints and client access. Client key pairs are kept. Reassign the Hetzner checkbox for clients you still want to use it.</p>}
           <div className="flex flex-wrap gap-2"><Button variant="primary" disabled={write.isPending || !name.trim() || !token.trim()}>{write.isPending ? "Saving…" : "Save connection"}</Button>
           <Button type="button" onClick={close} disabled={write.isPending}>Cancel</Button></div>
         </form>{error}
       </Dialog>}
       {screen === "delete" && <Dialog title="Delete Hetzner Cloud connection?" close={close} busy={write.isPending}>
-        <p>This removes the saved connection and its saved SSH keys from Factorize. It does not delete or change anything at Hetzner.</p>
+        <p>This removes the connection and its saved host fingerprints from Factorize. Client key pairs are kept. It does not delete or change anything at Hetzner.</p>
         <div className="mt-5 flex gap-2"><Button type="button" onClick={close} disabled={write.isPending}>Cancel</Button>
         <Button type="button" variant="destructive" disabled={write.isPending} onClick={() => write.mutate("delete")}>{write.isPending ? "Deleting…" : "Delete connection"}</Button></div>
         {error}
@@ -93,7 +94,7 @@ export function useHetznerIntegration() {
           {inventory.data.truncated && <p role="status">Showing the first 100 servers.</p>}
         </>}
         <Button type="button" onClick={() => void inventory.refetch()} disabled={inventory.isFetching}>Refresh servers</Button>
-        {inventory.data && <HetznerSsh servers={inventory.data.servers} />}
+        {inventory.data && <><HetznerSshCommands servers={inventory.data.servers} /><HetznerSsh servers={inventory.data.servers} /></>}
       </Dialog>}
     </>,
   };

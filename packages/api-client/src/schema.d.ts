@@ -1200,6 +1200,56 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ssh/hetzner-targets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List verified SSH identities for the connected Hetzner project
+         * @description Requires the integrations:read scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        get: operations["get_api_v1_ssh_hetzner_targets"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ssh/hetzner-targets/{serverId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Save an independently verified Hetzner SSH fingerprint
+         * @description Requires the integrations:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        put: operations["put_api_v1_ssh_hetzner_targets_serverId"];
+        post?: never;
+        /**
+         * Remove a saved Hetzner SSH fingerprint
+         * @description Requires the integrations:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        delete: operations["delete_api_v1_ssh_hetzner_targets_serverId"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/ssh/targets": {
         parameters: {
             query?: never;
@@ -5873,6 +5923,118 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Local credential deletion result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        deleted: boolean;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    get_api_v1_ssh_hetzner_targets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Targets */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        targets: {
+                            username: string;
+                            hostFingerprint: string;
+                            serverId: number;
+                            /** @default false */
+                            needsVerification: boolean;
+                        }[];
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    put_api_v1_ssh_hetzner_targets_serverId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                serverId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    username: string;
+                    hostFingerprint: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Target */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        username: string;
+                        hostFingerprint: string;
+                        serverId: number;
+                        /** @default false */
+                        needsVerification: boolean;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    delete_api_v1_ssh_hetzner_targets_serverId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                serverId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removal */
             200: {
                 headers: {
                     [name: string]: unknown;

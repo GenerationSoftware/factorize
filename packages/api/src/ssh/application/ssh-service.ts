@@ -6,7 +6,9 @@ import { lockIntegrationTopology } from "../../integrations/storage/integration-
 import { databaseFor, type DatabaseClient } from "../../postgres/database";
 import { ServiceError } from "../../service-contract";
 import type { Env, OAuthProps } from "../../types";
-import { sshClientAuthority, sshExecResult, type SshClientAuthority, type sshExecInput, type sshTargetInput } from "../api/contracts";
+import { publicHetznerSshPin, sshClientAuthority, sshExecResult, sshRoutingTarget, type hetznerSshPinInput, type SshClientAuthority, type sshExecInput, type sshTargetInput } from "../api/contracts";
+import { isPublicAddress } from "../../proxy/transport/public-address";
+import { hetznerSshContext } from "./hetzner-target";
 import { SshTargetRepository } from "../storage/target-repository";
 
 export async function activeSshClient(sql: DatabaseClient, caller: SshClientAuthority) {
@@ -70,17 +72,52 @@ export class SshService {
     return { deleted: await this.targets(this.db.pool).remove(id) };
   }
 
+  async listHetznerPins() {
+    await this.owner("integrations:read");
+    const { connections, pins } = hetznerSshContext(this.env, this.auth);
+    const project = await connections.get();
+    return { targets: project ? (await pins.list(project.revision)).map(pin => publicHetznerSshPin.parse(pin)) : [] };
+  }
+
+  async saveHetznerPin(serverId: number, input: z.infer<typeof hetznerSshPinInput>) {
+    await this.owner("integrations:write");
+    const { inventory } = hetznerSshContext(this.env, this.auth);
+    const server = await inventory.targetForServer(serverId);
+    if (!isPublicAddress(server.ipv4)) throw new ServiceError(422, "ssh_target_ip_invalid", "This server has no supported public IPv4 address.");
+    return this.db.transaction(async sql => {
+      await lockIntegrationTopology(sql, this.auth.tenantId);
+      const { connections, pins } = hetznerSshContext(this.env, this.auth, sql);
+      if ((await connections.get(sql))?.revision !== server.connectionRevision) {
+        throw new ServiceError(409, "hetzner_project_changed", "The Hetzner project changed. Refresh the list and verify the host again.");
+      }
+      const saved = await pins.save({ ...input, serverId, revision: crypto.randomUUID(), projectRevision: server.connectionRevision, needsVerification: false });
+      return publicHetznerSshPin.parse(saved);
+    });
+  }
+
+  async removeHetznerPin(serverId: number) {
+    await this.owner("integrations:write");
+    return this.db.transaction(async sql => {
+      await lockIntegrationTopology(sql, this.auth.tenantId);
+      return { deleted: await hetznerSshContext(this.env, this.auth, sql).pins.remove(serverId) };
+    });
+  }
+
   async exec(input: z.infer<typeof sshExecInput>) {
     const authority = await this.caller(this.db.pool);
     const broker = this.env.CLIENT_SSH;
     if (!broker) throw new ServiceError(503, "ssh_unavailable", "The SSH command broker is unavailable.");
-    const name = JSON.stringify([authority.tenantId, authority.userId, authority.oauthInstallationId, input.targetId]);
+    const name = JSON.stringify([authority.tenantId, authority.userId, authority.oauthInstallationId, sshRoutingTarget(input)]);
     const result = await broker.get(broker.idFromName(name)).fetch("https://ssh.internal/exec", {
       method: "POST", body: JSON.stringify({ ...input, authority })
     });
     switch (result.status) {
       case 200: return sshExecResult.parse(await result.json());
       case 401: throw new ServiceError(403, "ssh_client_inactive", "The OAuth client was not active.");
+      case 403: throw new ServiceError(403, "hetzner_ssh_access_denied", "This client does not have access to the connected Hetzner project.");
+      case 412: throw new ServiceError(412, "ssh_host_unverified", "Verify this server's SSH host fingerprint in Factorize before connecting.");
+      case 421: throw new ServiceError(421, "ssh_host_fingerprint_changed", "The SSH host fingerprint differs from the verified fingerprint. No command ran. Verify the new fingerprint independently before reconnecting.");
+      case 424: throw new ServiceError(424, "hetzner_ssh_lookup_failed", "Could not verify the server's current address through Hetzner. No command ran.");
       case 404: throw new ServiceError(404, "ssh_target_not_found", "Save a verified target before running SSH commands.");
       case 409: throw new ServiceError(409, "ssh_busy_or_no_key", "Generate this client's SSH key first, and wait for any running command.");
       case 422: throw new ServiceError(422, "ssh_login_failed", "SSH login failed. Check the saved host key, account, and authorized public key.");

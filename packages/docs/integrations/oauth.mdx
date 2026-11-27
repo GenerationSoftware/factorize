@@ -88,9 +88,18 @@ The broker can reuse the authenticated connection for up to 30 seconds
 idle and no more than two minutes in total. A timed-out command may still
 have run; do not retry without reconciling its effects.
 
-The Hetzner checkbox governs native API access and the legacy Hetzner
-authentication probe. It does not remove installed server keys or govern
-the generic SSH tool. Removing an authorized key on the server denies fresh
+For an existing Hetzner Cloud server, list the project inventory through
+`request_api` or open **View servers** in Factorize. In **SSH commands**,
+choose the server and save its independently verified Ed25519 host
+fingerprint and the SSH username. The client can then call `ssh_exec`
+with `hetznerServerId` instead of `targetId`. Factorize checks the connected
+project and resolves its current address through Hetzner; it never trusts the
+first SSH response. A changed host fingerprint stops execution and requires
+verification again.
+
+The Hetzner checkbox governs provider access, including the server-ID lookup.
+It does not install or remove authorized keys on the server and does not
+govern generic targets selected by `targetId`. Removing an authorized key on the server denies fresh
 SSH connections; terminate the existing connection on the server too if
 revocation must be immediate. Previously installed probe-only keys remain
 probe-only unless the server operator changes the authorization.
