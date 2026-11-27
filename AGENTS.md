@@ -33,6 +33,8 @@ production or a shared database. The bootstrap refuses remote database URLs.
 - A new API operation must include authorization, validation, OpenAPI documentation, and contract or boundary tests in the same change.
 - `/auth`, `/oauth`, `/webhooks`, `/internal`, `/mcp`, and `/healthz` are explicit non-API namespaces and must not be used to hide frontend application endpoints.
 
+- Keep top-level source files for package entry points, composition, and genuinely shared contracts. Put feature behavior with the owning capability, including provider setup with integrations and inbound webhooks with triggers. Keep REST and MCP protocol dispatch in `transport/` and keep shared authorization in the protected entry point.
+
 ## Package boundaries
 
 - `packages/api` owns the Worker. Its npm name remains `factorize` during the staged migration; this does not change production infrastructure identity.

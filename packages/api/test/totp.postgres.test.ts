@@ -1,7 +1,7 @@
 import { expect, it, vi } from "vitest";
-import { hashPassword, tokenDigest } from "../src/auth";
+import { hashPassword, tokenDigest } from "../src/auth/application/auth";
 import { protectedApiFetch } from "../src/protected-api";
-import { totpAt } from "../src/totp";
+import { totpAt } from "../src/auth/application/totp";
 import { loadingFixture } from "./helpers/loading-fixture";
 
 vi.mock("cloudflare:workers", () => ({ WorkerEntrypoint: class {}, DurableObject: class {} }));

@@ -1,4 +1,5 @@
-import { clientPermissionsUpdate, clientNameInput, authorizedClient, accessToken, createdAccessToken, okResult, teamPermissionList, teamPermissionUpdate } from "../../settings-contracts";
+import { clientPermissionsUpdate, clientNameInput, authorizedClient, accessToken, createdAccessToken, teamPermissionList, teamPermissionUpdate } from "./access-contracts";
+import { okResult } from "../../transport/rest/result-contracts";
 
 import { z } from "zod";
 

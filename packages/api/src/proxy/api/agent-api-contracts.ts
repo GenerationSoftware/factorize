@@ -1,7 +1,5 @@
 import {requestBodySource,multipartPart} from "./proxy-payload-contracts";
 import { z } from "zod";
-export const integrationScopePattern = /^integration:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}):([1-9][0-9]{0,9})$/;
-export const isIntegrationScope = (scope: string) => integrationScopePattern.test(scope);
 export const integrationRef = z.uuid();
 export const apiPolicyInput = z.object({ policy: z.enum(["baseline", "requestable", "disabled"]), expectedRevision: z.number().int().positive() }).strict();
 export const apiPolicy = z.object({ id: integrationRef, credentialId: z.string(), name: z.string(), description: z.string().nullable(), kind: z.enum(["bearer", "github", "linear", "model", "fly", "exe", "amp", "clickup", "x", "cloudflare"]), policy: z.enum(["baseline", "requestable", "disabled"]), available: z.boolean(), revision: z.number().int(), requiredScope: z.string() });

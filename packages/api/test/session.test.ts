@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { requestCookie, readSession, signSession } from "../src/index";
+import { requestCookie, readSession, signSession } from "../src/auth/application/session";
 
 describe("signed sessions", () => {
   it("round-trips and decodes URL-encoded cookie values", async () => {

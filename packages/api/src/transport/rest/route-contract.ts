@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { ApiService } from "../../api-service";
-import type { AuthAction } from "../../auth-api";
+import type { AuthAction } from "../../auth/api/auth-api";
 
 type JsonSchema = Record<string, any>;
 export interface RouteContract {

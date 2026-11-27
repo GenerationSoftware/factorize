@@ -1,4 +1,4 @@
-import { exeConnection } from "../../settings-contracts";
+import { exeConnection } from "../api/connection-contracts";
 import { appConfig, signingConfig } from "../../config/runtime";
 import { IntegrationRemoval } from "./integration-removal";
 
@@ -7,7 +7,8 @@ import { cloudflareState, startCloudflare } from "../providers/cloudflare-oauth"
 
 import { AgentApiError } from "../../proxy/application/agent-api";
 
-import { integrationStatus, accessToken } from "../../settings-contracts";
+import { integrationStatus } from "../api/connection-contracts";
+import { accessToken } from "../../access-control/api/access-contracts";
 import { namedOption, providerOptions, githubRepository, githubInstallation, tailIntegration } from "../api/editor-contracts";
 import { z } from "zod";
 
@@ -20,7 +21,7 @@ import { createXPKCE, signXOAuthState, validateXOAuthScopes, type XOAuthScope } 
 import { GitHubRepository } from "../../credentials/storage/github-repository";
 import { IntegrationService } from "./integration-service";
 import { ProviderCatalog } from "./provider-catalog";
-import { AGENT_SCOPES } from "../../access-tokens";
+import { AGENT_SCOPES } from "../../access-control/domain/scopes";
 import { createFlyAccountClient, FlyAccountError, flyConnectionInput } from "../providers/fly-account-client";
 import { FlyConnectionRepository } from "../../credentials/storage/fly-connection-repository";
 import { ServiceError, publicValue } from "../../service-contract";

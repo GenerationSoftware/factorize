@@ -1,4 +1,4 @@
-import { queryOf } from "../../query-params";
+import { queryOf } from "./query-params";
 
 import { z } from "zod";
 

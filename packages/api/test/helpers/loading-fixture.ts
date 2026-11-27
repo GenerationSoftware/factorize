@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { Database } from "../../src/postgres/database";
-import { IdentityRepository } from "../../src/postgres/identity-repository";
-import { signSession } from "../../src/session";
+import { IdentityRepository } from "../../src/auth/storage/identity-repository";
+import { signSession } from "../../src/auth/application/session";
 import { cloneTestDatabase } from "../../../../scripts/test-database.mjs";
 import type { Env, OAuthProps } from "../../src/types";
 

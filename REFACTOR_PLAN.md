@@ -85,3 +85,12 @@ OpenAPI and the client are regenerated in capability order.
   the same 153 SQL statements; migration files and Worker bindings are unchanged.
 - The complete pinned validation suite passed on an isolated Fly.io Machine:
   288 API tests, 55 browser tests, Worker runtime and every static check.
+
+## Stage 2: auth, routing, and settings ownership
+
+- [x] Move authentication, session, and identity storage to `auth/`; put OAuth client-grant policy and access tokens in `access-control/`. Keep OAuth protocol handling in the transport that uses it. Acceptance: the existing auth, account recovery, OAuth and TOTP paths retain their behavior; repository implementations are not exported through a generic barrel.
+- [x] Make the browser router mount form, provider setup, and webhook routes owned by their capabilities. Separate REST and MCP dispatch without duplicating the shared authorization check. Acceptance: route order, request validation and HTTP responses are unchanged, with direct tests for browser auth and webhook mounts.
+- [x] Split the mixed settings contracts and screens into integrations, access control, and proxy ownership. Acceptance: generated contracts don't drift, and settings URLs, aliases, and query keys remain unchanged.
+- [x] Retain actual top-level composition: the Cloudflare entry, Worker, browser router, protected entry, API service, and REST catalog. Do not move deployment bindings or the Postgres schema entry. Put synthetic Codex proof code in test support.
+
+Verification gate: API and app types, generated contracts, package and capability boundaries, then the full `npm run test:local` suite on an isolated Fly Machine. Splitting the Event delivery suite itself is a separate test-organization change; this stage leaves those test cases and fixtures intact.

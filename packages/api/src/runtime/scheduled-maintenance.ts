@@ -1,8 +1,8 @@
 import { pruneCloudflareOAuth } from "../integrations/providers/cloudflare-oauth";
 
-import { pruneTotp } from "../totp";
+import { pruneTotp } from "../auth/application/totp";
 
-import { clearExpiredGoogleSignIns } from "../google-sign-in";
+import { clearExpiredGoogleSignIns } from "../auth/application/google-sign-in";
 
 import { pruneRevokedMcpSubscriptions } from "../subscriptions/storage/mcp-event-outbox";
 import { wakeMcpDeliveries } from "../subscriptions/application/wake-delivery";

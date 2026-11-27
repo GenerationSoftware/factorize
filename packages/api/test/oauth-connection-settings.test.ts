@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyConnectionScopes } from "../src/oauth-connection-settings";
+import { applyConnectionScopes } from "../src/access-control/application/oauth-connection-settings";
 
 describe("OAuth connection scope policy", () => {
   it("retains separate scope limits for credentials under the same policy", () => {
