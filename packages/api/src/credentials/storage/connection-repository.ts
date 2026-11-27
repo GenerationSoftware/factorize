@@ -1,7 +1,7 @@
-import { decrypt, encrypt } from "../crypto";
-import type { Database } from "./database";
+import { decrypt, encrypt } from "../../crypto";
+import type { Database } from "../../postgres/database";
 import { and, eq, like, or } from "drizzle-orm";
-import { connections } from "./schema";
+import { connections } from "../../postgres/schema";
 
 export class ConnectionRepository {
   constructor(private database: Database, private tenantId: string, private encryptionKey: string) {

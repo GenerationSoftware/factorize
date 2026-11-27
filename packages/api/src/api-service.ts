@@ -23,11 +23,11 @@ import { TeamRepository } from "./postgres/team-repository";
 import { decideOidcConsent, inspectOidcConsent, oidcConsentInput, oidcConsentPreview } from "./oidc-provider";
 import { AppsRepository } from "./postgres/apps-repository";
 import { appRegistrationInput, appRegistrationUpdate, appSecret, connectedApp, registeredApp } from "./apps-contracts";
-import { AgentApiError, AgentApiService, listAgentPolicies } from "./agent-api";
-import { ProxyPayloads, createPayloadInput, appendPayloadInput, finalizePayloadInput, attachmentInput } from "./proxy-payloads";
-import { ProxyOperations, operationRef, operationRead } from "./proxy-operations";
-import { queryApiResponseInput } from "./agent-api-contracts";
-import { apiPolicyInput, integrationRef, requestApiInput, readApiResponseInput } from "./agent-api-contracts";
+import { AgentApiError, AgentApiService, listAgentPolicies } from "./proxy/application/agent-api";
+import { ProxyPayloads, createPayloadInput, appendPayloadInput, finalizePayloadInput, attachmentInput } from "./proxy/application/proxy-payloads";
+import { ProxyOperations, operationRef, operationRead } from "./proxy/application/proxy-operations";
+import { queryApiResponseInput } from "./proxy/api/agent-api-contracts";
+import { apiPolicyInput, integrationRef, requestApiInput, readApiResponseInput } from "./proxy/api/agent-api-contracts";
 import { integrationStatus, exeConnection, accessToken, createdAccessToken, clientPermissionsUpdate, clientNameInput, authorizedClient } from "./settings-contracts";
 import { namedOption, providerOptions, githubRepository, githubInstallation, tailIntegration } from "./editor-contracts";
 import { z } from "zod";
@@ -40,19 +40,19 @@ import { databaseFor } from "./postgres/database";
 import { IdentityRepository } from "./postgres/identity-repository";
 import { AccessTokenRepository } from "./postgres/access-token-repository";
 
-import { ConnectionRepository } from "./postgres/connection-repository";
-import { CredentialRepository, IntegrationIdempotencyConflictError, IntegrationValidationError, StaleIntegrationRevisionError } from "./postgres/credential-repository";
-import { XConnectionRepository } from "./postgres/x-connection-repository";
+import { ConnectionRepository } from "./credentials/storage/connection-repository";
+import { CredentialRepository, IntegrationIdempotencyConflictError, IntegrationValidationError, StaleIntegrationRevisionError } from "./credentials/storage/credential-repository";
+import { XConnectionRepository } from "./credentials/storage/x-connection-repository";
 import { createXPKCE, signXOAuthState, validateXOAuthScopes, type XOAuthScope } from "./x-oauth";
 
-import { GitHubRepository } from "./postgres/github-repository";
+import { GitHubRepository } from "./credentials/storage/github-repository";
 import { IntegrationService } from "./postgres/integration-service";
 
 import { ProviderCatalog } from "./postgres/provider-catalog";
 import { ACCESS_SCOPES, AGENT_SCOPES, accessTokenDigest, issueAccessToken, normalizeScopes } from "./access-tokens";
 
 import { createFlyAccountClient, FlyAccountError, flyConnectionInput } from "./fly-account-client";
-import { FlyConnectionRepository } from "./postgres/fly-connection-repository";
+import { FlyConnectionRepository } from "./credentials/storage/fly-connection-repository";
 
 export { ServiceError, publicValue } from "./service-contract";
 import { ServiceError, publicValue } from "./service-contract";

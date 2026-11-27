@@ -1,7 +1,7 @@
 import { lockIntegrationTopology } from "./postgres/integration-removal-topology";
 import type { AuthRequest, GrantSummary } from "@cloudflare/workers-oauth-provider";
 import { normalizeScopes } from "./access-tokens";
-import { connectionAccess, requiredIntegrationScope, type AgentIntegration } from "./agent-integration-access";
+import { connectionAccess, requiredIntegrationScope, type AgentIntegration } from "./proxy/application/agent-integration-access";
 import { databaseFor, type DatabaseClient } from "./postgres/database";
 import { applyConnectionScopes, type ConnectionScopePolicy } from "./oauth-connection-settings";
 import { initialIntegrationOverrides, lockOAuthPolicy } from "./oauth-reconnect";

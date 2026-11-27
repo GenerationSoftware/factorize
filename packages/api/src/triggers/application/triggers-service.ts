@@ -10,11 +10,11 @@ import { databaseFor } from "../../postgres/database";
 
 import { triggerResponse } from "../api/trigger-contracts";
 import { PostgresTriggerRepository, StaleTriggerEdit } from "../storage/trigger-repository";
-import { ConnectionRepository } from "../../postgres/connection-repository";
+import { ConnectionRepository } from "../../credentials/storage/connection-repository";
 
 import { decrypt, encrypt } from "../../crypto";
 import { type Trigger, type TriggerSource } from "../domain/trigger-domain";
-import { GitHubRepository } from "../../postgres/github-repository";
+import { GitHubRepository } from "../../credentials/storage/github-repository";
 
 import { OperationsRepository } from "../../postgres/operations-repository";
 import { installedEventAvailability } from "../domain/trigger-availability";

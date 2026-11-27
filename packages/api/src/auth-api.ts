@@ -2,7 +2,7 @@ import { beginTotpEnrollment, beginTotpLogin, clearTotpEnrollCookie, clearTotpLo
 import { clearGoogleCookie, finishGooglePassword, finishGoogleSignIn, googleEnabled, googlePending, googleUsernameAvailable, redeemGoogleCallback, requestGoogleEmail, startGoogleSignIn, verifyGoogleEmail, type GoogleIdentity } from "./google-sign-in";
 import { GoogleCallbackFailure, reportGoogleCallbackFailure } from "./google-callback-diagnostics";
 import { usernameSchema } from "./usernames";
-import { integrationConsentLabels } from "./agent-api";
+import { integrationConsentLabels } from "./proxy/application/agent-api";
 import { ACCESS_SCOPES } from "./access-tokens";
 import { connectionFor, originalBrowser, startConnection, connectionDestination } from "./oauth-continuation";
 import { inspectDevice, decideDevice, deviceConsentSignature, safeEqual } from "./device-oauth";

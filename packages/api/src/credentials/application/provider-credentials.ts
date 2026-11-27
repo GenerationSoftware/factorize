@@ -1,9 +1,9 @@
-import type { Env } from "./types";
-import type { Database } from "./postgres/database";
-import { installationToken } from "./github";
-import { refreshLinearToken } from "./linear";
-import { ConnectionRepository } from "./postgres/connection-repository";
-import { GitHubRepository } from "./postgres/github-repository";
+import type { Env } from "../../types";
+import type { Database } from "../../postgres/database";
+import { installationToken } from "../../github";
+import { refreshLinearToken } from "../../linear";
+import { ConnectionRepository } from "../storage/connection-repository";
+import { GitHubRepository } from "../storage/github-repository";
 
 type CachedInstallationToken = { token: string; expiresAt: number };
 const installationTokens = new Map<string, CachedInstallationToken>();

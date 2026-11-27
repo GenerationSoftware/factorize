@@ -1,8 +1,8 @@
 import {beforeAll,afterAll,describe,it,expect,vi} from "vitest";
-import {AgentApiService} from "../src/agent-api";
-import {requestApiInput,queryApiResponseInput} from "../src/agent-api-contracts";
-import {proxyResultSize} from "../src/proxy-result";
-import {CredentialRepository} from "../src/postgres/credential-repository";
+import {AgentApiService} from "../src/proxy/application/agent-api";
+import {requestApiInput,queryApiResponseInput} from "../src/proxy/api/agent-api-contracts";
+import {proxyResultSize} from "../src/proxy/application/proxy-result";
+import {CredentialRepository} from "../src/credentials/storage/credential-repository";
 import {loadingFixture} from "./helpers/loading-fixture";
 vi.mock("cloudflare:workers",()=>({WorkerEntrypoint:class{},WorkflowEntrypoint:class{},DurableObject:class{}}));
 vi.mock("@cloudflare/workers-oauth-provider",()=>({OAuthProvider:class{},AuthorizationError:class extends Error{},getOAuthApi:vi.fn()}));

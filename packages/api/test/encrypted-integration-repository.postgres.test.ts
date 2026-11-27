@@ -1,6 +1,6 @@
 import {describe, expect, it, vi} from "vitest";
 import {loadingFixture} from "./helpers/loading-fixture";
-import {CredentialRepository, IntegrationIdempotencyConflictError, StaleIntegrationRevisionError, MANAGED_BEARER_PREFIX} from "../src/postgres/credential-repository";
+import {CredentialRepository, IntegrationIdempotencyConflictError, StaleIntegrationRevisionError, MANAGED_BEARER_PREFIX} from "../src/credentials/storage/credential-repository";
 import {decrypt, encrypt} from "../src/crypto";
 
 vi.mock("cloudflare:workers",()=>({WorkerEntrypoint:class{},DurableObject:class{}}));

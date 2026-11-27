@@ -4,10 +4,10 @@ import { eventOccurrenceSummaryPage, subscriptionOccurrenceSummaryPage, occurren
 import { cloudflareStartResult, cloudflareStatus } from "./cloudflare-oauth";
 import { cloneInfo, gitCredential } from "./git-https-contracts";
 import { profileInput, profileResponse } from "./usernames";
-import {createPayloadInput,payloadReceipt,appendPayloadInput,finalizePayloadInput,attachmentInput} from "./proxy-payloads";
-import {operationRef,operationRead,operationReceipt} from "./proxy-operations";
-import {queryApiResponseInput,queryApiResponseResult} from "./agent-api-contracts";
-import { apiReflection, apiPolicyList, apiPolicyInput, requestApiInput, requestApiResponse, readApiResponseInput, apiResponseChunk } from "./agent-api-contracts";
+import {createPayloadInput,payloadReceipt,appendPayloadInput,finalizePayloadInput,attachmentInput} from "./proxy/application/proxy-payloads";
+import {operationRef,operationRead,operationReceipt} from "./proxy/application/proxy-operations";
+import {queryApiResponseInput,queryApiResponseResult} from "./proxy/api/agent-api-contracts";
+import { apiReflection, apiPolicyList, apiPolicyInput, requestApiInput, requestApiResponse, readApiResponseInput, apiResponseChunk } from "./proxy/api/agent-api-contracts";
 import { queryOf } from "./query-params";
 import { consentPreviewInput, consentPreviewResponse, consentDecisionInput, consentDecisionResponse } from "./consent-api";
 import { exeConnection, integrationStatus, clientPermissionsUpdate, clientNameInput, authorizedClient, accessToken, createdAccessToken, savedExe, savedAmp, okResult, teamPermissionList, teamPermissionUpdate } from "./settings-contracts";

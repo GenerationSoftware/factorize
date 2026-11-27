@@ -5,7 +5,7 @@ import type { Trigger } from "../domain/trigger-domain";
 import { evaluateWebhookConditions } from "../domain/webhook-conditions";
 import type { Env } from "../../types";
 import { adaptWebhook, type WebhookProvider, type WebhookEventConfig } from "../domain/webhook-trigger";
-import { ConnectionRepository } from "../../postgres/connection-repository";
+import { ConnectionRepository } from "../../credentials/storage/connection-repository";
 import type { Database } from "../../postgres/database";
 import { EventMatchRepository } from "../../events/storage/event-match-repository";
 import { wakeMcpDeliveries } from "../../subscriptions/application/wake-delivery";

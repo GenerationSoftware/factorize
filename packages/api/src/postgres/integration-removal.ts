@@ -1,8 +1,8 @@
 import { z } from "zod";
 import { hmac } from "../crypto";
-import { AgentApiError } from "../agent-api-error";
+import { AgentApiError } from "../proxy/api/agent-api-error";
 import { integrationRemovalPreview, type IntegrationRemovalTarget } from "../integration-removal-contracts";
-import { CredentialRepository } from "./credential-repository";
+import { CredentialRepository } from "../credentials/storage/credential-repository";
 import type { Database, DatabaseClient } from "./database";
 import { inspectIntegrationTopology, applyIntegrationTopology, lockIntegrationTopology, lockIntegrationTopologyRows } from "./integration-removal-topology";
 import { inspectIntegrationAccess, removeIntegrationAccess } from "./integration-removal-access";

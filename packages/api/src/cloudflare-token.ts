@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { AgentApiError } from "./agent-api-error";
+import { AgentApiError } from "./proxy/api/agent-api-error";
 import type { Env } from "./types";
 
 const tokenEndpoint = "https://dash.cloudflare.com/oauth2/token";

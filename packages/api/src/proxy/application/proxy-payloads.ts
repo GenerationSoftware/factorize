@@ -1,14 +1,14 @@
 import {Buffer} from "node:buffer";
 import {createHash} from "node:crypto";
 import {z} from "zod";
-import {databaseFor} from "./postgres/database";
-import {IdentityRepository} from "./postgres/identity-repository";
+import {databaseFor} from "../../postgres/database";
+import {IdentityRepository} from "../../postgres/identity-repository";
 import {AgentApiService} from "./agent-api";
-import {AgentApiError} from "./agent-api-error";
-import {isPublicHttpsOrigin} from "./public-address";
-import type {Env,OAuthProps} from "./types";
-import {createPayloadInput,payloadRef,appendPayloadInput,finalizePayloadInput,attachmentInput,payloadReceipt,requestBodySource,multipartPart} from "./proxy-payload-contracts";
-export {createPayloadInput,payloadRef,appendPayloadInput,finalizePayloadInput,attachmentInput,payloadReceipt,requestBodySource,multipartPart} from "./proxy-payload-contracts";
+import {AgentApiError} from "../api/agent-api-error";
+import {isPublicHttpsOrigin} from "../transport/public-address";
+import type {Env,OAuthProps} from "../../types";
+import {createPayloadInput,payloadRef,appendPayloadInput,finalizePayloadInput,attachmentInput,payloadReceipt,requestBodySource,multipartPart} from "../api/proxy-payload-contracts";
+export {createPayloadInput,payloadRef,appendPayloadInput,finalizePayloadInput,attachmentInput,payloadReceipt,requestBodySource,multipartPart} from "../api/proxy-payload-contracts";
 type Row={tenant_id:string;id:string;identity_id:string;owner_user_id:string;name:string;media_type:string;size:number;declared_size:number|null;state:"pending"|"uploading"|"finalizing"|"ready";sha256:string|null;expires_at:Date;lease_id:string|null};
 const fail=(status:number,code:string,message:string)=>new AgentApiError(status,code,message);
 export class ProxyPayloads {

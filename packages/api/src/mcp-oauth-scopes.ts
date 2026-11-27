@@ -1,4 +1,4 @@
-import { connectionAccess, requiredIntegrationScope, type AgentIntegration, type ConnectionPolicy } from "./agent-integration-access";
+import { connectionAccess, requiredIntegrationScope, type AgentIntegration, type ConnectionPolicy } from "./proxy/application/agent-integration-access";
 import { databaseFor } from "./postgres/database";
 import type { Env, OAuthProps } from "./types";
 

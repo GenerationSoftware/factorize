@@ -1,8 +1,8 @@
 import { lockIntegrationTopology } from "./postgres/integration-removal-topology";
 import { lockOAuthPolicy } from "./oauth-reconnect";
 import { prepareOAuthIssuance } from "./oauth-installations";
-import { integrationConsentLabels } from "./agent-api";
-import { isIntegrationScope } from "./agent-api-contracts";
+import { integrationConsentLabels } from "./proxy/application/agent-api";
+import { isIntegrationScope } from "./proxy/api/agent-api-contracts";
 import { staticApp } from "./static-app";
 import type { AuthRequest } from "@cloudflare/workers-oauth-provider";
 import { hmac } from "./crypto";

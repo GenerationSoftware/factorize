@@ -2,7 +2,7 @@ import { requestCookie } from "./session";
 import { readBrowserSession } from "./browser-session";
 import { databaseFor } from "./postgres/database";
 import { IdentityRepository } from "./postgres/identity-repository";
-import { XAccountMismatchError, XConnectionRepository } from "./postgres/x-connection-repository";
+import { XAccountMismatchError, XConnectionRepository } from "./credentials/storage/x-connection-repository";
 import { readXOAuthState } from "./x-oauth";
 import type { Env } from "./types";
 

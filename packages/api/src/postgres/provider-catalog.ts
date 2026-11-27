@@ -2,9 +2,9 @@ import type { Env } from "../types";
 import { clickUpJson } from "../clickup";
 import { githubCollection, githubHeaders, installationToken, normalizeRepository } from "../github";
 import { isLinearAuthenticationError, LINEAR_OPTION_QUERIES, LINEAR_PROJECTS_QUERY, refreshLinearToken } from "../linear";
-import { ConnectionRepository } from "./connection-repository";
+import { ConnectionRepository } from "../credentials/storage/connection-repository";
 import type { Database } from "./database";
-import { GitHubRepository } from "./github-repository";
+import { GitHubRepository } from "../credentials/storage/github-repository";
 
 /** Provider discovery is application code; it has no dependency on a VM or Durable Object. */
 export class ProviderCatalog {

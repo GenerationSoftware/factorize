@@ -1,5 +1,5 @@
-import {decrypt, encrypt} from "../crypto";
-import type {Database, DatabaseClient} from "./database";
+import {decrypt, encrypt} from "../../crypto";
+import type {Database, DatabaseClient} from "../../postgres/database";
 
 export type IntegrationKind = "bearer";
 export type IntegrationMetadata = {id: string; kind: IntegrationKind; name: string; origin: string | null; description: string | null};

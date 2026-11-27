@@ -1,13 +1,13 @@
-import { cloudflareCredential } from "./cloudflare-oauth";
-import type { Env } from "./types";
-import { databaseFor } from "./postgres/database";
-import { CredentialRepository } from "./postgres/credential-repository";
+import { cloudflareCredential } from "../../cloudflare-oauth";
+import type { Env } from "../../types";
+import { databaseFor } from "../../postgres/database";
+import { CredentialRepository } from "../storage/credential-repository";
 import { resolveProviderCredentials } from "./provider-credentials";
-import type { OutboundCredential } from "./outbound-forwarder";
-import { CLICKUP_API_BASE } from "./clickup";
-import { ConnectionRepository } from "./postgres/connection-repository";
-import { FlyConnectionRepository } from "./postgres/fly-connection-repository";
-import { isPublicHttpsOrigin } from "./public-address";
+import type { OutboundCredential } from "../../proxy/transport/outbound-forwarder";
+import { CLICKUP_API_BASE } from "../../clickup";
+import { ConnectionRepository } from "../storage/connection-repository";
+import { FlyConnectionRepository } from "../storage/fly-connection-repository";
+import { isPublicHttpsOrigin } from "../../proxy/transport/public-address";
 
 /** Only call after shared identity/grant authorization. No caller origin or secret. */
 export async function resolveAgentCredential(env: Env, tenantId: string, kind: string, credentialId: string, relativePath: string): Promise<OutboundCredential | null> {

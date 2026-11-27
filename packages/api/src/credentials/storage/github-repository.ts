@@ -1,4 +1,4 @@
-import type { Database } from "./database";
+import type { Database } from "../../postgres/database";
 
 export class GitHubRepository {
   constructor(private database: Database, private tenantId: string) { if (!tenantId) throw new Error("tenantId is required"); }

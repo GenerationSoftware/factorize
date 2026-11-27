@@ -1,5 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
-import { isPublicHttpsOrigin } from "../../public-address";
+import { isPublicHttpsOrigin } from "../../proxy/transport/public-address";
 
 const encoder = new TextEncoder();
 const maxBody = 256 * 1024;

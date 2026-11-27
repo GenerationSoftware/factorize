@@ -2,7 +2,7 @@ import type { ExeConnection } from "../exe";
 import type { AmpConnectionInput, ExeConnectionInput, TailIntegrationInput } from "../types";
 import { signTailDelivery, verifyTailDelivery } from "../cloudflare-tail";
 import type { Database } from "./database";
-import { ConnectionRepository } from "./connection-repository";
+import { ConnectionRepository } from "../credentials/storage/connection-repository";
 
 const timestamp = () => new Date().toISOString();
 const tailSecret = () => `fztail_${Array.from(crypto.getRandomValues(new Uint8Array(24)), byte => byte.toString(16).padStart(2, "0")).join("")}`;

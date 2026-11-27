@@ -1,4 +1,4 @@
-import { AgentApiError } from "./agent-api-error";
+import { AgentApiError } from "./proxy/api/agent-api-error";
 import { databaseFor, type DatabaseClient } from "./postgres/database";
 import { VmGrantRepository, vmGrantActor, type VmGrant, type VmProvider } from "./postgres/vm-grant-repository";
 import type { Env, OAuthProps } from "./types";

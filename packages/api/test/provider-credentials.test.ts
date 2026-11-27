@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as github from "../src/github";
-import { resolveProviderCredentials } from "../src/provider-credentials";
-import { ConnectionRepository } from "../src/postgres/connection-repository";
-import { GitHubRepository } from "../src/postgres/github-repository";
+import { resolveProviderCredentials } from "../src/credentials/application/provider-credentials";
+import { ConnectionRepository } from "../src/credentials/storage/connection-repository";
+import { GitHubRepository } from "../src/credentials/storage/github-repository";
 import type { Env } from "../src/types";
 
 const tenantId = "11111111-1111-4111-8111-111111111111";

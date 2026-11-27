@@ -1,6 +1,6 @@
 import { expect, it, vi } from "vitest";
 import { protectedApiFetch } from "../src/protected-api";
-import { CredentialRepository } from "../src/postgres/credential-repository";
+import { CredentialRepository } from "../src/credentials/storage/credential-repository";
 import { loadingFixture } from "./helpers/loading-fixture";
 import { mcpRequest } from "./helpers/mcp-request";
 

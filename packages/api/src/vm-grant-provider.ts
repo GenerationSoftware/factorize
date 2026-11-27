@@ -1,9 +1,9 @@
 import { Buffer } from "node:buffer";
 import { createPublicKey, verify } from "node:crypto";
 import { z } from "zod";
-import { AgentApiError } from "./agent-api-error";
+import { AgentApiError } from "./proxy/api/agent-api-error";
 import { databaseFor } from "./postgres/database";
-import { FlyConnectionRepository } from "./postgres/fly-connection-repository";
+import { FlyConnectionRepository } from "./credentials/storage/fly-connection-repository";
 import type { VmGrant, VmIdentityBinding, VmProvider } from "./postgres/vm-grant-repository";
 import type { Env } from "./types";
 import { discoverVendorIssuerTrust, verifyVendorMachineIdentity } from "./vm-oidc";

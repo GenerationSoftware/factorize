@@ -1,9 +1,9 @@
 import { lockIntegrationTopology } from "./postgres/integration-removal-topology";
 import { getOAuthInstallation, installationScopes } from "./oauth-installations";
 import { AGENT_SCOPES } from "./access-tokens";
-import { connectionAccess, requiredIntegrationScope, type AgentIntegration } from "./agent-integration-access";
-import { integrationScopePattern } from "./agent-api-contracts";
-import { AgentApiError } from "./agent-api-error";
+import { connectionAccess, requiredIntegrationScope, type AgentIntegration } from "./proxy/application/agent-integration-access";
+import { integrationScopePattern } from "./proxy/api/agent-api-contracts";
+import { AgentApiError } from "./proxy/api/agent-api-error";
 import type { Database, DatabaseClient } from "./postgres/database";
 import type { OAuthProps } from "./types";
 import { initialIntegrationOverrides } from "./oauth-reconnect";

@@ -1,10 +1,10 @@
 import {beforeAll,afterAll,describe,it,expect,vi} from "vitest";
 import {loadingFixture} from "./helpers/loading-fixture";
-import {CredentialRepository} from "../src/postgres/credential-repository";
-import {ProxyOperations,processProxyOperation} from "../src/proxy-operations";
-import {AgentApiService} from "../src/agent-api";
-import {requestApiInput} from "../src/agent-api-contracts";
-import {proxyResultSize} from "../src/proxy-result";
+import {CredentialRepository} from "../src/credentials/storage/credential-repository";
+import {ProxyOperations,processProxyOperation} from "../src/proxy/application/proxy-operations";
+import {AgentApiService} from "../src/proxy/application/agent-api";
+import {requestApiInput} from "../src/proxy/api/agent-api-contracts";
+import {proxyResultSize} from "../src/proxy/application/proxy-result";
 vi.mock("cloudflare:workers",()=>({WorkerEntrypoint:class{},WorkflowEntrypoint:class{},DurableObject:class{}}));
 vi.mock("@cloudflare/workers-oauth-provider",()=>({OAuthProvider:class{},AuthorizationError:class extends Error{},getOAuthApi:vi.fn()}));
 describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("durable HTTP operation fixture",()=>{

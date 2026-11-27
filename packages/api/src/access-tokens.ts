@@ -1,4 +1,4 @@
-import { isIntegrationScope } from "./agent-api-contracts";
+import { isIntegrationScope } from "./proxy/api/agent-api-contracts";
 import type { Env, OAuthProps } from "./types";
 import { databaseFor } from "./postgres/database";
 import { AccessTokenRepository } from "./postgres/access-token-repository";

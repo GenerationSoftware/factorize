@@ -1,4 +1,4 @@
-import { integrationScopePattern } from "./agent-api-contracts";
+import { integrationScopePattern } from "./proxy/api/agent-api-contracts";
 import type { DatabaseClient } from "./postgres/database";
 import type { Session } from "./session";
 

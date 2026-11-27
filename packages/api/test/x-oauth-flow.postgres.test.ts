@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { XConnectionRepository } from "../src/postgres/x-connection-repository";
+import { XConnectionRepository } from "../src/credentials/storage/x-connection-repository";
 import worker from "../src/worker";
 import { loadingFixture } from "./helpers/loading-fixture";
 

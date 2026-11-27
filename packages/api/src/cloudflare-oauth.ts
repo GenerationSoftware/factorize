@@ -4,9 +4,9 @@ import { requestCookie } from "./session";
 import { IdentityRepository } from "./postgres/identity-repository";
 import { databaseFor, type DatabaseClient } from "./postgres/database";
 import { decrypt, encrypt } from "./crypto";
-import { AgentApiError } from "./agent-api-error";
+import { AgentApiError } from "./proxy/api/agent-api-error";
 import { cloudflareClientCredentials, cloudflareMissingClient, credentialsSchema, exchangeCloudflareToken, reconnect, TokenFailure, type Credentials, type TokenFailureCode } from "./cloudflare-token";
-import type { OutboundCredential } from "./outbound-forwarder";
+import type { OutboundCredential } from "./proxy/transport/outbound-forwarder";
 import type { Env, OAuthProps } from "./types";
 
 export const cloudflareCallback = "/oauth/cloudflare/callback";

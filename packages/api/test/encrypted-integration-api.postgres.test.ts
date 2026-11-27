@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import worker from "../src/worker";
 import { protectedApiFetch } from "../src/protected-api";
 import { IdentityRepository } from "../src/postgres/identity-repository";
-import { CredentialRepository } from "../src/postgres/credential-repository";
+import { CredentialRepository } from "../src/credentials/storage/credential-repository";
 import { signSession } from "../src/session";
 import { loadingFixture } from "./helpers/loading-fixture";
 

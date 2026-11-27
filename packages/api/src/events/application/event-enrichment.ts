@@ -1,8 +1,8 @@
 import { compile, search } from "@jmespath-community/jmespath";
-import { AgentApiService } from "../../agent-api";
-import { AgentApiError } from "../../agent-api-error";
-import { requiredIntegrationScope } from "../../agent-integration-access";
-import { requestApiInput } from "../../agent-api-contracts";
+import { AgentApiService } from "../../proxy/application/agent-api";
+import { AgentApiError } from "../../proxy/api/agent-api-error";
+import { requiredIntegrationScope } from "../../proxy/application/agent-integration-access";
+import { requestApiInput } from "../../proxy/api/agent-api-contracts";
 import { normalizeScopes } from "../../access-tokens";
 import { getOAuthInstallation } from "../../oauth-installations";
 import { databaseFor } from "../../postgres/database";

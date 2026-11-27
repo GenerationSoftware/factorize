@@ -1,6 +1,6 @@
 import { expect, it, vi } from "vitest";
 import { protectedApiFetch } from "../src/protected-api";
-import { ConnectionRepository } from "../src/postgres/connection-repository";
+import { ConnectionRepository } from "../src/credentials/storage/connection-repository";
 import { EventDefinitionRepository } from "../src/events/storage/event-definition-repository";
 import { EventMatchRepository } from "../src/events/storage/event-match-repository";
 import { mcpRequest } from "./helpers/mcp-request";

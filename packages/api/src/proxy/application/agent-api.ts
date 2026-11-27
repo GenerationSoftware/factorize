@@ -1,48 +1,29 @@
-import { getOAuthInstallation, installationScopes } from "./oauth-installations";
-import { initialIntegrationOverrides } from "./oauth-reconnect";
-import { activeVmAuthorization } from "./vm-auth";
+import { CredentialBackedEgress } from "../transport/credential-backed-egress";
+import { getOAuthInstallation, installationScopes } from "../../oauth-installations";
+import { initialIntegrationOverrides } from "../../oauth-reconnect";
+import { activeVmAuthorization } from "../../vm-auth";
 import { connectionAccess, requiredIntegrationScope, type AgentIntegration, type ConnectionPolicy } from "./agent-integration-access";
 export { connectionAccess, requiredIntegrationScope, type AgentIntegration } from "./agent-integration-access";
-import {proxyRequestBody} from "./proxy-payloads";
-import {search} from "@jmespath-community/jmespath";
-import {proxyResultSize,proxyReceipt} from "./proxy-result";
-import {queryApiResponseInput,requestApiResponse} from "./agent-api-contracts";
-import {AgentApiError} from "./agent-api-error";
-export {AgentApiError} from "./agent-api-error";
+import { proxyRequestBody } from "./proxy-payloads";
+import { search } from "@jmespath-community/jmespath";
+import { proxyResultSize, proxyReceipt } from "./proxy-result";
+import { queryApiResponseInput, requestApiResponse } from "../api/agent-api-contracts";
+import { AgentApiError } from "../api/agent-api-error";
+export {AgentApiError} from "../api/agent-api-error";
 import { Buffer } from "node:buffer";
-import { forwardOutbound } from "./outbound-forwarder";
-import type { Env, OAuthProps } from "./types";
-import { databaseFor } from "./postgres/database";
-import { IdentityRepository } from "./postgres/identity-repository";
-import { normalizeScopes } from "./access-tokens";
-import { integrationScopePattern, requestApiInput, readApiResponseInput } from "./agent-api-contracts";
-import { resolveAgentCredential } from "./agent-credentials";
-import { XConnectionRepository, XReconnectRequiredError } from "./postgres/x-connection-repository";
-import type { z } from "zod";
 
+import type { Env, OAuthProps } from "../../types";
+import { databaseFor } from "../../postgres/database";
+import { IdentityRepository } from "../../postgres/identity-repository";
+import { normalizeScopes } from "../../access-tokens";
+import { integrationScopePattern, requestApiInput, readApiResponseInput } from "../api/agent-api-contracts";
+
+import type { z } from "zod";
 
 const STORAGE_BLOCK_BYTES = 1024 * 1024;
 const forbidden = () => new AgentApiError(403, "forbidden", "This integration is not authorized.");
 const invalidIdentity = () => new AgentApiError(401, "invalid_token", "The agent authorization is no longer active.");
 const publicIntegration = (row: AgentIntegration) => ({ id: row.id, kind: row.kind, credentialId: row.credential_id, name: row.name, description: row.description, available: row.available, policy: row.policy, revision: row.revision, requiredScope: requiredIntegrationScope(row) });
-
-/** Restrict the generic X v2 proxy to resources with an explicit OAuth-scope
- * mapping. Unsupported resources and credential-management routes fail closed. */
-function xRequiredScope(path: string, method: string): string | null {
-  const pathname = path.split("?", 1)[0] ?? "";
-  const verb = method.toUpperCase();
-  if (/^\/2\/users\/(?:me|[0-9]+)$/.test(pathname) && verb === "GET") return "users.read";
-  if (/^\/2\/tweets$/.test(pathname)) return verb === "GET" ? "tweet.read" : verb === "POST" ? "tweet.write" : null;
-  if (/^\/2\/tweets\/[0-9]+$/.test(pathname)) return verb === "GET" ? "tweet.read" : verb === "DELETE" ? "tweet.write" : null;
-  if (/^\/2\/users\/[0-9]+\/(?:tweets|mentions)$/.test(pathname) && verb === "GET") return "tweet.read";
-  if (/^\/2\/users\/[0-9]+\/followers$/.test(pathname) && verb === "GET") return "follows.read";
-  if (/^\/2\/users\/[0-9]+\/following$/.test(pathname)) return verb === "GET" ? "follows.read" : verb === "POST" ? "follows.write" : null;
-  if (/^\/2\/users\/[0-9]+\/following\/[0-9]+$/.test(pathname) && verb === "DELETE") return "follows.write";
-  if (/^\/2\/users\/[0-9]+\/liked_tweets$/.test(pathname) && verb === "GET") return "like.read";
-  if (/^\/2\/users\/[0-9]+\/likes$/.test(pathname)) return verb === "GET" ? "like.read" : verb === "POST" ? "like.write" : null;
-  if (/^\/2\/users\/[0-9]+\/likes\/[0-9]+$/.test(pathname) && verb === "DELETE") return "like.write";
-  return null;
-}
 
 /** These are structural checks only: reflection never refreshes/decrypts secrets. */
 export async function integrationConsentLabels(env: Env, tenantId: string, scopes: string[]) {
@@ -125,60 +106,15 @@ export class AgentApiService {
       authentication: "Call MCP request_api with integration, method and relative path (see each requestExample). MCP supplies authorization; never request or construct a credential. OAuth connections require proxy:use; renew consent if missing. read_api_response retrieves retained response handles. If these tools are missing from the client catalog, refresh/reconnect the connector and compare server tools/list; an HTTP URL alone is not usable by a tool-only client.",
     }, integrations: result};
   }
-  async forward(integration: string, path: string, request: Request) {
-    const grant = await this.authorize(integration);
-    if (grant.integration.kind === "x") return this.forwardX(grant.integration.credential_id, path, request);
-    let credential;
-    try { credential = await resolveAgentCredential(this.env, this.auth.tenantId, grant.integration.kind, grant.integration.credential_id, path); }
-    catch (error) {
-      if (error instanceof AgentApiError) throw error;
-      throw new AgentApiError(502, "credential_unavailable", "The upstream credential could not be resolved.");
-    }
-    if (!credential) throw new AgentApiError(502, "credential_unavailable", "The upstream credential is unavailable; ask the owner to repair it.");
-    // Refresh may await a remote provider. Recheck authorization before sending.
-    const current = await this.authorize(integration);
-    if (current.integration.epoch !== grant.integration.epoch) throw forbidden();
-    try { return await forwardOutbound(request, credential); }
-    catch { throw new AgentApiError(502, "proxy_failed", "The upstream request failed."); }
+  private egress() {
+    return new CredentialBackedEgress(this.env, this.auth.tenantId, this.database,
+      integration => this.authorize(integration), () => this.identity());
   }
-  async forwardX(connectionId: string, path: string, request: Request) {
-    const identity = await this.identity();
-    const row = (await this.database.pool.query<{id: string}>("SELECT id FROM app.agent_integrations WHERE tenant_id=$1 AND kind='x' AND credential_id=$2", [this.auth.tenantId, connectionId])).rows[0];
-    if (!row) throw forbidden();
-    const apiGrant = await this.authorize(row.id);
-    const required = xRequiredScope(path, request.method);
-    if (!required) throw forbidden();
-    const repository = new XConnectionRepository(this.database, this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY);
-    const connection = await repository.get(connectionId);
-    if (!connection || connection.status !== "connected") throw forbidden();
-    if (!connection.scopes.includes(required) || !connection.grantedScopes.includes(required)) throw new AgentApiError(403, "insufficient_scope", `This X connection does not grant ${required}.`);
-    let accessToken: string | null;
-    try {
-      accessToken = await repository.accessToken(connectionId, async credentials => {
-        const response = await fetch("https://api.x.com/2/oauth2/token", {
-          method: "POST", redirect: "error", signal: AbortSignal.timeout(15_000),
-          headers: { Authorization: `Basic ${btoa(`${credentials.clientId}:${credentials.clientSecret}`)}`, "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
-          body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: credentials.refreshToken }),
-        });
-        const body = await response.json().catch(() => null) as { access_token?: unknown; refresh_token?: unknown; expires_in?: unknown; error?: unknown } | null;
-        if (!response.ok) {
-          if (response.status === 401 || body?.error === "invalid_grant") throw new XReconnectRequiredError();
-          throw new Error("X token refresh temporarily failed");
-        }
-        if (typeof body?.access_token !== "string" || typeof body.refresh_token !== "string" || typeof body.expires_in !== "number" || !Number.isFinite(body.expires_in) || body.expires_in <= 0) throw new Error("X token refresh response was invalid");
-        return { accessToken: body.access_token, refreshToken: body.refresh_token, expiresAt: new Date(Date.now() + body.expires_in * 1000).toISOString() };
-      });
-    } catch (error) {
-      if (error instanceof XReconnectRequiredError) throw new AgentApiError(401, "reconnect_required", "X authorization expired or was revoked. Reconnect this connection in Settings.");
-      throw new AgentApiError(502, "refresh_unavailable", "X authorization could not be refreshed temporarily. Retry the request later.");
-    }
-    if (!accessToken) throw forbidden();
-    const current = await repository.get(connectionId);
-    const currentGrant = await this.authorize(apiGrant.integration.id);
-    if (currentGrant.integration.epoch !== apiGrant.integration.epoch) throw forbidden();
-    if (current?.status !== "connected" || !current.scopes.includes(required) || !current.grantedScopes.includes(required)) throw forbidden();
-    try { return await forwardOutbound(request, { origin: "https://api.x.com", path: path, credential: accessToken }); }
-    catch { throw new AgentApiError(502, "proxy_failed", "The X API request failed. Check X API access, credits, and rate limits, then retry if safe."); }
+  forward(integration: string, path: string, request: Request) {
+    return this.egress().forward(integration, path, request);
+  }
+  forwardX(connectionId: string, path: string, request: Request) {
+    return this.egress().forwardX(connectionId, path, request);
   }
   async request(input: z.infer<typeof requestApiInput>, signal?: AbortSignal):Promise<z.infer<typeof requestApiResponse>> {
     if(this.auth.authMethod==="oauth"&&!this.auth.scopes.includes("proxy:use"))throw new AgentApiError(403,"insufficient_scope","The proxy:use scope is required.","proxy:use");

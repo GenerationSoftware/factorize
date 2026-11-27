@@ -1,5 +1,5 @@
-import { decrypt, encrypt } from "../crypto";
-import type { Database } from "./database";
+import { decrypt, encrypt } from "../../crypto";
+import type { Database } from "../../postgres/database";
 
 export type FlyConnection = { organizationSlug: string; organizationName: string };
 

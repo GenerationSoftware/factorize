@@ -1,7 +1,7 @@
 import { lockIntegrationTopology } from "./postgres/integration-removal-topology";
 import { selectedTeamDefaults, teamPermissionPreferences } from "./team-permission-defaults";
-import { integrationConsentLabels, listAgentPolicies } from "./agent-api";
-import { isIntegrationScope } from "./agent-api-contracts";
+import { integrationConsentLabels, listAgentPolicies } from "./proxy/application/agent-api";
+import { isIntegrationScope } from "./proxy/api/agent-api-contracts";
 import { databaseFor } from "./postgres/database";
 import { connectionFor, matchesRegisteredRedirect, originalBrowser } from "./oauth-continuation";
 import { z } from "zod";

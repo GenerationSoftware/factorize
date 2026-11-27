@@ -1,9 +1,9 @@
-import { processProxyOperation } from "./proxy-operations";
+import { processProxyOperation } from "./proxy/application/proxy-operations";
 import { DurableObject } from "cloudflare:workers";
 import { AutomationScheduler } from "./triggers/application/automation-scheduler";
 import { databaseFor } from "./postgres/database";
-import { cleanupAgentResponses } from "./agent-api";
-import { maintainProxyOperations } from "./proxy-operations";
+import { cleanupAgentResponses } from "./proxy/application/agent-api";
+import { maintainProxyOperations } from "./proxy/application/proxy-operations";
 import type { Env } from "./types";
 import { dispatchMcpEvents, mcpEventDispatchBatchSize, nextMcpDeliveryDelay } from "./subscriptions/application/mcp-event-subscriptions";
 
