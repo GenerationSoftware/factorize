@@ -141,7 +141,7 @@ export class AccessControlService {
     const globallyAvailable = [...AGENT_SCOPES, ...integrations.filter(row => row.available && row.policy !== "disabled").map(row => row.requiredScope)];
     const liveScopes = new Set(integrations.filter(row => row.kind === "hetzner" && row.available && row.policy !== "disabled").map(row => row.requiredScope));
     const scopeLabels = Object.fromEntries(integrations.map(row => [row.requiredScope,
-      row.kind === "hetzner" ? "Hetzner Cloud (native API and enrolled SSH)" : `${row.name} integration access`]));
+      row.kind === "hetzner" ? "Hetzner Cloud (native API and enrolled SSH; a Read & Write token allows changes, deletions, and charges)" : `${row.name} integration access`]));
     return publicValue(z.array(authorizedClient), rows.map(row => {
       const appName = byId.get(row.client_id)?.clientName ?? row.client_id;
       const inactive = (row.active_expires_at !== null && row.active_expires_at.getTime() <= Date.now()) || row.active_session_version !== this.auth.sessionVersion;

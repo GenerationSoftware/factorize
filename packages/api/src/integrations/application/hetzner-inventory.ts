@@ -9,16 +9,16 @@ export class HetznerInventoryService {
 
   async connection() {
     const project = await this.connections.get();
-    return { connection: project ? { name: project.name, ...(project.nativeWritesEnabled ? { nativeWritesEnabled: true } : {}) } : null };
+    return { connection: project ? { name: project.name } : null };
   }
 
   async connectionRevision() { return (await this.connections.get())?.revision ?? null; }
 
   async save(input: unknown) {
-    const { name, token, nativeWritesEnabled = false } = hetznerConnectionInput.parse(input);
+    const { name, token } = hetznerConnectionInput.parse(input);
     await this.withProviderError("validate_token", () => createHetznerCloudClient().validate(token));
-    await this.connections.save(name, token, nativeWritesEnabled);
-    return { connection: { name, ...(nativeWritesEnabled ? { nativeWritesEnabled: true } : {}) } };
+    await this.connections.save(name, token);
+    return { connection: { name } };
   }
 
   async delete() { return { deleted: await this.connections.delete() }; }

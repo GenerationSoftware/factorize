@@ -1730,7 +1730,7 @@ export interface paths {
         get: operations["get_api_v1_hetzner_connection"];
         /**
          * Save a Hetzner Cloud project connection
-         * @description Owner browser session only. Supply a project API token with Read permission, or Read & Write only when explicitly enabling native API writes through the proxy. Factorize verifies that it can list servers and stores it encrypted; saving does not change provider resources.
+         * @description Owner browser session only. Choose Read to limit checked clients to reads or Read & Write to allow native changes, deletions, and billable resources. Factorize verifies that it can list servers and stores it encrypted; saving does not change provider resources.
          *
          *     Requires the integrations:write scope.
          *
@@ -6940,7 +6940,6 @@ export interface operations {
                     "application/json": {
                         connection: {
                             name: string;
-                            nativeWritesEnabled?: boolean;
                         } | null;
                     };
                 };
@@ -6966,7 +6965,6 @@ export interface operations {
             content: {
                 "application/json": {
                     name: string;
-                    nativeWritesEnabled?: boolean;
                     token: string;
                 };
             };
@@ -6981,7 +6979,6 @@ export interface operations {
                     "application/json": {
                         connection: {
                             name: string;
-                            nativeWritesEnabled?: boolean;
                         };
                     };
                 };

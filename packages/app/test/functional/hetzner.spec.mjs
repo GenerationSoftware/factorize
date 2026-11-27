@@ -1,6 +1,6 @@
 import { test, expect } from "./fixtures.mjs";
 
-test("an owner saves a read-only Hetzner project, views inventory, explicitly enables native writes, and confirms local deletion", async ({ page, origin }) => {
+test("an owner saves a read-only Hetzner project, views inventory, replaces the token without a separate permission switch, and confirms local deletion", async ({ page, origin }) => {
   const token = "syntheticReadOnlyProjectToken", writeToken = "syntheticReadWriteProjectToken";
   const requests = [];
   let connection = null, unavailable = true;
@@ -19,10 +19,10 @@ test("an owner saves a read-only Hetzner project, views inventory, explicitly en
       requests.push(method);
       if (method === "PUT") {
         const provisioning = Boolean(connection);
-        expect(route.request().postDataJSON()).toEqual({ name: "Fixture project", ...(provisioning ? { token: writeToken, nativeWritesEnabled: true } : { token }) });
+        expect(route.request().postDataJSON()).toEqual({ name: "Fixture project", ...(provisioning ? { token: writeToken } : { token }) });
         if (unavailable) return route.fulfill({ status: 502, headers: { "X-Request-Id": requestId },
           json: { error: { code: "hetzner_inventory_error", message: "Hetzner server inventory is unavailable. Try again." } } });
-        connection = { name: "Fixture project", ...(provisioning ? { nativeWritesEnabled: true } : {}) };
+        connection = { name: "Fixture project" };
       }
       if (method === "DELETE") {
         connection = null;
@@ -44,7 +44,7 @@ test("an owner saves a read-only Hetzner project, views inventory, explicitly en
   await page.getByRole("button", { name: "Add Hetzner Cloud integration" }).click();
   const add = page.getByRole("dialog", { name: "Add Hetzner Cloud integration" });
   await add.getByLabel("Project name").fill("Fixture project");
-  const tokenInput = add.getByLabel("Read-only project API token");
+  const tokenInput = add.getByLabel("Project API token");
   await expect(tokenInput).toHaveAttribute("type", "password");
   await tokenInput.fill(token);
   await add.getByRole("button", { name: "Save connection" }).click();
@@ -66,13 +66,11 @@ test("an owner saves a read-only Hetzner project, views inventory, explicitly en
   await row.getByRole("button", { name: "Actions for Hetzner Cloud · Fixture project" }).click();
   await page.getByRole("menuitem", { name: "Replace connection", exact: true }).click();
   const edit = page.getByRole("dialog", { name: "Replace Hetzner Cloud connection" });
-  await expect(edit.getByRole("checkbox", { name: "Allow authorized clients to make native API writes" })).not.toBeChecked();
-  await edit.getByRole("checkbox", { name: "Allow authorized clients to make native API writes" }).check();
+  await expect(edit.getByRole("checkbox")).toHaveCount(0);
   await expect(edit.getByText(/create billable resources/)).toBeVisible();
-  await edit.getByLabel("Read & Write project API token").fill(writeToken);
+  await edit.getByLabel("Project API token").fill(writeToken);
   await edit.getByRole("button", { name: "Save connection" }).click();
   await expect(edit).not.toBeVisible();
-  await expect(row.getByText("Native API writes enabled")).toBeVisible();
   await row.getByRole("button", { name: "Actions for Hetzner Cloud · Fixture project" }).click();
   await page.getByRole("menuitem", { name: "Delete", exact: true }).click();
   const deletion = page.getByRole("dialog", { name: "Delete Hetzner Cloud connection?" });
