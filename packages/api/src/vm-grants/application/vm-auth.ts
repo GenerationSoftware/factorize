@@ -50,7 +50,7 @@ async function activeGrant(db: DatabaseClient, id: string, tenantId?: string, lo
     `SELECT g.* FROM app.vm_permission_grants g
      JOIN app.agent_integrations p ON p.tenant_id=g.tenant_id AND p.id=g.provider_id AND p.kind=g.provider_kind
      WHERE g.id=$1 AND ($2::uuid IS NULL OR g.tenant_id=$2) AND g.activated_at IS NOT NULL AND g.revoked_at IS NULL
-       AND p.available AND p.epoch=g.provider_epoch${lock ? " FOR SHARE OF g, p" : ""}`,
+       AND p.available AND p.operation_epoch=g.provider_epoch${lock ? " FOR SHARE OF g, p" : ""}`,
     [id, tenantId ?? null],
   )).rows[0];
 }
