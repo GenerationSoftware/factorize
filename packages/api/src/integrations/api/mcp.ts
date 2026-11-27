@@ -1,3 +1,4 @@
+import { hetznerSshToolInput } from "./hetzner-ssh-contracts";
 import { z } from "zod";
 
 import { mcpTool } from "../../transport/mcp/tool";
@@ -12,4 +13,10 @@ export const githubTools = [
 
 export const tailTools = [
   mcpTool("integrations:read", "list_cloudflare_tail_integrations", "List installed Cloudflare Tail integrations and reference counts. Signing secrets are never returned.", z.object({}), service => () => service.integrations.listTailIntegrations()),
+];
+
+
+export const hetznerTools = [
+  mcpTool("integrations:read", "check_hetzner_ssh", "Check SSH access for one owner-enrolled Hetzner Cloud server. Uses the pinned host identity and a Factorize-held credential. Proves fresh key authentication; no SSH channel, commands or remote output.", hetznerSshToolInput, service =>
+    (input: {serverId: number}) => service.hetznerSsh.checkAsClient(input.serverId)),
 ];

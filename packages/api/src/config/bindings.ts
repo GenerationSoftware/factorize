@@ -1,4 +1,5 @@
 export interface Env {
+  HETZNER_SSH?: DurableObjectNamespace;
   SCHEDULER?: DurableObjectNamespace;
   ASSETS: Fetcher;
   APP_ORIGIN: string;

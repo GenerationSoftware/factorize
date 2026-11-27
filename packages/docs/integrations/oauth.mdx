@@ -19,3 +19,24 @@ workspace. Affected Trigger sources, Event lookups, and client or workload
 access are listed before confirmation. A Trigger with no sources left is
 removed, but Event definitions, subscriptions, and recorded occurrences are
 kept. Reconnecting does not restore removed configuration or grants.
+
+
+### Hetzner Cloud inventory and SSH checks
+
+Add a Hetzner Cloud project with a read-only project token to view its server
+inventory. Under **View servers**, enroll an existing server for SSH checks.
+Use a dedicated non-root account, copy the server's Ed25519 host fingerprint
+from a trusted console, and select the authorized MCP client. Install the
+complete restricted public-key line shown by Factorize in that account's
+authorized keys. Factorize generates and stores the private key, and does not
+return it to the browser or the client.
+
+An enrolled client with integration read access can call `check_hetzner_ssh`
+with the server ID. The tool verifies SSH authentication and executes only a
+fresh SSH authentication check after verifying that the connected project still owns the server and its enrolled IPv4 address has not changed. Each handshake has a five-second limit and closes immediately after authentication. Factorize never opens a command channel or returns remote output. After key removal, the next check must authenticate again.
+The server needs a reachable public IPv4 address and SSH on port 22. If a
+connection drops, repeat the check explicitly.
+
+Deleting or replacing the project removes its saved SSH credentials in
+Factorize. Also remove the public keys from the servers when retiring access.
+Factorize does not change the provider or server as part of deletion.
