@@ -30,6 +30,7 @@
             "pages": [
               "work/use-an-api",
               "work/vm-access",
+              "integrations/aws",
               "work/triggers"
             ]
           },

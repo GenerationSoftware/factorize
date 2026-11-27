@@ -192,6 +192,32 @@ To edit rather than enroll, use target `kind: "existing"`, the grant ID, and
 unless the owner also approves the required API and integration scopes.
 See [MCP tools](https://docs.factorize.sh/mcp/tools#vm-permissions) and [REST reference](https://docs.factorize.sh/api/reference).
 
+## AWS
+Source: https://docs.factorize.sh/integrations/aws
+
+Use an AWS connection to list Lambda function names, EC2 instance IDs, or CloudFront distribution IDs. Factorize calls the AWS-managed MCP endpoint from its existing Worker. You do not deploy an MCP server or run an AWS CLI proxy.
+
+## Connect an AWS account
+
+1. Open **Settings → Integrations → Add AWS integration**. Name the connection and choose the Region for its AWS MCP endpoint and regional inventory.
+2. Download the CloudFormation template. Upload it as a new stack in the target AWS account and acknowledge that it creates IAM resources. If the account already has an OIDC provider for this Factorize issuer, set `CreateProvider` to `false`.
+3. Copy the stack's **RoleArn** output to Factorize and click **Verify AWS role**. Verification uses the same signed hosted MCP path as the agent, listing one bounded page of Lambda names. An empty list is a successful read.
+4. Optionally select one existing Factorize OAuth connection with `integrations:read` and save. You can select **No agent access** to revoke this assignment. AWS connections do not appear in workspace defaults or VM grants.
+
+The agent can call `list_aws_inventory` with the AWS connection ID and service `lambda`, `ec2`, or `cloudfront`. It receives up to 25 identifiers and a flag indicating more results exist. It cannot submit scripts, write operations, credentials, or a custom endpoint. A new AWS role requires a new Factorize connection.
+
+## Trust and permissions
+
+The CloudFormation role trusts a Factorize workload issuer, the STS audience, and this exact connection's subject. The Worker exchanges a two-minute JWT for a 15-minute AWS STS session as needed and signs each upstream request with SigV4. Neither the browser nor the agent receives those credentials. The role and the STS session policy restrict the underlying inventory calls to AWS MCP. AWS still applies IAM and organization policies.
+
+Deleting the connection stops Factorize from using it. Remove the role or its trust in AWS as well. The template retains the account-wide OIDC provider so it does not break other Factorize roles. Remove that provider separately when no roles use it.
+
+## Deploying the issuer
+
+Before enabling setup, configure the Worker secret `AWS_WORKLOAD_SIGNING_KEYS` with JSON containing `active` (a dedicated RSA private JWK with a unique `kid`) and optional `previous` (up to two public JWKs). Use 2048- or 3072-bit RSA. Do not reuse the browser OAuth signer. The Worker publishes discovery at `<app origin>/oauth/aws/.well-known/openid-configuration` and public keys at `<app origin>/oauth/aws/jwks`; no public endpoint issues workload tokens. Without a configured secret the integration fails closed.
+
+For key rotation, first publish the new public key alongside the old active key and allow for AWS JWKS caching. Then switch the active signer and keep the old public key for the overlap. Never include a private key in the public key set or store it in source control.
+
 ## React to an Event
 Source: https://docs.factorize.sh/work/triggers
 
@@ -399,6 +425,7 @@ its input and enforces the operation's required scope.
 | `grant_vm_permissions` | Grant or replace Factorize permissions for an existing VM. Use explicit scopes within your effective access. Requires vms:edit. |
 | `import_attachment` | Import a user-attached ChatGPT file directly into temporary artifact storage. Returns a payload handle for request_api. Missing native download URLs require create_payload and its browserUploadUrl. |
 | `list_apps` | List the team's registered server-side apps. Requires apps:manage. |
+| `list_aws_inventory` | List up to 25 Lambda function names, EC2 instance IDs or CloudFront distribution IDs through a verified AWS integration explicitly assigned to this OAuth connection. |
 | `list_cloudflare_tail_integrations` | Legacy; historical installations only. List installed Cloudflare Tail integrations and reference counts. Signing secrets are never returned. |
 | `list_event_evaluations` | Read recent Event evaluation diagnostics and mapped input, without raw lookup responses. |
 | `list_event_occurrences` | Read durable Event occurrences in reverse recorded order, not UUID order. Reads do not acknowledge processing or define a task batch. |

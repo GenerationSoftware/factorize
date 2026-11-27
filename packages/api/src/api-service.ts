@@ -1,3 +1,4 @@
+import { AwsIntegrationService } from "./integrations/application/aws-service";
 import { ProxyService } from "./proxy/application/proxy-service";
 import { AccessControlService } from "./access-control/application/access-control-service";
 import { AppsService } from "./apps/application/apps-service";
@@ -37,6 +38,9 @@ export class ApiService {
   }
   get vmGrants() {
     return new VmGrantsService(this.env, this.auth, scope => this.authorize(scope));
+  }
+  get aws() {
+    return new AwsIntegrationService(this.env, this.auth, scope => this.authorize(scope), scope => this.authorizeOwnerSession(scope));
   }
   get integrations() {
     return new IntegrationsService(this.env, this.auth, scope => this.authorize(scope), scope => this.authorizeOwnerSession(scope));
