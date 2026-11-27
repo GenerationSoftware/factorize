@@ -1,3 +1,4 @@
+import { fetchWithoutRedirects } from "../../transport/http/fetch-without-redirects";
 import { linearConfig, signingConfig } from "../../config/runtime";
 import type { Env } from "../../types";
 import { clickUpJson } from "../providers/clickup";
@@ -18,7 +19,7 @@ export class ProviderCatalog {
     const connection = await this.connections.get<any>("linear");
     if (!connection) throw new Error("Connect Linear first");
     const request = async (token: string) => {
-      const response = await fetch("https://api.linear.app/graphql", { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ query, variables: {} }) });
+      const response = await fetchWithoutRedirects("https://api.linear.app/graphql", { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ query, variables: {} }) });
       return { response, payload: await response.json() as any };
     };
     let result = await request(connection.accessToken);
@@ -63,13 +64,13 @@ export class ProviderCatalog {
     const installation = await new GitHubRepository(this.database, this.tenantId).installation(installationId);
     if (installation?.state !== "active") throw new Error("Installation is disconnected");
     const token = await installationToken(this.env, installationId), repositories: any[] = [];
-    for (let page = 1; page <= 10; page++) { const response = await fetch(`https://api.github.com/installation/repositories?per_page=100&page=${page}`, { headers: githubHeaders(token) }), body = await response.json() as any; if (!response.ok) throw new Error(body.message ?? `GitHub repository request failed (${response.status})`); repositories.push(...(body.repositories ?? [])); if ((body.repositories ?? []).length < 100) break; }
+    for (let page = 1; page <= 10; page++) { const response = await fetchWithoutRedirects(`https://api.github.com/installation/repositories?per_page=100&page=${page}`, { headers: githubHeaders(token) }), body = await response.json() as any; if (!response.ok) throw new Error(body.message ?? `GitHub repository request failed (${response.status})`); repositories.push(...(body.repositories ?? [])); if ((body.repositories ?? []).length < 100) break; }
     return repositories.map(normalizeRepository);
   }
   async githubIssueOptions(installationId: number, repositoryId: number) {
     const installation = await new GitHubRepository(this.database, this.tenantId).installation(installationId);
     if (installation?.state !== "active") throw new Error("GitHub installation is unavailable");
-    const token = await installationToken(this.env, installationId), response = await fetch(`https://api.github.com/repositories/${repositoryId}`, { headers: githubHeaders(token) });
+    const token = await installationToken(this.env, installationId), response = await fetchWithoutRedirects(`https://api.github.com/repositories/${repositoryId}`, { headers: githubHeaders(token) });
     if (!response.ok) throw new Error("GitHub repository is unavailable");
     const repository = await response.json() as any; if (!repository.full_name) throw new Error("GitHub repository is unavailable");
     const load = (path: string) => githubCollection<any>(`https://api.github.com/repos/${repository.full_name}/${path}`, token);

@@ -1,3 +1,4 @@
+import { fetchWithoutRedirects } from "../../transport/http/fetch-without-redirects";
 import { browserOwner as owner } from "../../auth/transport/browser-owner";
 import { databaseFor } from "../../postgres/database";
 import type { BrowserRouter } from "../../runtime/browser-router";
@@ -21,7 +22,7 @@ export function mountGithubOAuthRoutes(app: BrowserRouter) {
     if (!await new GitHubRepository(databaseFor(c.env), session.tenantId).consumeSetupState(state.nonce)) return c.text("Setup state was already used", 400);
     if (!c.env.GITHUB_APP_ID || !c.env.GITHUB_APP_PRIVATE_KEY) return c.text("GitHub App is not configured", 503);
     const jwt = await createAppJwt(c.env.GITHUB_APP_ID, c.env.GITHUB_APP_PRIVATE_KEY.replaceAll("\\n", "\n"));
-    const gh = await fetch(`https://api.github.com/app/installations/${installationId}`, { headers: githubHeaders(jwt) });
+    const gh = await fetchWithoutRedirects(`https://api.github.com/app/installations/${installationId}`, { headers: githubHeaders(jwt) });
     const installation = await gh.json() as any;
     if (!gh.ok || installation.id !== installationId) return c.text("Could not verify GitHub installation", 502);
     try { await new GitHubRepository(databaseFor(c.env), session.tenantId).save({ installationId, accountLogin: installation.account?.login, accountType: installation.account?.type, state: installation.suspended_at ? "suspended" : "active" }); }

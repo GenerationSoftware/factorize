@@ -1,3 +1,4 @@
+import { fetchWithoutRedirects } from "../../transport/http/fetch-without-redirects";
 import { z } from "zod";
 
 export const flyConnectionInput = z.object({
@@ -28,10 +29,10 @@ export function createFlyAccountClient(options: FlyAccountOptions = {}) {
     async validate(token: string, organizationSlug: string): Promise<{ organizationSlug: string; organizationName: string }> {
       let response: Response;
       try {
-        response = await fetchImpl(`${origin}/v1/tokens/current`, {
+        response = await fetchWithoutRedirects(`${origin}/v1/tokens/current`, {
           headers: { authorization: `Bearer ${token}`, accept: "application/json" },
           signal: AbortSignal.timeout(timeoutMs),
-        });
+        }, fetchImpl);
       } catch {
         throw new FlyAccountError("unavailable");
       }

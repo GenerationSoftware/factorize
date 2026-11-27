@@ -1,3 +1,4 @@
+import { fetchWithoutRedirects } from "../../transport/http/fetch-without-redirects";
 import { HetznerConnectionRepository } from "../../credentials/storage/hetzner-connection-repository";
 import { HetznerInventoryService } from "./hetzner-inventory";
 import { exeConnection } from "../api/connection-contracts";
@@ -183,8 +184,8 @@ export class IntegrationsService {
     // must never keep stale proxy access usable.
     for (const token of [credentials.refreshToken, credentials.accessToken].filter((value): value is string => Boolean(value))) {
       try {
-        await fetch("https://api.x.com/2/oauth2/revoke", {
-          method: "POST", redirect: "error", signal: AbortSignal.timeout(5_000),
+        await fetchWithoutRedirects("https://api.x.com/2/oauth2/revoke", {
+          method: "POST", signal: AbortSignal.timeout(5_000),
           headers: { Authorization: `Basic ${btoa(`${credentials.clientId}:${credentials.clientSecret}`)}`, "Content-Type": "application/x-www-form-urlencoded" },
           body: new URLSearchParams({ token, token_type_hint: token === credentials.refreshToken ? "refresh_token" : "access_token" }),
         });
@@ -202,8 +203,8 @@ export class IntegrationsService {
     if (!credentials?.accessToken || !credentials.expiresAt || Date.parse(credentials.expiresAt) <= Date.now())
       return { status: "reconnect_required" as const, accountHandle: connection.accountHandle, message: "Reconnect this X connection before testing it." };
     try {
-      const response = await fetch("https://api.x.com/2/users/me?user.fields=id%2Cusername", {
-        method: "GET", redirect: "error", signal: AbortSignal.timeout(10_000),
+      const response = await fetchWithoutRedirects("https://api.x.com/2/users/me?user.fields=id%2Cusername", {
+        method: "GET", signal: AbortSignal.timeout(10_000),
         headers: { Authorization: `Bearer ${credentials.accessToken}`, Accept: "application/json" },
       });
       if (response.status === 401) return { status: "reconnect_required" as const, accountHandle: connection.accountHandle, message: "X rejected this authorization. Reconnect the connection." };

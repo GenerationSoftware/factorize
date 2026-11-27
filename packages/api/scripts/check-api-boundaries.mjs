@@ -7,6 +7,12 @@ const files = globSync("{src,test}/**/*.{ts,tsx,js,mjs}", { cwd: new URL("..", i
 const failures = [];
 for (const file of files) {
   const source = readFileSync(new URL(`../${file}`, import.meta.url), "utf8");
+  if (file.startsWith("src/") && /\bredirect\s*:\s*["'`]error["'`]/.test(source)) {
+    failures.push(`${file}: Workers does not implement redirect: "error"; use fetchWithoutRedirects`);
+  }
+  if (file.startsWith("src/integrations/") && /\bawait\s+fetch\s*\(/.test(source)) {
+    failures.push(`${file}: Integration provider requests must use fetchWithoutRedirects`);
+  }
   if (file.startsWith("src/")) failures.push(...capabilityBoundaryViolations(
     fileURLToPath(new URL(`../${file}`, import.meta.url)), source,
     fileURLToPath(new URL("../src", import.meta.url)),

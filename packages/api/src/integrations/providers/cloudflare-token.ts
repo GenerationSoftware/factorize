@@ -1,3 +1,4 @@
+import { fetchWithoutRedirects, OutboundRedirectError } from "../../transport/http/fetch-without-redirects";
 import { cloudflareOAuthConfig } from "../../config/runtime";
 import { z } from "zod";
 import { AgentApiError } from "../../proxy/api/agent-api-error";
@@ -30,18 +31,12 @@ export async function exchangeCloudflareToken(env: Env, payload: Record<string, 
   if (!client) throw cloudflareMissingClient();
   let response: Response;
   try {
-    response = await fetch(tokenEndpoint, {
-      method: "POST", redirect: "manual", signal: AbortSignal.timeout(10_000),
+    response = await fetchWithoutRedirects(tokenEndpoint, {
+      method: "POST", signal: AbortSignal.timeout(10_000),
       headers: { Accept: "application/json" }, body: new URLSearchParams({ ...payload, ...client }),
     });
-  } catch {
-    throw new TokenFailure("token_unreachable");
-  }
-  // Workers accepts "manual", not "error". Never replay a token request at
-  // a Location supplied by an upstream response or inspect its redirect body.
-  if (response.status >= 300 && response.status < 400) {
-    await response.body?.cancel().catch(() => {});
-    throw new TokenFailure("token_rejected");
+  } catch (error) {
+    throw new TokenFailure(error instanceof OutboundRedirectError ? "token_rejected" : "token_unreachable");
   }
   const body = await response.json().catch(() => null);
   if (!response.ok) {

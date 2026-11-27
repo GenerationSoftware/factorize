@@ -1,3 +1,4 @@
+import { fetchWithoutRedirects } from "../../transport/http/fetch-without-redirects";
 import { AgentApiError } from "../../proxy/api/agent-api-error";
 import { XReconnectRequiredError, type XConnectionRepository } from "../storage/x-connection-repository";
 
@@ -5,8 +6,8 @@ import { XReconnectRequiredError, type XConnectionRepository } from "../storage/
 export async function refreshXProxyToken(repository: XConnectionRepository, connectionId: string) {
   try {
     return await repository.accessToken(connectionId, async credentials => {
-      const response = await fetch("https://api.x.com/2/oauth2/token", {
-        method: "POST", redirect: "error", signal: AbortSignal.timeout(15_000),
+      const response = await fetchWithoutRedirects("https://api.x.com/2/oauth2/token", {
+        method: "POST", signal: AbortSignal.timeout(15_000),
         headers: { Authorization: `Basic ${btoa(`${credentials.clientId}:${credentials.clientSecret}`)}`, "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
         body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: credentials.refreshToken }),
       });

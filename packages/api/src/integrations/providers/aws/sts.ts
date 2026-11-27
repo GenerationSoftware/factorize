@@ -1,3 +1,4 @@
+import { fetchWithoutRedirects } from "../../../transport/http/fetch-without-redirects";
 import { XMLParser } from "fast-xml-parser";
 import { z } from "zod";
 import { awsMcpSessionPolicy, type AwsRegion } from "./policy";
@@ -12,8 +13,8 @@ const credentialsSchema = z.object({
 export type AwsCredentials = { accessKeyId: string; secretAccessKey: string; sessionToken: string };
 
 export async function exchangeAwsWorkload(region: AwsRegion, roleArn: string, jwt: string, connectionId: string, signal?: AbortSignal): Promise<AwsCredentials> {
-  const response = await fetch(`https://sts.${region}.amazonaws.com/`, {
-    method: "POST", redirect: "error", signal: awsDeadline(8_000, signal),
+  const response = await fetchWithoutRedirects(`https://sts.${region}.amazonaws.com/`, {
+    method: "POST", signal: awsDeadline(8_000, signal),
     body: new URLSearchParams({
       Action: "AssumeRoleWithWebIdentity", Version: "2011-06-15", RoleArn: roleArn,
       RoleSessionName: "factorize-" + connectionId, WebIdentityToken: jwt, DurationSeconds: "900",

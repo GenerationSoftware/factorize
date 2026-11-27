@@ -1,3 +1,4 @@
+import { fetchWithoutRedirects } from "../../transport/http/fetch-without-redirects";
 import { githubConfig } from "../../config/runtime";
 import { hmac } from "../../crypto";
 
@@ -29,7 +30,7 @@ export async function installationToken(env: { GITHUB_APP_ID?: string; GITHUB_AP
   const { appId, privateKey } = githubConfig(env);
   if (!appId || !privateKey) throw new Error("GitHub App credentials are not configured");
   const jwt = await createAppJwt(appId, privateKey.replaceAll("\\n", "\n"));
-  const response = await fetch(`https://api.github.com/app/installations/${installationId}/access_tokens`, { method: "POST", headers: githubHeaders(jwt), ...(repositoryId ? { body: JSON.stringify({repository_ids:[repositoryId]}) } : {}) });
+  const response = await fetchWithoutRedirects(`https://api.github.com/app/installations/${installationId}/access_tokens`, { method: "POST", headers: githubHeaders(jwt), ...(repositoryId ? { body: JSON.stringify({repository_ids:[repositoryId]}) } : {}) });
   const body = await response.json() as { token?: string; message?: string };
   if (!response.ok || !body.token) throw new Error(body.message ?? `GitHub token request failed (${response.status})`);
   return body.token;

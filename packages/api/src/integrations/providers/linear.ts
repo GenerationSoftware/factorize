@@ -1,3 +1,4 @@
+import { fetchWithoutRedirects } from "../../transport/http/fetch-without-redirects";
 /** Kept separate so query cost and shape can be tested without a live Linear workspace. */
 export const LINEAR_PROJECTS_QUERY = "query { projects(first: 50) { nodes { id name } } }";
 
@@ -22,7 +23,7 @@ export const isLinearAuthenticationError = (status: number, errors: LinearError[
 };
 
 export const refreshLinearToken = async (refreshToken: string, clientId: string, clientSecret: string): Promise<{ access_token: string; refresh_token?: string; expires_in?: number }> => {
-  const response = await fetch("https://api.linear.app/oauth/token", {
+  const response = await fetchWithoutRedirects("https://api.linear.app/oauth/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: refreshToken, client_id: clientId, client_secret: clientSecret }),
