@@ -2,14 +2,27 @@
 import { DurableObject } from "cloudflare:workers";
 import { authenticateHetznerSsh, generateHetznerSshKey } from "../../src/integrations/providers/hetzner-ssh-transport";
 
+import type { SshSession } from "edgeport/ssh";
+import { execBounded, openSshSession } from "../../src/ssh/transport/edgeport-exec";
+
 type Env = { SSH_FIXTURE: DurableObjectNamespace };
 export class FixtureBroker extends DurableObject<Env> {
   private readonly client = generateHetznerSshKey();
+  private session?: SshSession;
+
   async fetch(request: Request) {
-    if (new URL(request.url).pathname === "/public") return Response.json({ publicKey: this.client.publicKey });
-    if (new URL(request.url).pathname !== "/probe") return new Response(null, { status: 404 });
-    const { port, fingerprint } = await request.json<{ port: number; fingerprint: string }>();
+    const path = new URL(request.url).pathname;
+    if (path === "/close") { await this.session?.close(); this.session = undefined; return new Response(null, {status: 204}); }
+    if (path === "/public") return Response.json({ publicKey: this.client.publicKey });
+    if (path !== "/probe" && path !== "/exec") return new Response(null, { status: 404 });
+    const { port, fingerprint, command } = await request.json<{ port: number; fingerprint: string; command?: string }>();
     try {
+      if (path === "/exec" && command) {
+        const reusedConnection = Boolean(this.session);
+        this.session ??= await openSshSession({ id: "test", name: "fixture", address: "127.0.0.1",
+          username: "fixture-check", hostFingerprint: fingerprint }, this.client.privateKey, port);
+        return Response.json({ ...await execBounded(this.session, command), reusedConnection });
+      }
       await authenticateHetznerSsh({ address: "127.0.0.1", username: "fixture-check", hostFingerprint: fingerprint,
         privateKey: this.client.privateKey }, undefined, port);
       return Response.json({ authenticated: true });

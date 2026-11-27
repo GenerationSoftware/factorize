@@ -35,6 +35,7 @@ its input and enforces the operation's required scope.
 | `get_event` | Read an Event and its current payload schema revision. |
 | `get_event_processing_acknowledgments` | Read optional processing acknowledgment settings for your exact active MCP subscription. Off by default; independent of HTTP receipt and client-side throttling. |
 | `get_hetzner_ssh_public_key` | Get this authorized OAuth installation’s public SSH key. The owner must install it on existing servers; the private key is never returned. |
+| `get_ssh_public_key` | Get the public SSH key of this saved Factorize client. Install it on a server account to grant that key access. The private key is never returned. |
 | `get_trigger` | Get a Trigger, its parent Event, and input configuration |
 | `get_webhook_delivery` | Get a webhook delivery and its safe processing timeline. Secrets and payloads are never returned. |
 | `grant_vm_permissions` | Grant or replace Factorize permissions for an existing VM. Use explicit scopes within your effective access. Requires vms:edit. |
@@ -61,6 +62,7 @@ its input and enforces the operation's required scope.
 | `revoke_vm_permissions` | Revoke a VM's Factorize permissions. The VM keeps running. Requires vms:edit. |
 | `run_aws_script` | Run Python in the AWS-hosted MCP sandbox through an AWS connection whose owner granted this OAuth installation Use access. The customer role controls AWS API permissions; permitted writes can change resources and incur charges. Never assume a retry after timeout is safe. |
 | `set_event_processing_acknowledgments` | Opt in to processing acknowledgments for future occurrences on your exact MCP subscription. Turning off waives unresolved acknowledgments and clears cooldown; does not alter standard MCP subscription behavior. |
+| `ssh_exec` | Run one non-interactive SSH command on a saved target. The server decides if this client's key is authorized. Each call opens a fresh command channel, possibly on a warm connection. Do not retry a timed-out command blindly. |
 | `test_trigger_webhook_conditions` | Evaluate conditions on supplied prepared webhook context. No authentication of the example, routing, live GitHub verification, or Trigger firing. |
 | `update_app` | Update redirect URLs, visibility, or enabled state for a registered app. |
 | `update_event` | Create a new Event payload schema revision; existing occurrences retain their original revision. |

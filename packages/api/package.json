@@ -28,6 +28,7 @@
     "aws4fetch": "1.0.20",
     "cron-parser": "^5.10.1",
     "drizzle-orm": "^0.45.2",
+    "edgeport": "1.0.6",
     "fast-xml-parser": "5.12.1",
     "hono": "^4.11.4",
     "json-rules-engine": "^7.3.1",

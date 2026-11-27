@@ -29,7 +29,7 @@ function ready(child) {
   });
 }
 
-test("workerd uses fresh SSH authentication and closes without a command channel", { timeout: 55_000 }, async () => {
+test("workerd keeps legacy probes command-free and reuses generic SSH command channels", { timeout: 55_000 }, async () => {
   const fixture = await mkdtemp(join(tmpdir(), "factorize-ssh-test-"));
   const peers = new Set();
   let worker, server;
@@ -62,7 +62,7 @@ test("workerd uses fresh SSH authentication and closes without a command channel
     const hostKey = ssh2.utils.parseKey(host.public);
     assert.ok(!(clientKey instanceof Error) && !(hostKey instanceof Error));
     const fingerprint = "SHA256:" + createHash("sha256").update(hostKey.getPublicSSH()).digest("base64").replace(/=+$/, "");
-    let sessions = 0, channels = 0, signed = 0, allowedKey = true;
+    let sessions = 0, channels = 0, signed = 0, allowedKey = true, allowExec = false;
     server = new ssh2.Server({ hostKeys: [host.private], algorithms: { cipher: ["aes128-gcm@openssh.com"] } }, connection => {
       peers.add(connection); sessions++;
       connection.on("error", () => {});
@@ -75,7 +75,21 @@ test("workerd uses fresh SSH authentication and closes without a command channel
         }
         ctx.accept();
       });
-      connection.on("ready", () => connection.on("session", (_accept, reject) => { channels++; reject(); }));
+      connection.on("ready", () => connection.on("session", (accept, reject) => {
+        channels++;
+        if (!allowExec) return reject();
+        accept().on("exec", (acceptExec, _rejectExec, { command }) => {
+          const channel = acceptExec();
+          channel.on("error", () => {});
+          if (command === "large") channel.write(Buffer.alloc(70_000, 0x78));
+          else {
+            channel.write(command);
+            channel.stderr.write("fixture stderr");
+          }
+          channel.exit(command === "one" ? 7 : 0);
+          channel.end();
+        });
+      }));
     });
     server.listen(0, "127.0.0.1");
     await once(server, "listening");
@@ -93,6 +107,29 @@ test("workerd uses fresh SSH authentication and closes without a command channel
     assert.equal(signed, 2);
     assert.equal((await probe("SHA256:" + "A".repeat(43))).status, 502);
     assert.equal(channels, 0);
+
+    allowedKey = true;
+    allowExec = true;
+    const command = (command, expectedFingerprint = fingerprint) => fetch(url + "/exec", {
+      method: "POST", body: JSON.stringify({ port: server.address().port, fingerprint: expectedFingerprint, command }),
+    });
+    assert.equal((await command("denied", "SHA256:"+"A".repeat(43))).status, 502);
+    const beforeExec = signed;
+    const firstExec = await command("one");
+    assert.equal(firstExec.status, 200, await firstExec.clone().text());
+    assert.deepEqual(await firstExec.json(), { stdout:"one", stderr:"fixture stderr", exitCode:7, signal:null, truncated:false, reusedConnection:false });
+    const secondExec = await (await command("two")).json();
+    assert.equal(secondExec.stdout, "two");
+    assert.equal(secondExec.reusedConnection, true);
+    assert.equal(signed, beforeExec + 1, "two command channels reuse one SSH authentication");
+    const large = await (await command("large")).json();
+    assert.equal(large.stdout.length, 32768);
+    assert.equal(large.truncated, true);
+    assert.equal(channels, 3);
+    assert.equal((await fetch(url + "/close")).status, 204);
+    allowedKey = false;
+    assert.equal((await command("denied")).status, 502);
+    assert.equal(channels, 3);
   } finally {
     if (worker && worker.exitCode === null) { const exited = once(worker, "exit"); worker.kill(); await exited.catch(() => {}); }
     for (const peer of peers) peer.end();

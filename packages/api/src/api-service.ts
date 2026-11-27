@@ -1,3 +1,4 @@
+import { SshService } from "./ssh/application/ssh-service";
 import { HetznerClientKeyService } from "./integrations/application/hetzner-client-key";
 import { AwsIntegrationService } from "./integrations/application/aws-service";
 import { HetznerSshService } from "./integrations/application/hetzner-ssh";
@@ -47,6 +48,7 @@ export class ApiService {
   get integrations() {
     return new IntegrationsService(this.env, this.auth, scope => this.authorize(scope), scope => this.authorizeOwnerSession(scope));
   }
+  get ssh() { return new SshService(this.env, this.auth, scope => this.authorizeOwnerSession(scope)); }
   get hetznerKeys() { return new HetznerClientKeyService(this.env, this.auth); }
   get hetznerSsh() {
     return new HetznerSshService(this.env, this.auth, scope => this.authorizeOwnerSession(scope));
