@@ -23,7 +23,8 @@ test("Worker observability keeps automated request telemetry off", () => {
   assert.equal(config.upload_source_maps, true);
   assert.deepEqual(config.observability, {
     enabled: true,
-    logs: { enabled: true, invocation_logs: false, redact_query_string: true },
+    redact_query_string: true,
+    logs: { enabled: true, invocation_logs: false },
     traces: { enabled: false },
     issues: { enabled: true },
   });
