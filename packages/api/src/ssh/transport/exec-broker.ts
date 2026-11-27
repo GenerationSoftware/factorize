@@ -6,7 +6,7 @@ import { SshClientKeyRepository } from "../../credentials/storage/ssh-client-key
 import { databaseFor } from "../../postgres/database";
 import { ServiceError } from "../../service-contract";
 import { resolveHetznerSshTarget } from "../application/hetzner-target";
-import { sshBrokerRequest, sshRoutingTarget, type SshTarget } from "../api/contracts";
+import { sshBrokerRequest, sshRoutingTarget } from "../api/contracts";
 import { activeSshClient } from "../application/ssh-service";
 import { SshTargetRepository } from "../storage/target-repository";
 import { execBounded, openSshSession, SshHostFingerprintMismatch, SSH_COMMAND_MS, SSH_CONNECT_MS } from "./edgeport-exec";
@@ -39,19 +39,20 @@ export class SshExecBroker extends DurableObject<Env> {
     clearTimeout(this.idle);
     try {
       const input = sshBrokerRequest.parse(await req.json());
-      const { authority, targetId, hetznerServerId, command } = input;
+      const { authority, targetId, hetznerServerId, username, command } = input;
       const name = JSON.stringify([authority.tenantId, authority.userId, authority.oauthInstallationId, sshRoutingTarget(input)]);
       if (this.env.CLIENT_SSH?.idFromName(name).toString() !== this.ctx.id.toString()) return new Response(null, { status: 404 });
       const db = databaseFor(this.env).pool, secret = signingConfig(this.env).credentialKey;
       const targets = new SshTargetRepository(db, authority.tenantId, authority.userId, secret);
       if (!await activeSshClient(db, authority)) { this.close(); return new Response(null, { status: 401 }); }
-      let target: SshTarget | null;
+      let target: Parameters<typeof openSshSession>[0] | null;
+      let persist: Awaited<ReturnType<typeof resolveHetznerSshTarget>>["persist"] | undefined;
       let current: () => Promise<boolean>;
       let markMismatch: (() => Promise<void>) | undefined;
       if (hetznerServerId !== undefined) {
         try {
-          const resolved = await resolveHetznerSshTarget(this.env, authority, hetznerServerId);
-          ({ target, current, markMismatch } = resolved);
+          const resolved = await resolveHetznerSshTarget(this.env, authority, hetznerServerId, username);
+          ({ target, current, markMismatch, persist } = resolved);
         } catch (error) {
           this.close();
           const status = error instanceof ServiceError && (error.status === 403 || error.status === 412) ? error.status : 424;
@@ -67,11 +68,16 @@ export class SshExecBroker extends DurableObject<Env> {
       if (!key) { this.close(); return new Response(null, { status: 409 }); }
 
       const now = Date.now();
-      const fingerprint = JSON.stringify([target.id, target.address, target.username, target.hostFingerprint, key.publicKey]);
+      const identity = (t: NonNullable<typeof target>) => JSON.stringify([t.id, t.address, t.username, t.hostFingerprint, key.publicKey]);
+      const fingerprint = identity(target);
       if (this.session && (this.session.fingerprint !== fingerprint || now - this.session.lastUsed >= idleMs || now - this.session.opened >= maxAgeMs)) this.close();
       const reusedConnection = !!this.session;
       if (!this.session) {
-        const pending = openSshSession(target, key.privateKey);
+        let observed: string | undefined;
+        const firstUse = target.hostFingerprint === null;
+        const pending = firstUse
+          ? openSshSession(target, key.privateKey, 22, fingerprint => { observed = fingerprint; })
+          : openSshSession(target, key.privateKey);
         try {
           const transport = await deadline(pending, SSH_CONNECT_MS);
           this.session = { transport, opened: Date.now(), lastUsed: Date.now(), fingerprint };
@@ -82,6 +88,15 @@ export class SshExecBroker extends DurableObject<Env> {
             return new Response(null, { status: 421 });
           }
           return new Response(null, { status: 422 });
+        }
+        if (firstUse) {
+          // Never save a key from a failed login or run a command before the pin is durable.
+          const status = observed && persist ? await persist(observed) : "stale";
+          if (status !== "saved") {
+            this.close();
+            return new Response(null, { status: status === "changed" ? 421 : 412 });
+          }
+          this.session.fingerprint = identity(target);
         }
       }
       const session = this.session;

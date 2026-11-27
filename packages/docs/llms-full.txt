@@ -418,14 +418,19 @@ The broker can reuse the authenticated connection for up to 30 seconds
 idle and no more than two minutes in total. A timed-out command may still
 have run; do not retry without reconciling its effects.
 
-For an existing Hetzner Cloud server, list the project inventory through
-`request_api` or open **View servers** in Factorize. In **SSH commands**,
-choose the server and save its independently verified Ed25519 host
-fingerprint and the SSH username. The client can then call `ssh_exec`
-with `hetznerServerId` instead of `targetId`. Factorize checks the connected
-project and resolves its current address through Hetzner; it never trusts the
-first SSH response. A changed host fingerprint stops execution and requires
-verification again.
+For a Hetzner Cloud server, list the project inventory through `request_api`
+or open **View servers** in Factorize. Call `ssh_exec` with `hetznerServerId`
+instead of `targetId`. Install the client's public key on a non-root account
+first. Factorize uses the saved username, or `factorize-agent` if none is
+saved; use the optional `username` argument to choose another account.
+
+Factorize looks up the current address through the connected Hetzner project
+and saves the Ed25519 host fingerprint after the first successful SSH login,
+before executing a command. This is trust on first use, not independent
+verification of the initial fingerprint. To verify it out of band, save it
+in **SSH commands** before connecting. A changed fingerprint blocks execution
+until an owner verifies and saves the replacement. Generic `targetId` targets
+still require a fingerprint before the first connection.
 
 The Hetzner checkbox governs provider access, including the server-ID lookup.
 It does not install or remove authorized keys on the server and does not
@@ -533,7 +538,7 @@ its input and enforces the operation's required scope.
 | `revoke_vm_permissions` | Revoke a VM's Factorize permissions. The VM keeps running. Requires vms:edit. |
 | `run_aws_script` | Run Python in the AWS-hosted MCP sandbox through an AWS connection whose owner granted this OAuth installation Use access. The customer role controls AWS API permissions; permitted writes can change resources and incur charges. Never assume a retry after timeout is safe. |
 | `set_event_processing_acknowledgments` | Opt in to processing acknowledgments for future occurrences on your exact MCP subscription. Turning off waives unresolved acknowledgments and clears cooldown; does not alter standard MCP subscription behavior. |
-| `ssh_exec` | Run one non-interactive SSH command. Supply a saved targetId or a hetznerServerId from the native Hetzner server list. The Hetzner server must have a verified host fingerprint. The server decides if this client's key is authorized. Each call opens a fresh command channel, possibly on a warm connection. Do not retry a timed-out command blindly. |
+| `ssh_exec` | Run one non-interactive SSH command. Supply a saved targetId or a hetznerServerId from the native Hetzner server list. For Hetzner, Factorize saves the Ed25519 host fingerprint after the first successful login and blocks changes. Set username to a non-root account with the client key installed (default: factorize-agent or the saved username). The server decides if this client's key is authorized. Each call opens a fresh command channel, possibly on a warm connection. Do not retry a timed-out command blindly. |
 | `test_trigger_webhook_conditions` | Evaluate conditions on supplied prepared webhook context. No authentication of the example, routing, live GitHub verification, or Trigger firing. |
 | `update_app` | Update redirect URLs, visibility, or enabled state for a registered app. |
 | `update_event` | Create a new Event payload schema revision; existing occurrences retain their original revision. |

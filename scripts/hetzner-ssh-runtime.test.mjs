@@ -130,6 +130,13 @@ test("workerd keeps legacy probes command-free and reuses generic SSH command ch
     allowedKey = false;
     assert.equal((await command("denied")).status, 502);
     assert.equal(channels, 3);
+    const observe = () => fetch(url + "/observe", { method: "POST", body: JSON.stringify({ port: server.address().port }) });
+    assert.equal((await observe()).status, 502, "unauthenticated login cannot supply a pin");
+    allowedKey = true;
+    const observed = await observe();
+    assert.equal(observed.status, 200);
+    assert.deepEqual(await observed.json(), { fingerprint });
+    assert.equal(channels, 3, "observing the host key opens no command channel");
   } finally {
     if (worker && worker.exitCode === null) { const exited = once(worker, "exit"); worker.kill(); await exited.catch(() => {}); }
     for (const peer of peers) peer.end();

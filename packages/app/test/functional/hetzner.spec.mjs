@@ -76,7 +76,7 @@ test("an owner saves a read-only Hetzner project, views inventory, replaces the 
   await ssh.getByLabel("Verified SSH host fingerprint").fill(hostFingerprint);
   await ssh.getByRole("button", { name: "Save verified fingerprint" }).click();
   await expect(ssh.getByText("SSH fingerprint verified and saved.")).toBeVisible();
-  await expect(ssh.getByText("Verified", { exact: true })).toBeVisible();
+  await expect(ssh.getByText("Fingerprint saved", { exact: true })).toBeVisible();
   await inventory.getByRole("button", { name: "Close Hetzner Cloud servers" }).click();
   await row.getByRole("button", { name: "Actions for Hetzner Cloud · Fixture project" }).click();
   await page.getByRole("menuitem", { name: "Replace connection", exact: true }).click();
