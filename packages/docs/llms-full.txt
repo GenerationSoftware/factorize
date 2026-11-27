@@ -363,7 +363,8 @@ only. With a **Read & Write** token, checked clients can make changes, delete
 resources, and incur charges. The existing client checkboxes are unchanged
 by this update: a client already checked for a project with a Read & Write
 token can make writes immediately. Replacing the project still resets client
-grants and stored SSH keys; reassign only clients that should have access.
+API grants and probe enrollments; reassign only clients that need API access.
+Client SSH key pairs stay attached to the client, independent of the project.
 
 Use `get_api_reflection` to find the authorized Hetzner connection ID. Then
 use the standard `request_api` tool with the method, relative `/v1/...` path,
@@ -398,6 +399,31 @@ pinned host key, and closes immediately. It never starts a shell, runs
 commands, or returns output. Remove the installed public key on the server
 when retiring access; removing a connection in Factorize does not change
 the server.
+
+
+### Run commands over SSH
+
+The SSH server decides whether a client can log in. Ask the connected client
+to call `get_ssh_public_key`; add that public key to the account it should use.
+For a new Hetzner server, use the native Hetzner API through `request_api`.
+Use a dedicated non-root account and discover its host fingerprint through a
+trusted provider console. An owner then saves the public IP, username, and
+fingerprint using `POST /api/v1/ssh/targets` from an authenticated owner session,
+and supplies the returned target ID to the client. No private key is exposed.
+
+`ssh_exec` takes that target ID and one command. It returns stdout, stderr
+and the exit code, with a truncation flag if output exceeded the response
+limit. Commands do not share a shell, working directory, or environment.
+The broker can reuse the authenticated connection for up to 30 seconds
+idle and no more than two minutes in total. A timed-out command may still
+have run; do not retry without reconciling its effects.
+
+The Hetzner checkbox governs native API access and the legacy Hetzner
+authentication probe. It does not remove installed server keys or govern
+the generic SSH tool. Removing an authorized key on the server denies fresh
+SSH connections; terminate the existing connection on the server too if
+revocation must be immediate. Previously installed probe-only keys remain
+probe-only unless the server operator changes the authorization.
 
 ## Connection problems
 Source: https://docs.factorize.sh/troubleshooting/connection
@@ -471,6 +497,7 @@ its input and enforces the operation's required scope.
 | `get_event` | Read an Event and its current payload schema revision. |
 | `get_event_processing_acknowledgments` | Read optional processing acknowledgment settings for your exact active MCP subscription. Off by default; independent of HTTP receipt and client-side throttling. |
 | `get_hetzner_ssh_public_key` | Get this authorized OAuth installation’s public SSH key. The owner must install it on existing servers; the private key is never returned. |
+| `get_ssh_public_key` | Get the public SSH key of this saved Factorize client. Install it on a server account to grant that key access. The private key is never returned. |
 | `get_trigger` | Get a Trigger, its parent Event, and input configuration |
 | `get_webhook_delivery` | Get a webhook delivery and its safe processing timeline. Secrets and payloads are never returned. |
 | `grant_vm_permissions` | Grant or replace Factorize permissions for an existing VM. Use explicit scopes within your effective access. Requires vms:edit. |
@@ -497,6 +524,7 @@ its input and enforces the operation's required scope.
 | `revoke_vm_permissions` | Revoke a VM's Factorize permissions. The VM keeps running. Requires vms:edit. |
 | `run_aws_script` | Run Python in the AWS-hosted MCP sandbox through an AWS connection whose owner granted this OAuth installation Use access. The customer role controls AWS API permissions; permitted writes can change resources and incur charges. Never assume a retry after timeout is safe. |
 | `set_event_processing_acknowledgments` | Opt in to processing acknowledgments for future occurrences on your exact MCP subscription. Turning off waives unresolved acknowledgments and clears cooldown; does not alter standard MCP subscription behavior. |
+| `ssh_exec` | Run one non-interactive SSH command on a saved target. The server decides if this client's key is authorized. Each call opens a fresh command channel, possibly on a warm connection. Do not retry a timed-out command blindly. |
 | `test_trigger_webhook_conditions` | Evaluate conditions on supplied prepared webhook context. No authentication of the example, routing, live GitHub verification, or Trigger firing. |
 | `update_app` | Update redirect URLs, visibility, or enabled state for a registered app. |
 | `update_event` | Create a new Event payload schema revision; existing occurrences retain their original revision. |

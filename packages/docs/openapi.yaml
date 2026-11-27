@@ -5472,6 +5472,216 @@ paths:
           schema:
             type: string
             pattern: ^[1-9][0-9]*$
+  /api/v1/ssh/targets:
+    get:
+      summary: List saved SSH target identities
+      responses:
+        "200":
+          description: Targets
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  targets:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                          minLength: 1
+                          maxLength: 96
+                        address:
+                          type: string
+                          maxLength: 45
+                        username:
+                          type: string
+                          pattern: ^[a-z_][a-z0-9_-]{0,31}$
+                        hostFingerprint:
+                          type: string
+                          pattern: ^SHA256:[A-Za-z0-9+/]{43}$
+                        id:
+                          type: string
+                          format: uuid
+                          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                      required:
+                        - name
+                        - address
+                        - username
+                        - hostFingerprint
+                        - id
+                      additionalProperties: false
+                required:
+                  - targets
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the integrations:read scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      operationId: get_api_v1_ssh_targets
+      tags:
+        - ssh
+      security:
+        - cookieAuth: []
+      x-required-scope: integrations:read
+      x-owner-session-required: true
+    post:
+      summary: Save an independently verified SSH target identity
+      responses:
+        "200":
+          description: Target
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name:
+                    type: string
+                    minLength: 1
+                    maxLength: 96
+                  address:
+                    type: string
+                    maxLength: 45
+                  username:
+                    type: string
+                    pattern: ^[a-z_][a-z0-9_-]{0,31}$
+                  hostFingerprint:
+                    type: string
+                    pattern: ^SHA256:[A-Za-z0-9+/]{43}$
+                  id:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                required:
+                  - name
+                  - address
+                  - username
+                  - hostFingerprint
+                  - id
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the integrations:write scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      operationId: post_api_v1_ssh_targets
+      tags:
+        - ssh
+      security:
+        - cookieAuth: []
+      x-required-scope: integrations:write
+      x-owner-session-required: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 96
+                address:
+                  type: string
+                  maxLength: 45
+                username:
+                  type: string
+                  pattern: ^[a-z_][a-z0-9_-]{0,31}$
+                hostFingerprint:
+                  type: string
+                  pattern: ^SHA256:[A-Za-z0-9+/]{43}$
+              required:
+                - name
+                - address
+                - username
+                - hostFingerprint
+              additionalProperties: false
+  /api/v1/ssh/targets/{targetId}:
+    delete:
+      summary: Remove a saved SSH target
+      responses:
+        "200":
+          description: Removal
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: boolean
+                required:
+                  - deleted
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the integrations:write scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      operationId: delete_api_v1_ssh_targets_targetId
+      tags:
+        - ssh
+      security:
+        - cookieAuth: []
+      x-required-scope: integrations:write
+      x-owner-session-required: true
+      parameters:
+        - name: targetId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
   /api/v1/integrations/aws:
     get:
       summary: List AWS connections

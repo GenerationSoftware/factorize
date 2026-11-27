@@ -1,3 +1,4 @@
+import { sshTools } from "../../ssh/api/mcp";
 import { subscriptionsProtocol, processingTools } from "../../subscriptions/api/mcp";
 import { skillsProtocol } from "../../skills/api/mcp";
 import { eventsProtocol, definitionTools, occurrenceTools } from "../../events/api/mcp";
@@ -11,7 +12,7 @@ import { McpServer } from "@modelcontextprotocol/server";
 import type { ApiService } from "../../api-service";
 import { SKILLS_EXTENSION } from "../../skills/api/mcp-skills";
 
-const tools = [...clientTools, ...proxyTools, ...exeTools, ...vmTools, ...appTools, ...githubTools, ...definitionTools, ...processingTools, ...occurrenceTools, ...triggerTools, ...tailTools, ...hetznerTools, ...awsTools];
+const tools = [...clientTools, ...proxyTools, ...exeTools, ...vmTools, ...appTools, ...githubTools, ...definitionTools, ...processingTools, ...occurrenceTools, ...triggerTools, ...tailTools, ...hetznerTools, ...sshTools, ...awsTools];
 const scopes = new Map(tools.map(tool => [tool.name, tool.scope]));
 if (scopes.size !== tools.length) throw new Error("Duplicate MCP tool declaration.");
 export const requiredMcpToolScope = (name: string) => scopes.get(name) ?? undefined;

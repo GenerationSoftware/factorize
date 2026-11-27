@@ -33,7 +33,8 @@ only. With a **Read & Write** token, checked clients can make changes, delete
 resources, and incur charges. The existing client checkboxes are unchanged
 by this update: a client already checked for a project with a Read & Write
 token can make writes immediately. Replacing the project still resets client
-grants and stored SSH keys; reassign only clients that should have access.
+API grants and probe enrollments; reassign only clients that need API access.
+Client SSH key pairs stay attached to the client, independent of the project.
 
 Use `get_api_reflection` to find the authorized Hetzner connection ID. Then
 use the standard `request_api` tool with the method, relative `/v1/...` path,
@@ -68,3 +69,28 @@ pinned host key, and closes immediately. It never starts a shell, runs
 commands, or returns output. Remove the installed public key on the server
 when retiring access; removing a connection in Factorize does not change
 the server.
+
+
+### Run commands over SSH
+
+The SSH server decides whether a client can log in. Ask the connected client
+to call `get_ssh_public_key`; add that public key to the account it should use.
+For a new Hetzner server, use the native Hetzner API through `request_api`.
+Use a dedicated non-root account and discover its host fingerprint through a
+trusted provider console. An owner then saves the public IP, username, and
+fingerprint using `POST /api/v1/ssh/targets` from an authenticated owner session,
+and supplies the returned target ID to the client. No private key is exposed.
+
+`ssh_exec` takes that target ID and one command. It returns stdout, stderr
+and the exit code, with a truncation flag if output exceeded the response
+limit. Commands do not share a shell, working directory, or environment.
+The broker can reuse the authenticated connection for up to 30 seconds
+idle and no more than two minutes in total. A timed-out command may still
+have run; do not retry without reconciling its effects.
+
+The Hetzner checkbox governs native API access and the legacy Hetzner
+authentication probe. It does not remove installed server keys or govern
+the generic SSH tool. Removing an authorized key on the server denies fresh
+SSH connections; terminate the existing connection on the server too if
+revocation must be immediate. Previously installed probe-only keys remain
+probe-only unless the server operator changes the authorization.

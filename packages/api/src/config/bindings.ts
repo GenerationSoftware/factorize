@@ -1,4 +1,5 @@
 export interface Env {
+  CLIENT_SSH?: DurableObjectNamespace;
   HETZNER_SSH?: DurableObjectNamespace;
   SCHEDULER?: DurableObjectNamespace;
   ASSETS: Fetcher;
