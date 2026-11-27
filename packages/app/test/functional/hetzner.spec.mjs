@@ -1,7 +1,7 @@
 import { test, expect } from "./fixtures.mjs";
 
-test("an owner saves a read-only Hetzner project, views inventory, and confirms local deletion", async ({ page, origin }) => {
-  const token = "syntheticReadOnlyProjectToken";
+test("an owner saves a read-only Hetzner project, views inventory, explicitly enables provisioning, and confirms local deletion", async ({ page, origin }) => {
+  const token = "syntheticReadOnlyProjectToken", writeToken = "syntheticReadWriteProjectToken";
   const requests = [];
   let connection = null, unavailable = true;
   const requestId = "f0bda107-b72f-4a94-8148-c4282983b994";
@@ -18,10 +18,11 @@ test("an owner saves a read-only Hetzner project, views inventory, and confirms 
       const method = route.request().method();
       requests.push(method);
       if (method === "PUT") {
-        expect(route.request().postDataJSON()).toEqual({ name: "Fixture project", token });
+        const provisioning = Boolean(connection);
+        expect(route.request().postDataJSON()).toEqual({ name: "Fixture project", ...(provisioning ? { token: writeToken, provisioningEnabled: true } : { token }) });
         if (unavailable) return route.fulfill({ status: 502, headers: { "X-Request-Id": requestId },
           json: { error: { code: "hetzner_inventory_error", message: "Hetzner server inventory is unavailable. Try again." } } });
-        connection = { name: "Fixture project" };
+        connection = { name: "Fixture project", ...(provisioning ? { provisioningEnabled: true } : {}) };
       }
       if (method === "DELETE") {
         connection = null;
@@ -62,6 +63,16 @@ test("an owner saves a read-only Hetzner project, views inventory, and confirms 
   await expect(inventory.getByText("Showing the first 100 servers.")).toBeVisible();
   expect(requests).toContain("inventory");
   await inventory.getByRole("button", { name: "Close Hetzner Cloud servers" }).click();
+  await row.getByRole("button", { name: "Actions for Hetzner Cloud · Fixture project" }).click();
+  await page.getByRole("menuitem", { name: "Replace connection", exact: true }).click();
+  const edit = page.getByRole("dialog", { name: "Replace Hetzner Cloud connection" });
+  await expect(edit.getByRole("checkbox", { name: "Allow authorized clients to create small servers" })).not.toBeChecked();
+  await edit.getByRole("checkbox", { name: "Allow authorized clients to create small servers" }).check();
+  await expect(edit.getByText(/can incur charges/)).toBeVisible();
+  await edit.getByLabel("Read & Write project API token").fill(writeToken);
+  await edit.getByRole("button", { name: "Save connection" }).click();
+  await expect(edit).not.toBeVisible();
+  await expect(row.getByText("Provisioning enabled")).toBeVisible();
   await row.getByRole("button", { name: "Actions for Hetzner Cloud · Fixture project" }).click();
   await page.getByRole("menuitem", { name: "Delete", exact: true }).click();
   const deletion = page.getByRole("dialog", { name: "Delete Hetzner Cloud connection?" });

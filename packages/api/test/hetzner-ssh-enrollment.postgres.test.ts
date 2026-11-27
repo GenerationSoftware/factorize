@@ -37,7 +37,7 @@ it.skipIf(!url)("enrolls only a verified project server, hides its private key a
     f.env.HETZNER_SSH = { idFromName: vi.fn(value => value), get: () => ({ fetch: probe }) } as unknown as DurableObjectNamespace;
     const authorize = vi.fn(async () => {});
     const owner = new HetznerSshService(f.env, f.auth, authorize);
-    const enrollment = { serverId:41, username:"fixture-check", hostFingerprint:"SHA256:" + "A".repeat(43) };
+    const enrollment = { serverId:41, clientInstallationId:selected, username:"fixture-check", hostFingerprint:"SHA256:" + "A".repeat(43) };
     const result = await owner.enroll(enrollment);
     expect(result).toEqual({...enrollment, publicKey:expect.stringMatching(/^ssh-ed25519 /)});
     expect(await owner.list()).toEqual({ servers:[result] });

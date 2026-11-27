@@ -1,3 +1,7 @@
+import { HetznerClientKeyRepository } from "../../credentials/storage/hetzner-client-key-repository";
+import { HetznerServerRequests } from "../storage/hetzner-server-requests";
+import { getOAuthInstallation } from "../../access-control/application/oauth-installations";
+import { provisionedSshUser } from "../providers/hetzner-cloud";
 import { z } from "zod";
 import { activeHetznerScope } from "./hetzner-access";
 import { signingConfig } from "../../config/runtime";
@@ -14,7 +18,7 @@ import { HetznerInventoryService } from "./hetzner-inventory";
 
 const authority = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("owner") }),
-  z.strictObject({ type: z.literal("oauth"), installationId: z.uuid(), grantId: z.string().min(1), expiresAt: z.number().finite(), scope: z.string().min(1) }),
+  z.strictObject({ type: z.literal("oauth"), installationId: z.string().min(1).max(512), grantId: z.string().min(1), expiresAt: z.number().finite(), scope: z.string().min(1) }),
 ]);
 
 export const hetznerProbeRequest = z.strictObject({
@@ -50,10 +54,7 @@ export class HetznerSshService {
     const { tenantId, userId } = this.auth;
     const selected = await new HetznerInventoryService(this.projects).targetForServer(enrollment.serverId);
     if (!isPublicAddress(selected.ipv4)) throw new ServiceError(400, "ssh_public_address_required", "This server needs a public IPv4 address for SSH checks.");
-    const keys = generateHetznerSshKey();
-    const host = { ...enrollment, ...keys, connectionRevision: selected.connectionRevision, ownerId: userId,
-      version: crypto.randomUUID(), address: selected.ipv4 };
-    await this.database().transaction(async sql => {
+    return this.database().transaction(async sql => {
       await lockIntegrationTopology(sql, tenantId);
       if ((await this.projects.get(sql))?.revision !== selected.connectionRevision) {
         throw new ServiceError(409, "hetzner_connection_changed", "The Hetzner project changed. Select the server again.");
@@ -61,9 +62,27 @@ export class HetznerSshService {
       if (await this.repository.get(enrollment.serverId, sql)) {
         throw new ServiceError(409, "ssh_target_exists", "Delete the existing SSH enrollment before replacing it.");
       }
+      const provisionedClient = await new HetznerServerRequests(tenantId, userId).installation(sql, selected.connectionRevision, enrollment.serverId);
+      if (provisionedClient && (enrollment.username !== provisionedSshUser ||
+          (enrollment.clientInstallationId && enrollment.clientInstallationId !== provisionedClient))) {
+        throw new ServiceError(400, "ssh_target_mismatch", "Use the provisioned non-root account and the client that created this server.");
+      }
+      const clientInstallationId = provisionedClient ?? enrollment.clientInstallationId;
+      if (clientInstallationId) {
+        const client = await getOAuthInstallation(sql, tenantId, userId, clientInstallationId);
+        if (!client?.active_grant_id || client.revoked_at || client.active_session_version !== this.auth.sessionVersion ||
+            (client.active_expires_at && client.active_expires_at.getTime() <= Date.now())) {
+          throw new ServiceError(400, "ssh_client_not_authorized", "Choose a current authorized OAuth client.");
+        }
+      }
+      const keys = clientInstallationId ?
+        await new HetznerClientKeyRepository(tenantId, signingConfig(this.env).credentialKey).getOrCreate(sql, clientInstallationId, generateHetznerSshKey) :
+        generateHetznerSshKey();
+      const host = { ...enrollment, ...(clientInstallationId ? { clientInstallationId } : {}), ...keys,
+        connectionRevision: selected.connectionRevision, ownerId: userId, version: crypto.randomUUID(), address: selected.ipv4 };
       await this.repository.put(host, sql);
+      return publicHost(host);
     });
-    return publicHost(host);
   }
 
   async delete(serverId: number) {
@@ -106,7 +125,7 @@ export class HetznerSshService {
   private async check(serverId: number, principal: z.infer<typeof authority>) {
     const { tenantId, userId } = this.auth;
     const host = await this.repository.get(serverId);
-    if (!host || host.ownerId !== userId) {
+    if (!host || host.ownerId !== userId || (principal.type === "oauth" && host.clientInstallationId !== principal.installationId)) {
       throw new ServiceError(404, "ssh_target_not_found", "No SSH enrollment is available to this caller.");
     }
     const broker = this.env.HETZNER_SSH;

@@ -1,9 +1,12 @@
+import type { HetznerCreateInput } from "../api/hetzner-contracts";
 import { fetchWithoutRedirects, OutboundRedirectError } from "../../transport/http/fetch-without-redirects";
 import { z } from "zod";
 
 const origin = "https://api.hetzner.cloud";
 const pageSize = 25;
 const maxPages = 4;
+export const provisionedSshUser = "factorize-agent";
+const provisionLabel = "factorize-request";
 const maxPageBytes = 512 * 1024;
 
 const serverPage = z.object({
@@ -15,6 +18,10 @@ const serverPage = z.object({
   })).max(pageSize),
   meta: z.object({ pagination: z.object({ next_page: z.number().int().positive().nullable() }) }),
 });
+
+const provisionedServer = z.object({id: z.number().int().positive(), name: z.string(), labels: z.record(z.string(), z.string())});
+const provisionResponse = z.object({server: provisionedServer});
+const reconciliationResponse = z.object({servers: z.array(provisionedServer).max(2)});
 
 const targetResponse = z.object({ server: z.object({
   id: z.number().int().positive(),
@@ -63,12 +70,13 @@ async function readJson(response: Response): Promise<unknown> {
 
 /** No caller-controlled origin, method, headers, or URL. */
 export function createHetznerCloudClient(fetchImpl: typeof fetch = fetch) {
-  async function request(url: URL, token: string, signal: AbortSignal) {
+  async function request(url: URL, token: string, signal: AbortSignal, data?: unknown) {
     let response: Response;
     try {
       response = await fetchWithoutRedirects(url, {
-        method: "GET", headers: { authorization: `Bearer ${token}`, accept: "application/json" },
-        signal,
+        method: data === undefined ? "GET" : "POST",
+        headers: { authorization: `Bearer ${token}`, accept: "application/json", ...(data === undefined ? {} : { "content-type": "application/json" }) },
+        ...(data === undefined ? {} : { body: JSON.stringify(data) }), signal,
       }, fetchImpl);
     } catch (error) {
       if (error instanceof OutboundRedirectError) throw new HetznerCloudError("unavailable", "unexpected_status", error.status);
@@ -114,6 +122,31 @@ export function createHetznerCloudClient(fetchImpl: typeof fetch = fetch) {
         next = result.next;
       }
       return { servers, truncated: next !== null };
+    },
+    async create(token: string, input: HetznerCreateInput, ticket: string, publicKey: string) {
+      // Do not pass ssh_keys to the API: the key belongs to a dedicated user, not root.
+      const config = { disable_root: true, ssh_pwauth: false, allow_public_ssh_keys: false, ssh_genkeytypes: ["ed25519"], users: [{
+        name: provisionedSshUser, shell: "/bin/sh", lock_passwd: true, sudo: null,
+        ssh_authorized_keys: [`restrict,command="/bin/true" ${publicKey}`],
+      }] };
+      const body = { name: input.name, server_type: input.serverType, location: input.location, image: "ubuntu-24.04",
+        start_after_create: true, public_net: { enable_ipv4: true, enable_ipv6: false },
+        labels: { [provisionLabel]: ticket }, user_data: "#cloud-config\n" + JSON.stringify(config) + "\n" };
+      const reply = provisionResponse.safeParse(await request(new URL("/v1/servers", origin), token, AbortSignal.timeout(8_000), body));
+      const server = reply.success ? reply.data.server : null;
+      if (!server || server.name !== input.name || server.labels[provisionLabel] !== ticket) throw new HetznerCloudError("invalid_response");
+      return server.id;
+    },
+    async reconcile(token: string, name: string, ticket: string) {
+      const url = new URL("/v1/servers", origin);
+      url.searchParams.set("label_selector", `${provisionLabel}=${ticket}`);
+      url.searchParams.set("name", name);
+      url.searchParams.set("per_page", "2");
+      const reply = reconciliationResponse.safeParse(await request(url, token, AbortSignal.timeout(5_000)));
+      if (!reply.success || reply.data.servers.length > 1) throw new HetznerCloudError("invalid_response");
+      const server = reply.data.servers[0];
+      if (server && (server.name !== name || server.labels[provisionLabel] !== ticket)) throw new HetznerCloudError("invalid_response");
+      return server?.id ?? null;
     },
     /** Internal provider lookup. IPs are never included in inventory responses. */
     async target(token: string, id: number) {

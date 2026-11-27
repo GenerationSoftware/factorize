@@ -9,16 +9,16 @@ export class HetznerInventoryService {
 
   async connection() {
     const project = await this.connections.get();
-    return { connection: project ? { name: project.name } : null };
+    return { connection: project ? { name: project.name, ...(project.provisioningEnabled ? { provisioningEnabled: true } : {}) } : null };
   }
 
   async connectionRevision() { return (await this.connections.get())?.revision ?? null; }
 
   async save(input: unknown) {
-    const { name, token } = hetznerConnectionInput.parse(input);
+    const { name, token, provisioningEnabled = false } = hetznerConnectionInput.parse(input);
     await this.withProviderError("validate_token", () => createHetznerCloudClient().validate(token));
-    await this.connections.save(name, token);
-    return { connection: { name } };
+    await this.connections.save(name, token, provisioningEnabled);
+    return { connection: { name, ...(provisioningEnabled ? { provisioningEnabled: true } : {}) } };
   }
 
   async delete() { return { deleted: await this.connections.delete() }; }

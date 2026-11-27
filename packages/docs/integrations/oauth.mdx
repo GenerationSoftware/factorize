@@ -21,28 +21,57 @@ removed, but Event definitions, subscriptions, and recorded occurrences are
 kept. Reconnecting does not restore removed configuration or grants.
 
 
-### Hetzner Cloud inventory and SSH checks
+### Hetzner Cloud
 
-Add a Hetzner Cloud project with a read-only project token to view its server
-inventory. Under **View servers**, enroll an existing server for SSH checks.
-Use a dedicated non-root account, copy the server's Ed25519 host fingerprint
-from a trusted console. Install the
-complete restricted public-key line shown by Factorize in that account's
-authorized keys. Factorize generates and stores the private key, and does not
-return it to the browser or the client.
+Open **Integrations → Hetzner Cloud** and enter a project token with **Read**
+permission for inventory. To let clients provision servers, explicitly enable
+provisioning and use a token with **Read & Write** permission in the same
+project. Factorize validates inventory on save; Hetzner checks write permission
+when a server is created. Replacing or deleting the project clears the previous
+client permissions and Factorize's stored SSH keys and enrollments. Reassign
+access for the intended clients after replacing the connection.
 
-The owner can check **Hetzner Cloud (inventory and SSH checks)** in a client’s
-permissions. The change takes effect on the current OAuth connection without
-reconnecting it. An unchecked client cannot read Hetzner inventory or check SSH.
-A checked client can call `list_hetzner_servers` or `check_hetzner_ssh` for any
-owner-enrolled server. There is no separate per-server client selection.
+The owner can enable **Hetzner Cloud** in a client's permissions. The change
+takes effect on the current OAuth connection. Without that checkbox the client
+cannot list servers, create servers, access its Hetzner key, or check SSH.
+With access the client can call `list_hetzner_servers` and
+`get_hetzner_ssh_public_key`. Each OAuth installation gets a different
+Factorize-managed key. The private key is encrypted and is never returned.
 
-Each SSH check revalidates the server’s project and enrolled public IPv4,
-then authenticates using the pinned host key and stored credential. It closes
-immediately, never opens a command channel, and returns no remote output.
-The server needs a reachable public IPv4 address and SSH on port 22. If a
-connection drops, repeat the check explicitly.
+#### Provision a server
 
-Deleting or replacing the project removes its saved SSH credentials in
-Factorize. Also remove the public keys from the servers when retiring access.
-Factorize does not change the provider or server as part of deletion.
+When provisioning is enabled, `create_hetzner_server` accepts an intentional
+lowercase name, a small server type, a supported location, and a request UUID.
+It provisions one Ubuntu 24.04 server with public IPv4. The project's cloud
+resources may incur charges. Check size availability and pricing in Hetzner
+first. Factorize reserves up to three create attempts per day and 20 per
+connection, including uncertain attempts.
+
+Reuse the same request UUID if the first result is uncertain. Factorize looks
+up the original creation and won't send a second create request for that UUID.
+Check the provider console before starting a different request. Factorize
+does not automatically delete servers in cleanup; owners can do that in
+Hetzner.
+
+The server starts with the requesting client's restricted public key assigned
+to the dedicated non-root `factorize-agent` account through cloud-init. Server
+creation does not prove that bootstrap finished. In **View servers**, an owner
+must independently obtain the server's Ed25519 host-key fingerprint from a trusted
+console and enroll `factorize-agent` for SSH authentication. Leave client
+selection automatic for provisioned servers.
+
+#### Enroll an existing server
+
+Choose an authorized client, a dedicated non-root account, and an Ed25519
+host-key fingerprint from the trusted server console. Install the complete
+restricted public-key line shown by Factorize on that account. Leaving the
+client blank on an existing server makes it owner-only. For older shared
+enrollments, delete and re-enroll with the intended client and replace the old
+key on the server before checking again.
+
+`check_hetzner_ssh` checks only servers enrolled for the calling client. It
+revalidates the project's server and enrolled IPv4, authenticates with the
+pinned host key, and closes immediately. It cannot run `ls` or any other
+command. The server needs a reachable public IPv4 address and SSH on port 22.
+Remove the authorized key from the server when retiring access; removing the
+integration or enrollment in Factorize does not change the server.
