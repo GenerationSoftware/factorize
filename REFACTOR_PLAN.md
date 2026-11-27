@@ -57,3 +57,18 @@ are part of validation.
   and a local Chromium binary. No production credentials or data were used.
 - OpenAPI, generated client, SQL migrations, and the Worker binding
   configuration have no diff from the base.
+
+## Conflict-reduction follow-through
+
+All three slices land in the same PR. No public interface or migration changes.
+
+- [ ] Declare REST routes and MCP tools in capability modules. Preserve route
+  precedence, tool inventory, OAuth challenge scopes, and generated OpenAPI.
+  New operations in an existing capability must not change a shared registry.
+- [ ] Have protocol adapters call capability services directly. Keep common
+  authorization and timing, and extract Worker OAuth and scheduled maintenance
+  without changing execution order or deployed bindings.
+- [ ] Split Drizzle table definitions by capability, preserving the stable schema
+  entry point and all tables, relations, indexes, and SQL migrations.
+- [ ] Verify non-overlapping Event and VM Grant edits, run full validation on an
+  isolated Fly Machine, and stop it after the run.
