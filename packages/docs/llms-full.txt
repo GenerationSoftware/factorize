@@ -354,13 +354,16 @@ kept. Reconnecting does not restore removed configuration or grants.
 ### Hetzner Cloud
 
 Add the project in **Integrations → Hetzner Cloud** with a Hetzner project
-token. The default is read only. To allow writes, an owner must explicitly
-enable **native API writes**, use a **Read & Write** token, and check the
-Hetzner permission for each intended OAuth client. Enabling this makes the
-project's native write methods available, including destructive changes.
-The former bounded server-provisioning opt-in does not enable native writes.
-Replacing the project resets client grants and stored SSH keys. Reassign only
-the clients that should have access.
+token. Check **Hetzner Cloud** in an OAuth client's permissions to allow it
+to use the native API and its enrolled SSH access. Unchecking it removes
+both immediately; neither change requires reconnecting the OAuth client.
+
+Hetzner enforces the project token's permissions. Choose **Read** for inventory
+only. With a **Read & Write** token, checked clients can make changes, delete
+resources, and incur charges. The existing client checkboxes are unchanged
+by this update: a client already checked for a project with a Read & Write
+token can make writes immediately. Replacing the project still resets client
+grants and stored SSH keys; reassign only clients that should have access.
 
 Use `get_api_reflection` to find the authorized Hetzner connection ID. Then
 use the standard `request_api` tool with the method, relative `/v1/...` path,

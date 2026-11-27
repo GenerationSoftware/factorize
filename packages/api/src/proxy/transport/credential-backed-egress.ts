@@ -40,9 +40,9 @@ export class CredentialBackedEgress {
   ) {}
 
   /** Deny a locally prohibited Hetzner request before it creates an async receipt. */
-  async assertRequest(integration: AgentIntegration, path: string, method: string) {
+  async assertRequest(integration: AgentIntegration, path: string) {
     if (integration.kind === "hetzner" && !await resolveAgentCredential(this.env, this.tenantId,
-      integration.kind, integration.credential_id, path, method)) throw forbidden();
+      integration.kind, integration.credential_id, path)) throw forbidden();
   }
 
   async forward(integration: string, path: string, request: Request, expectedOperationEpoch?: number) {
@@ -50,7 +50,7 @@ export class CredentialBackedEgress {
     if (expectedOperationEpoch !== undefined && grant.integration.operation_epoch !== expectedOperationEpoch) throw forbidden();
     if (grant.integration.kind === "x") return this.forwardX(grant.integration.credential_id, path, request, expectedOperationEpoch);
     let credential;
-    try { credential = await resolveAgentCredential(this.env, this.tenantId, grant.integration.kind, grant.integration.credential_id, path, request.method); }
+    try { credential = await resolveAgentCredential(this.env, this.tenantId, grant.integration.kind, grant.integration.credential_id, path); }
     catch (error) {
       if (error instanceof AgentApiError) throw error;
       throw new AgentApiError(502, "credential_unavailable", "The upstream credential could not be resolved.");

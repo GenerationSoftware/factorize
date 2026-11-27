@@ -2,10 +2,9 @@ import { z } from "zod";
 
 export const hetznerConnectionInput = z.strictObject({
   name: z.string().trim().min(1).max(120),
-  nativeWritesEnabled: z.boolean().optional(),
   token: z.string().trim().min(1).max(256).regex(/^[A-Za-z0-9_-]+$/).meta({ writeOnly: true }),
 });
-export const hetznerConnectionMetadata = z.object({ name: z.string(), nativeWritesEnabled: z.boolean().optional() });
+export const hetznerConnectionMetadata = z.object({ name: z.string() });
 export const hetznerServer = z.object({
   id: z.number().int().positive(),
   name: z.string().min(1).max(255),

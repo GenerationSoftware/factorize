@@ -43,7 +43,7 @@ it.skipIf(!url)("routes native Hetzner reads and writes through sync/async proxy
   } as unknown as R2Bucket;
   f.env.SCHEDULER = { idFromName:(v:string)=>v, get:()=>({ fetch:async()=>Response.json({scheduled:true}) }) } as unknown as DurableObjectNamespace;
   const readToken = "syntheticLegacyProjectToken", writeToken = "syntheticNativeWriteToken";
-  const validations = { reads: 0, writes: 0 };
+  const validations = { reads: 0, writes: 0, rejectedWrites: 0 };
   const nativeBody = '{ "name": "demo", "image": "ubuntu-24.04", "server_type": "cx23", "ssh_keys": [123], "user_data": "#cloud-config\\n" }';
   let redirect = false, huge = false;
   const nativeReply = {server:{id:88, name:"demo"}, action:{id:35,status:"running"}, custom:"unmodified-native-response"};
@@ -56,10 +56,14 @@ it.skipIf(!url)("routes native Hetzner reads and writes through sync/async proxy
     expect(request.headers.get("Cookie")).toBeNull();
     if (redirect) return new Response(null, { status:302, headers:{Location:"https://elsewhere.example/"} });
     if (request.method === "POST") {
-      expect(token).toBe("Bearer " + writeToken);
       expect(new URL(request.url).pathname).toBe("/v1/servers");
       expect(await request.text()).toBe(nativeBody);
       expect(request.headers.get("Content-Type")).toBe("application/json");
+      if (token === "Bearer " + readToken) {
+        validations.rejectedWrites++;
+        return Response.json({error:{code:"forbidden",message:"Read-only project token"}}, {status:403});
+      }
+      expect(token).toBe("Bearer " + writeToken);
       validations.writes++;
       return Response.json(nativeReply, {status:201,headers:{"x-provider-request":"native-123","x-authorization-token":"filtered"}});
     }
@@ -71,9 +75,9 @@ it.skipIf(!url)("routes native Hetzner reads and writes through sync/async proxy
   });
   vi.stubGlobal("fetch", provider);
   try {
-    // A project approved for the former bounded tool is still not approved for native writes.
+    // Ignore a historical local write flag: the provider enforces the actual token permissions.
     await new ConnectionRepository(f.db, f.tenantId, f.env.CREDENTIAL_ENCRYPTION_KEY)
-      .put("hetzner", { name:"Legacy", token:readToken, revision:crypto.randomUUID(), provisioningEnabled:true });
+      .put("hetzner", { name:"Legacy", token:readToken, revision:crypto.randomUUID(), nativeWritesEnabled:true });
     const { id: integration } = await registry();
     for (const id of [first, second]) await f.db.pool.query(`INSERT INTO app.oauth_installations
       (tenant_id,user_id,id,client_id,redirect_uri,active_grant_id,active_session_version,active_scopes,selected_scopes)
@@ -83,6 +87,9 @@ it.skipIf(!url)("routes native Hetzner reads and writes through sync/async proxy
       headers:{Authorization:"Bearer caller-override",Cookie:"caller-cookie","X-HTTP-Method-Override":"POST"} };
     const post = { integration, method:"POST", path:"/v1/servers", headers:{"Content-Type":"application/json"}, body:nativeBody };
     expect((await invoke("request_api",get)).isError).toBe(true);
+    expect((await invoke("request_api",post)).isError).toBe(true);
+    expect((await invoke("get_hetzner_ssh_public_key")).isError).toBe(true);
+    expect((await invoke("check_hetzner_ssh",{serverId:88})).isError).toBe(true);
     expect(provider).not.toHaveBeenCalled();
     await ownerGrant(first,true);
     const reflection = (await invoke("get_api_reflection")).structuredContent.integrations.find((row: any)=>row.id===integration);
@@ -91,21 +98,27 @@ it.skipIf(!url)("routes native Hetzner reads and writes through sync/async proxy
     expect((await invoke("request_api",get,auth(second))).isError).toBe(true);
     expect((await invoke("request_api",{...get,path:"/v1/../oauth/test"})).isError).toBe(true);
     expect((await invoke("request_api",{...get,path:"//elsewhere.example/v1/servers"})).isError).toBe(true);
-    expect((await invoke("request_api",post)).isError).toBe(true);
-    expect((await invoke("request_api",{...post,execution:"sync"})).isError).toBe(true);
     expect(provider).not.toHaveBeenCalled();
     const read = (await invoke("request_api",get)).structuredContent;
     expect(read).toMatchObject({status:200,headers:{"x-provider-request":"native-read"}});
     expect(JSON.parse(read.body)).toMatchObject({servers:[{id:88,name:"demo",location:{name:"fsn1"}}]});
     expect(String(provider.mock.calls[0]?.[0])).toBe("https://api.hetzner.cloud/v1/servers?name=demo");
+    const readOnlyWrite = (await invoke("request_api",{...post,execution:"sync"})).structuredContent;
+    expect(readOnlyWrite.status).toBe(403);
+    expect(JSON.parse(readOnlyWrite.body)).toEqual({error:{code:"forbidden",message:"Read-only project token"}});
+    const roQueued = (await invoke("request_api",post)).structuredContent;
+    await processProxyOperation(f.env,f.tenantId,roQueued.operationId);
+    expect((await invoke("get_api_operation",{operationId:roQueued.operationId})).structuredContent).toMatchObject({state:"complete",status:403});
+    expect(validations.rejectedWrites).toBe(2);
+
 
     const oldKey = (await invoke("get_hetzner_ssh_public_key")).structuredContent;
     expect(oldKey.publicKey).toMatch(/^ssh-ed25519 /);
     expect(oldKey.privateKey).toBeUndefined();
     expect((await invoke("get_hetzner_ssh_public_key",{},auth(second))).isError).toBe(true);
 
-    const turnedOn = await project({name:"Native",token:writeToken,nativeWritesEnabled:true});
-    expect(await turnedOn.json()).toEqual({connection:{name:"Native",nativeWritesEnabled:true}});
+    const turnedOn = await project({name:"Native",token:writeToken});
+    expect(await turnedOn.json()).toEqual({connection:{name:"Native"}});
     expect((await invoke("request_api",post)).isError).toBe(true);
     expect(validations.writes).toBe(0);
     await ownerGrant(first,true);
@@ -146,7 +159,9 @@ it.skipIf(!url)("routes native Hetzner reads and writes through sync/async proxy
     expect((await invoke("read_api_response",{handle:receipt.operationId})).isError).toBe(true);
     expect((await invoke("read_api_response",{handle})).isError).toBe(true);
     expect((await invoke("get_hetzner_ssh_public_key")).isError).toBe(true);
+    expect((await invoke("check_hetzner_ssh",{serverId:88})).isError).toBe(true);
     expect((await invoke("request_api",get)).isError).toBe(true);
+    expect((await invoke("request_api",{...post,execution:"sync"})).isError).toBe(true);
 
     await ownerGrant(first,true);
     const staleProject = (await invoke("request_api",{...post,idempotencyKey:"rotated-before-dispatch"})).structuredContent;
@@ -158,6 +173,6 @@ it.skipIf(!url)("routes native Hetzner reads and writes through sync/async proxy
     expect((await invoke("get_api_operation",{operationId:staleProject.operationId})).isError).toBe(true);
     expect((await invoke("read_api_response",{handle:receipt.operationId})).isError).toBe(true);
     expect((await invoke("request_api",get)).structuredContent.status).toBe(200);
-    expect((await invoke("request_api",post)).isError).toBe(true);
+    expect((await invoke("request_api",{...post,execution:"sync"})).structuredContent.status).toBe(403);
   } finally { vi.unstubAllGlobals(); await f.cleanup(); }
 });

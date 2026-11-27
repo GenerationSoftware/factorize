@@ -13,7 +13,7 @@ import { FlyConnectionRepository } from "../storage/fly-connection-repository";
 import { isPublicHttpsOrigin } from "../../proxy/transport/public-address";
 
 /** Only call after shared identity/grant authorization. No caller origin or secret. */
-export async function resolveAgentCredential(env: Env, tenantId: string, kind: string, credentialId: string, relativePath: string, method: string): Promise<OutboundCredential | null> {
+export async function resolveAgentCredential(env: Env, tenantId: string, kind: string, credentialId: string, relativePath: string): Promise<OutboundCredential | null> {
   if (kind === "cloudflare") return cloudflareCredential(env, tenantId, credentialId, relativePath);
   const database = databaseFor(env);
   if (kind === "hetzner") {
@@ -29,9 +29,6 @@ export async function resolveAgentCredential(env: Env, tenantId: string, kind: s
     }
     const project = await new HetznerConnectionRepository(database, tenantId, signingConfig(env).credentialKey).get();
     if (!project) return null;
-    if (method !== "GET" && method !== "HEAD" && project.nativeWritesEnabled !== true) {
-      throw new AgentApiError(403, "hetzner_native_writes_disabled", "The owner has not enabled native Hetzner Cloud API writes.");
-    }
     return { origin, path: target.pathname + target.search, credential: project.token,
       requestHeaders: ["accept", "content-type", "if-match", "if-none-match"] };
   }
