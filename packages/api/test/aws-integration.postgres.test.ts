@@ -42,7 +42,21 @@ it.skipIf(!url)("limits AWS Code Mode to the exact active OAuth installation wit
   const assumedRoles: string[] = [];
   const install = crypto.randomUUID(), otherInstall = crypto.randomUUID(), grant = crypto.randomUUID(), otherGrant = crypto.randomUUID();
   try {
-    expect(await (await api()).json()).toEqual({ available: false, connections: [] });
+    const warnings = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const listed = await api();
+      expect(await listed.json()).toEqual({ available: false, connections: [] });
+      const requestId = listed.headers.get("X-Request-Id");
+      expect(requestId).toMatch(/^[a-f0-9-]{36}$/);
+      expect(warnings).toHaveBeenCalledExactlyOnceWith({ event: "integration_failure", requestId,
+        provider: "aws", operation: "list_connections", reason: "signing_missing", durationMs: expect.any(Number) });
+      f.env.AWS_WORKLOAD_SIGNING_KEYS = "private-invalid-test-key";
+      const malformed = await api();
+      expect(warnings).toHaveBeenLastCalledWith(expect.objectContaining({
+        requestId: malformed.headers.get("X-Request-Id"), reason: "signing_invalid",
+      }));
+      expect(JSON.stringify(warnings.mock.calls)).not.toContain(f.env.AWS_WORKLOAD_SIGNING_KEYS);
+    } finally { warnings.mockRestore(); }
     f.env.AWS_WORKLOAD_SIGNING_KEYS = JSON.stringify({ active: { ...key, kid: "aws-test" } });
     expect((await api("", "POST", { name: "Dev", region: "us-east-1" }, "broken")).status).toBe(401);
     expect((await api("", "POST", { name: "Dev", region: "us-east-1", roleArn: arn })).status).toBe(400);

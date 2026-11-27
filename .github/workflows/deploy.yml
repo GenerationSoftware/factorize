@@ -112,3 +112,7 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
       - name: Verify public production routing after deployment
         run: node scripts/verify-public-routing.mjs https://app.factorize.sh --wait
+      - name: Verify AWS workload issuer after deployment
+        run: node scripts/verify-aws-issuer.mjs https://app.factorize.sh
+        env:
+          FACTORIZE_REQUIRE_AWS_ISSUER: ${{ vars.FACTORIZE_REQUIRE_AWS_ISSUER }}

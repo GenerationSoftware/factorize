@@ -31,8 +31,8 @@ app.use("/auth/*", async (c, next) => {
   await next();
 });
 
-app.onError((error, c) => {
-  console.error(JSON.stringify({ event: "factorize_unexpected_failure", path: c.req.path, message: error.message, factorizeTailSuppressed: c.req.path.startsWith("/webhooks/cloudflare/") }));
+app.onError((_error, c) => {
+  console.error(JSON.stringify({ event: "factorize_unexpected_failure", factorizeTailSuppressed: c.req.path.startsWith("/webhooks/cloudflare/") }));
   if (c.req.path.startsWith("/api/v1/")) return c.json({ error: { code: "internal_error", message: "Factorize could not complete this request. Try again shortly." } }, 502);
   return c.text("Internal Server Error", 500);
 });

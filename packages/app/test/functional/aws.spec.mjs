@@ -11,7 +11,8 @@ test("AWS owner can prepare, download, verify, assign one client, and delete a c
   const id = "b8de6f86-65e6-4f75-ab35-7bf7d1a7dda7", client = "7129cc89-3dc2-4fc5-8f1f-7a5339183d39";
   const arn = "arn:aws:iam::123456789012:role/FactorizeInventory";
   const base = "/api/v1/integrations/aws";
-  let saved = null;
+  let saved = null, available = false;
+  const requestId = "f0bda107-b72f-4a94-8148-c4282983b994";
   const template = JSON.stringify({ AWSTemplateFormatVersion: "2010-09-09" });
   await page.route("**/api/v1/**", route => {
     const request = route.request(), path = new URL(request.url()).pathname;
@@ -22,7 +23,9 @@ test("AWS owner can prepare, download, verify, assign one client, and delete a c
     if (path === "/api/v1/integrations/bearer") return route.fulfill({ json: { integrations: [], revision: 0 } });
     if (path === "/api/v1/x/connections" || path === "/api/v1/integrations/cloudflare") return route.fulfill({ json: { connections: [] } });
     if (path === "/api/v1/access/authorized-clients") return route.fulfill({ json: [{ grantId: client, clientName: "Test agent", credentialScopes: [], expiresAt: null }] });
-    if (path === base && request.method() === "GET") return route.fulfill({ json: { available: true, connections: saved ? [saved] : [] } });
+    if (path === base && request.method() === "GET") return route.fulfill({
+      headers: available ? {} : { "X-Request-Id": requestId }, json: { available, connections: saved ? [saved] : [] },
+    });
     if (path === base && request.method() === "POST") {
       assert.deepEqual(request.postDataJSON(), { name: "Sandbox inventory", region: "us-west-2" });
       saved = { id, name: "Sandbox inventory", region: "us-west-2", roleArn: null, oauthInstallationId: null, revision: 0 };
@@ -46,6 +49,10 @@ test("AWS owner can prepare, download, verify, assign one client, and delete a c
   });
   try {
     await page.goto(origin + "/settings/integrations");
+    await page.getByRole("button", { name: "Add AWS integration", exact: true }).click();
+    await page.getByText(`AWS workload signing isn’t configured on this Factorize deployment. (Request ID: ${requestId})`).waitFor();
+    available = true;
+    await page.reload();
     await page.getByRole("button", { name: "Add AWS integration", exact: true }).click();
     await page.getByLabel("Connection name", { exact: true }).fill("Sandbox inventory");
     await page.getByRole("combobox", { name: "AWS Region", exact: true }).selectOption("us-west-2");

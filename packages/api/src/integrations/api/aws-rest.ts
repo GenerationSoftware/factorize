@@ -12,7 +12,10 @@ const parameters = z.object({ connectionId: z.uuid() });
 const scoped = { ...owner, parameters };
 export const awsRoutes = [
   route("GET", base, "integrations:read", { summary: "List AWS connections", ...result(awsConnectionList, "AWS connection metadata and signing availability") },
-    service => service.aws.list(), owner),
+    async service => {
+      const { body, requestId } = await service.aws.list();
+      return Response.json(body, { headers: requestId ? { "X-Request-Id": requestId } : undefined });
+    }, owner),
   route("POST", base, "integrations:write", { summary: "Prepare an AWS connection", ...result(awsSetup, "Pending connection and its CloudFormation role template", 201) },
     (service, { body }) => service.aws.prepare(body), { ...owner, body: awsPrepareInput, maxBodyBytes: 1024 }),
   route("GET", item + "/template", "integrations:read", { summary: "Download an AWS connection role template", ...result(awsSetup, "Connection and CloudFormation role template") },

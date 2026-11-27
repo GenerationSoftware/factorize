@@ -3,7 +3,8 @@ import { test, expect } from "./fixtures.mjs";
 test("an owner saves a read-only Hetzner project, views inventory, and confirms local deletion", async ({ page, origin }) => {
   const token = "syntheticReadOnlyProjectToken";
   const requests = [];
-  let connection = null;
+  let connection = null, unavailable = true;
+  const requestId = "f0bda107-b72f-4a94-8148-c4282983b994";
   await page.route("**/api/v1/**", route => {
     const path = new URL(route.request().url()).pathname;
     if (path === "/api/v1/session") return route.fulfill({ json: {
@@ -18,6 +19,8 @@ test("an owner saves a read-only Hetzner project, views inventory, and confirms 
       requests.push(method);
       if (method === "PUT") {
         expect(route.request().postDataJSON()).toEqual({ name: "Fixture project", token });
+        if (unavailable) return route.fulfill({ status: 502, headers: { "X-Request-Id": requestId },
+          json: { error: { code: "hetzner_inventory_error", message: "Hetzner server inventory is unavailable. Try again." } } });
         connection = { name: "Fixture project" };
       }
       if (method === "DELETE") {
@@ -42,6 +45,10 @@ test("an owner saves a read-only Hetzner project, views inventory, and confirms 
   await add.getByLabel("Project name").fill("Fixture project");
   const tokenInput = add.getByLabel("Read-only project API token");
   await expect(tokenInput).toHaveAttribute("type", "password");
+  await tokenInput.fill(token);
+  await add.getByRole("button", { name: "Save connection" }).click();
+  await expect(add.getByRole("alert")).toHaveText(`Hetzner server inventory is unavailable. Try again. (Request ID: ${requestId})`);
+  unavailable = false;
   await tokenInput.fill(token);
   await add.getByRole("button", { name: "Save connection" }).click();
   await expect(add).not.toBeVisible();

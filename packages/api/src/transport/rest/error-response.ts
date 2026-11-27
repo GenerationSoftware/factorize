@@ -16,9 +16,11 @@ export function errorResponse(error: unknown, origin?: string): Response {
     return Response.json({ error: { code: "invalid_request", message, details: error.issues } }, { status: 400 });
   }
   if (error instanceof ServiceError) {
-    const headers = error.code === "insufficient_scope" ? { "WWW-Authenticate": `Bearer error="insufficient_scope"` } : undefined;
+    const headers = new Headers();
+    if (error.code === "insufficient_scope") headers.set("WWW-Authenticate", 'Bearer error="insufficient_scope"');
+    if (error.requestId) headers.set("X-Request-Id", error.requestId);
     return Response.json({ error: { code: error.code, message: error.message } }, { status: error.status, headers });
   }
-  console.error("Protected API request failed", error);
+  console.error("factorize.protected_api_failure");
   return Response.json({ error: { code: "internal_error", message: "Factorize could not complete this request." } }, { status: 500 });
 }
