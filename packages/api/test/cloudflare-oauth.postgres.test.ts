@@ -6,6 +6,7 @@ import type { Env } from "../src/types";
 import worker from "../src/worker";
 import { loadingFixture } from "./helpers/loading-fixture";
 import { mcpRequest } from "./helpers/mcp-request";
+import { AgentApiService } from "../src/proxy/application/agent-api";
 
 vi.mock("cloudflare:workers", () => ({ WorkerEntrypoint: class {}, WorkflowEntrypoint: class {}, DurableObject: class {} }));
 vi.mock("@cloudflare/workers-oauth-provider", () => ({ OAuthProvider: class {}, AuthorizationError: class extends Error {}, getOAuthApi: vi.fn() }));
@@ -245,4 +246,94 @@ it.skipIf(!database)("returns only fixed callback diagnostics through the Worker
     vi.unstubAllGlobals();
     await f.cleanup();
   }
+});
+
+it.skipIf(!database)("keeps an approved client live through Cloudflare replacement, but not revocation or deletion", async () => {
+  const f = await loadingFixture(database!);
+  try {
+    Object.assign(f.env, config, { OAUTH_PROVIDER: {
+      listUserGrants: async () => ({ items: [] }), lookupClient: async () => ({ clientName: "Fixture client" }),
+    } });
+    const api = (method: string, path: string, cookie = f.cookie, body?: object) =>
+      worker.fetch(new Request(f.env.APP_ORIGIN + path, { method, headers: {
+        Cookie: cookie, Origin: f.env.APP_ORIGIN, "Content-Type": "application/json",
+      }, body: body && JSON.stringify(body) }), f.env, {} as ExecutionContext);
+    const authorize = async () => {
+      const start = await api("POST", url + "/authorize");
+      expect(start.status).toBe(200);
+      const cookie = f.cookie + "; " + start.headers.get("Set-Cookie")!.split(";")[0];
+      const { authorizationUrl } = await start.json() as { authorizationUrl: string };
+      const state = new URL(authorizationUrl).searchParams.get("state")!;
+      const callback = await api("GET", "/oauth/cloudflare/callback?" + new URLSearchParams({ code: "fixture", state }), cookie);
+      expect(callback.headers.get("Location")).toContain("cloudflare=connected");
+      return (await f.db.pool.query<{id:string;epoch:number;credential_id:string}>(`SELECT i.id,i.epoch,i.credential_id
+        FROM app.agent_integrations i JOIN app.cloudflare_connections c ON i.tenant_id=c.tenant_id AND i.credential_id=c.id::text
+        WHERE i.tenant_id=$1 AND i.kind='cloudflare' AND c.account_id IS NULL AND c.encrypted_credentials IS NOT NULL`, [f.tenantId])).rows[0];
+    };
+    let issued = 0;
+    const requests: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: URL | string, init?: RequestInit) => {
+      if (new URL(input).hostname === "dash.cloudflare.com")
+        return Response.json({ access_token: `provider-fixture-${++issued}`, token_type: "Bearer", expires_in: 300 });
+      requests.push(new Headers(init?.headers).get("Authorization") ?? "");
+      return Response.json({ success: true });
+    }));
+    const first = await authorize();
+    const installationId = crypto.randomUUID();
+    const grant = "stable-grant", client = "stable-client", firstScope = `integration:${first.id}:${first.epoch}`;
+    const seed = (installation: string, activeGrant: string, scopes: string[]) => f.db.pool.query(`INSERT INTO app.oauth_installations
+      (tenant_id,user_id,id,client_id,redirect_uri,selected_scopes,active_grant_id,active_session_version,active_scopes)
+      VALUES ($1,$2,$3,$4,'https://client.example/callback',$5,$6,$7,$5)`, [f.tenantId,f.userId,installation,client,scopes,activeGrant,f.auth.sessionVersion]);
+    await seed(installationId, grant, ["proxy:use", firstScope]);
+    const auth = { ...f.auth, authMethod: "oauth" as const, oauthGrantId: grant, oauthInstallationId: installationId, oauthIssuanceId: crypto.randomUUID(), oauthClientId: client,
+      oauthExpiresAt: Date.now()/1000 + 600, explicitIntegrationScopes: true, scopes: ["proxy:use", firstScope] };
+    const request = mcpRequest(f.env, auth);
+    const call = (id = first.id, identity = auth) => request("tools/call", { name: "request_api",
+      arguments: { integration: id, method: "GET", path: "/accounts/fixture/widgets", execution: "sync" } }, identity);
+    expect((await call()).message.result.structuredContent.status).toBe(200);
+    const second = await authorize();
+    expect(second).toMatchObject({ id: first.id, credential_id: first.credential_id, epoch: first.epoch + 1 });
+    const currentScope = `integration:${second.id}:${second.epoch}`;
+    const reflection = await request("tools/call", { name: "get_api_reflection", arguments: {} });
+    expect(reflection.message.result.structuredContent.integrations).toContainEqual(expect.objectContaining({ id: first.id, access: "granted" }));
+    expect((await call()).message.result.structuredContent.status).toBe(200);
+    expect(requests).toEqual(["Bearer provider-fixture-1", "Bearer provider-fixture-2"]);
+    await expect(new AgentApiService(f.env, auth).forward(first.id, "/accounts/fixture/widgets",
+      new Request(f.env.APP_ORIGIN), first.epoch)).rejects.toMatchObject({ status: 403 });
+
+    const sibling = crypto.randomUUID();
+    await seed(sibling, "no-cloudflare", ["proxy:use"]);
+    expect((await call(first.id, { ...auth, oauthInstallationId: sibling, oauthGrantId: "no-cloudflare" })).status).toBe(403);
+    expect((await call(first.id, { ...auth, oauthIssuanceId: undefined } as typeof auth)).status).toBe(403);
+    expect(requests).toHaveLength(2);
+    const list = async () => (await (await api("GET", "/api/v1/access/authorized-clients")).json() as Array<{ grantId: string; revision: number }>).find(row => row.grantId === installationId)!;
+    expect(await list()).toMatchObject({ scopes: ["proxy:use", currentScope], credentialScopes: ["proxy:use", currentScope], pendingScopes: [] });
+    const save = async (scopes: string[]) => expect((await api("PUT", `/api/v1/access/authorizations/${installationId}/permissions`, f.cookie,
+      { scopes, expectedRevision: (await list()).revision })).status).toBe(200);
+    await save(["proxy:use", currentScope]);
+    expect((await call()).message.result.structuredContent.status).toBe(200);
+
+    // A deleted registration can remain as history. Recreating it must never
+    // re-use its provider credential ID or its prior client scopes.
+    await seed(crypto.randomUUID(), "delete-impact", [currentScope]);
+    await f.db.pool.query(`INSERT INTO app.agent_proxy_responses
+      (tenant_id,id,identity_id,integration_id,integration_epoch,object_key,expires_at)
+      SELECT tenant_id,$2,id,$3,$4,'fixture-object',now()+interval '1 minute' FROM app.agent_identities
+      WHERE tenant_id=$1 AND subject=$5`, [f.tenantId,crypto.randomUUID(),first.id,first.epoch,grant]);
+    await save(["proxy:use"]);
+    expect((await call()).status).toBe(403);
+    expect(requests).toHaveLength(3);
+    const target = { kind: "cloudflare", id: second.credential_id };
+    const removal = await api("POST", "/api/v1/integrations/removal/preview", f.cookie, target);
+    expect(removal.status).toBe(200);
+    const { fingerprint } = await removal.json() as { fingerprint: string };
+    expect((await api("POST", "/api/v1/integrations/removal/confirm", f.cookie, { ...target, fingerprint, confirmImpact: true })).status).toBe(200);
+    expect((await f.db.pool.query("SELECT available FROM app.agent_integrations WHERE tenant_id=$1 AND id=$2", [f.tenantId,first.id])).rows)
+      .toEqual([{ available: false }]);
+    const third = await authorize();
+    expect(third.id).not.toEqual(first.id);
+    expect(third.credential_id).not.toEqual(first.credential_id);
+    expect((await call(third.id)).status).toBe(403);
+    expect(requests).toHaveLength(3);
+  } finally { vi.unstubAllGlobals(); await f.cleanup(); }
 });

@@ -3,7 +3,7 @@ import { connectionAccess, requiredIntegrationScope, type AgentIntegration, type
 import { databaseFor } from "../../postgres/database";
 import type { Env, OAuthProps } from "../../types";
 
-export async function mcpMissingScopes(env: Env, auth: OAuthProps, body: unknown, policy: ConnectionPolicy): Promise<string[] | null> {
+export async function mcpMissingScopes(env: Env, auth: OAuthProps, body: unknown, policy: ConnectionPolicy, liveOAuthInstallation = false): Promise<string[] | null> {
   if (!body || typeof body !== "object") return null;
   const { jsonrpc, id, method, params } = body as { jsonrpc?: unknown; id?: unknown; method?: unknown; params?: any };
   if (jsonrpc !== "2.0" || !(typeof id === "string" || typeof id === "number")) return null;
@@ -25,5 +25,5 @@ export async function mcpMissingScopes(env: Env, auth: OAuthProps, body: unknown
       !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(integration)) return missing;
   const row = (await databaseFor(env).pool.query<AgentIntegration>(
     "SELECT * FROM app.agent_integrations WHERE tenant_id=$1 AND id=$2", [auth.tenantId, integration])).rows[0];
-  return row && connectionAccess(row, auth.scopes, policy, auth.explicitIntegrationScopes) === "requestable" ? ["proxy:use", requiredIntegrationScope(row)] : missing;
+  return row && connectionAccess(row, auth.scopes, policy, auth.explicitIntegrationScopes, liveOAuthInstallation) === "requestable" ? ["proxy:use", requiredIntegrationScope(row)] : missing;
 }

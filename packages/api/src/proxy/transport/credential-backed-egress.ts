@@ -39,9 +39,10 @@ export class CredentialBackedEgress {
     private requireIdentity: () => Promise<unknown>,
   ) {}
 
-  async forward(integration: string, path: string, request: Request) {
+  async forward(integration: string, path: string, request: Request, expectedEpoch?: number) {
     const grant = await this.authorize(integration);
-    if (grant.integration.kind === "x") return this.forwardX(grant.integration.credential_id, path, request);
+    if (expectedEpoch !== undefined && grant.integration.epoch !== expectedEpoch) throw forbidden();
+    if (grant.integration.kind === "x") return this.forwardX(grant.integration.credential_id, path, request, expectedEpoch);
     let credential;
     try { credential = await resolveAgentCredential(this.env, this.tenantId, grant.integration.kind, grant.integration.credential_id, path); }
     catch (error) {
@@ -55,11 +56,12 @@ export class CredentialBackedEgress {
     try { return await forwardOutbound(request, credential); }
     catch { throw new AgentApiError(502, "proxy_failed", "The upstream request failed."); }
   }
-  async forwardX(connectionId: string, path: string, request: Request) {
+  async forwardX(connectionId: string, path: string, request: Request, expectedEpoch?: number) {
     await this.requireIdentity();
     const row = (await this.database.pool.query<{id: string}>("SELECT id FROM app.agent_integrations WHERE tenant_id=$1 AND kind='x' AND credential_id=$2", [this.tenantId, connectionId])).rows[0];
     if (!row) throw forbidden();
     const apiGrant = await this.authorize(row.id);
+    if (expectedEpoch !== undefined && apiGrant.integration.epoch !== expectedEpoch) throw forbidden();
     const required = xRequiredScope(path, request.method);
     if (!required) throw forbidden();
     const repository = new XConnectionRepository(this.database, this.tenantId, signingConfig(this.env).credentialKey);

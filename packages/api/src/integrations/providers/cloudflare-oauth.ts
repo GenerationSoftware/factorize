@@ -1,3 +1,4 @@
+import { lockIntegrationTopology } from "../storage/integration-removal-topology";
 import { appConfig, cloudflareOAuthConfig, signingConfig } from "../../config/runtime";
 import { z } from "zod";
 import { readBrowserSession } from "../../auth/application/browser-session";
@@ -99,6 +100,7 @@ export async function cloudflareOAuthCallback(request: Request, env: Env) {
     const encrypted = await seal(credentials, env);
     if (!await readBrowserSession(request, env)) return result("expired");
     const saved = await db.transaction(async sql => {
+      await lockIntegrationTopology(sql, owner.tenantId);
       await lock(sql, owner.tenantId);
       const finish = await sql.query(`DELETE FROM app.cloudflare_oauth_attempts a
         WHERE tenant_id=$1 AND user_id=$2 AND session_version=$3 AND state=$4 AND verifier IS NULL AND expires_at>clock_timestamp()
@@ -107,6 +109,10 @@ export async function cloudflareOAuthCallback(request: Request, env: Env) {
                AND m.session_version=a.session_version AND u.email_verified FOR SHARE OF m,u)
         RETURNING state`, [owner.tenantId, owner.userId, owner.sessionVersion, state]);
       if (!finish.rowCount) return false;
+      // Reauthorization keeps an existing connection. Recreating a deleted one
+      // must get a new identity so that no old OAuth scope can authorize it.
+      await sql.query(`DELETE FROM app.cloudflare_connections
+        WHERE tenant_id=$1 AND account_id IS NULL AND encrypted_credentials IS NULL`, [owner.tenantId]);
       const { rows: [connection] } = await sql.query<{ id: string }>(`INSERT INTO app.cloudflare_connections
         (tenant_id,id,account_id,account_name,encrypted_credentials) VALUES($1,$2,NULL,'Cloudflare',$3)
         ON CONFLICT (tenant_id) WHERE account_id IS NULL

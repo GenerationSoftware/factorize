@@ -2,6 +2,7 @@ import { teamPermissionPreferences } from "../../access-control/storage/team-per
 import { appConfig, signingConfig } from "../../config/runtime";
 import { lockIntegrationTopology } from "../../integrations/storage/integration-removal-topology";
 import { selectedTeamDefaults } from "../../access-control/domain/team-permission-defaults";
+import { currentOAuthIntegrationScopes } from "../../proxy/application/agent-integration-access";
 import { integrationConsentLabels, listAgentPolicies } from "../../proxy/application/agent-api";
 import { isIntegrationScope } from "../../access-control/domain/scopes";
 import { databaseFor } from "../../postgres/database";
@@ -70,7 +71,8 @@ export async function consentPreview(env: Env, session: Session, input: z.infer<
   // New connections never exceed an explicit request. An owner can expressly
   // approve their saved scopes for a fresh credential on a chosen existing connection.
   const { integrations } = await listAgentPolicies(env, session.tenantId);
-  const available = integrations.filter(row => row.available && row.policy !== "disabled").map(row => row.requiredScope);
+  const visibleIntegrations = integrations.filter(row => row.available && row.policy !== "disabled");
+  const available = visibleIntegrations.map(row => row.requiredScope);
   const isAvailable = (scope: string) => supported.includes(scope) || available.includes(scope);
   const requested = normalizeScopes(scopedRequest ? requestedScopes : [...supported, ...available]).filter(isAvailable);
   const installations = (await listOAuthInstallations(databaseFor(env).pool, session.tenantId, session.userId)).filter(row =>
@@ -83,8 +85,9 @@ export async function consentPreview(env: Env, session: Session, input: z.infer<
   const existing = target?.kind === "installation" ? installations.find(row => row.id === target.id) : undefined;
   const old = target?.kind === "legacy" ? legacy.find(row => row.grantId === target.id) : undefined;
   if (target && !existing && !old) throw new ConsentPreviewError("This connection is not available for this client. Start a new connection or choose another compatible connection.");
-  const preferences = existing?.selected_scopes ?? old?.selectedScopes;
-  const active = existing?.active_scopes ?? old?.activeScopes ?? [];
+  const preferences = existing ? currentOAuthIntegrationScopes(existing.selected_scopes, visibleIntegrations) : old?.selectedScopes;
+  const active = existing ? currentOAuthIntegrationScopes(existing.active_scopes.filter(scope => existing.selected_scopes.includes(scope)), visibleIntegrations)
+    : old?.activeScopes ?? [];
   const savedOutsideRequestedScopes = target && scopedRequest ? normalizeScopes(preferences ?? [])
     .filter(scope => isAvailable(scope) && !requested.includes(scope)) : [];
   const scopes = [...requested, ...savedOutsideRequestedScopes];
@@ -141,7 +144,8 @@ export async function consentDecision(env: Env, session: Session, input: z.infer
             (target.kind === "installation" && current.policy_revision !== envelope.policyRevision)) return null;
         installationId = current.id;
         policyRevision = current.policy_revision;
-        savedScopes = current.selected_scopes;
+        const { integrations } = await listAgentPolicies(env, session.tenantId);
+        savedScopes = currentOAuthIntegrationScopes(current.selected_scopes, integrations.filter(row => row.available && row.policy !== "disabled"));
       }
     }
     const preview = await transaction.query("UPDATE app.oauth_consent_previews SET used_at=now() WHERE id=$1 AND used_at IS NULL AND expires_at>clock_timestamp() RETURNING id", [envelope.nonce]);

@@ -7,6 +7,7 @@ import { installationScopes, listLegacyOAuthGrants, listOAuthInstallations, mate
 import { deleteMcpGrantSubscriptions, lockMcpEventGrant } from "../../subscriptions/storage/mcp-event-outbox";
 
 import { TeamRepository } from "../storage/team-repository";
+import { currentOAuthIntegrationScopes } from "../../proxy/application/agent-integration-access";
 import { listAgentPolicies } from "../../proxy/application/agent-api";
 
 import { accessToken, createdAccessToken, clientPermissionsUpdate, clientNameInput, authorizedClient } from "../api/access-contracts";
@@ -110,7 +111,13 @@ export class AccessControlService {
         scopes = approval === false ? scopes.filter(scope => integrationForScope(scope) !== id) : [...scopes, approval];
       }
       if (scopes.some(scope => !available.has(scope) && !row.selected_scopes.includes(scope))) throw new ServiceError(400, "invalid_request", "Scope is outside this authorization.");
-      const selected = [...new Set(scopes)];
+      const visibleIntegrations = integrations.filter(integration => available.has(integration.requiredScope));
+      const requested = new Set(currentOAuthIntegrationScopes(scopes, visibleIntegrations));
+      // Keep the exact strings already issued to this installation. A settings
+      // save must not replace an old Cloudflare token scope with a newer alias.
+      const retained = row.selected_scopes.filter(scope => requested.has(currentOAuthIntegrationScopes([scope], visibleIntegrations)[0]!));
+      const represented = new Set(currentOAuthIntegrationScopes(retained, visibleIntegrations));
+      const selected = [...retained, ...[...requested].filter(scope => !represented.has(scope))];
       // Remove scopes from the outstanding credential ceiling permanently. Rechecking
       // a box later only changes desired policy; a fresh credential is still needed.
       await sql.query(`UPDATE app.oauth_installations SET selected_scopes=$4,active_scopes=$5,legacy_implicit_scopes=$6,policy_revision=policy_revision+1
@@ -138,15 +145,18 @@ export class AccessControlService {
     ]);
     const clientIds = [...new Set(rows.map(row => row.client_id))];
     const byId = new Map(await Promise.all(clientIds.map(async clientId => [clientId, await this.env.OAUTH_PROVIDER!.lookupClient(clientId)] as const)));
-    const globallyAvailable = [...AGENT_SCOPES, ...integrations.filter(row => row.available && row.policy !== "disabled").map(row => row.requiredScope)];
+    const visibleIntegrations = integrations.filter(row => row.available && row.policy !== "disabled");
+    const globallyAvailable = [...AGENT_SCOPES, ...visibleIntegrations.map(row => row.requiredScope)];
     const scopeLabels = Object.fromEntries(integrations.map(row => [row.requiredScope, `${row.name} integration access`]));
     return publicValue(z.array(authorizedClient), rows.map(row => {
       const appName = byId.get(row.client_id)?.clientName ?? row.client_id;
       const inactive = (row.active_expires_at !== null && row.active_expires_at.getTime() <= Date.now()) || row.active_session_version !== this.auth.sessionVersion;
-      const credentialScopes = inactive ? [] : installationScopes(row).filter(scope => !integrationForScope(scope) || globallyAvailable.includes(scope));
-      const pendingScopes = row.selected_scopes.filter(scope => !credentialScopes.includes(scope));
+      const selectedScopes = currentOAuthIntegrationScopes(row.selected_scopes, visibleIntegrations);
+      const credentialScopes = inactive ? [] : currentOAuthIntegrationScopes(installationScopes(row), visibleIntegrations)
+        .filter(scope => !integrationForScope(scope) || globallyAvailable.includes(scope));
+      const pendingScopes = selectedScopes.filter(scope => !credentialScopes.includes(scope));
       return { grantId: row.id, clientId: row.client_id, clientName: row.display_name ?? appName, appName,
-        availableScopes: [...new Set([...globallyAvailable, ...row.selected_scopes])], scopeLabels, scopes: row.selected_scopes,
+        availableScopes: [...new Set([...globallyAvailable, ...selectedScopes])], scopeLabels, scopes: selectedScopes,
         credentialScopes, pendingScopes, revision: row.policy_revision, integrationOverrides: {}, ownerUsername: owner.rows[0]?.username,
         authorizationDate: row.created_at.toISOString(), expiresAt: row.active_expires_at?.toISOString() ?? null, lastUsedAt: null };
     }));

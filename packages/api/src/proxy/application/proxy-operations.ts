@@ -88,7 +88,7 @@ export async function processProxyOperation(env:Env,tenantId:string,id:string){
  try{
   await check();const request=requestApiInput.parse(JSON.parse(await decrypt(row.encrypted_request,signingConfig(env).credentialKey)));
   const outbound=await proxyRequestBody(env,auth,request);
-  const response=await api.forward(request.integration,request.path,new Request(appConfig(env).origin,{method:request.method,headers:outbound.headers,body:outbound.body,signal,duplex:"half"} as RequestInit));status=response.status;
+  const response=await api.forward(request.integration,request.path,new Request(appConfig(env).origin,{method:request.method,headers:outbound.headers,body:outbound.body,signal,duplex:"half"} as RequestInit),row.integration_epoch);status=response.status;
   const headers:Record<string,string>={};response.headers.forEach((value,name)=>{headers[name]=value;});await db.pool.query("UPDATE app.proxy_operations SET status=$3,headers=$4 WHERE tenant_id=$1 AND id=$2 AND state='running'",[tenantId,id,status,headers]);
   reader=response.body?.getReader();const pending=new Uint8Array(blockBytes);let pendingSize=0,part=0;
   if(reader)for(;;){const next=await readNext(reader,signal);if(next.done)break;await check();if(size+next.value.length>proxyLimits.responseBytes)throw new AgentApiError(413,"response_too_large","Response exceeds the fixed 64 MiB limit; earlier bytes remain readable.");

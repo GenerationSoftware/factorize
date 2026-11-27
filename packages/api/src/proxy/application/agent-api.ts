@@ -44,7 +44,7 @@ export async function integrationConsentLabels(env: Env, tenantId: string, scope
 export class AgentApiService {
   constructor(private env: Env, private auth: OAuthProps) {}
   private get database() { return databaseFor(this.env); }
-  async identity(): Promise<{id: string; kind: "vm" | "oauth"; policy: ConnectionPolicy; scopes: string[]; explicit?: boolean}> {
+  async identity(): Promise<{id: string; kind: "vm" | "oauth"; policy: ConnectionPolicy; scopes: string[]; explicit?: boolean; liveOAuthInstallation?: boolean}> {
     const auth = this.auth;
     if (auth.authMethod === "vm") {
       const scopes = await activeVmAuthorization(this.env, auth);
@@ -74,14 +74,14 @@ export class AgentApiService {
     // Short-lived receipts remain tied to the exact credential. The durable
     // connection changes only authorization, not ownership of transient data.
     return {id: row.id, kind, policy: installation ? { disabled_scopes: [], integration_overrides: {} } : row,
-      scopes: installation ? installationScopes(installation, auth.scopes) : auth.scopes, explicit: !!installation };
+      scopes: installation ? installationScopes(installation, auth.scopes) : auth.scopes, explicit: !!installation, liveOAuthInstallation: !!installation && !!auth.oauthInstallationId && !!auth.oauthIssuanceId };
   }
   async authorize(integration: string) {
     const identity = await this.identity();
     const row = (await this.database.pool.query<AgentIntegration>("SELECT * FROM app.agent_integrations WHERE tenant_id=$1 AND id=$2", [this.auth.tenantId, integration])).rows[0];
     if (!row || row.policy==="disabled") throw forbidden();
     if (identity.kind === "vm" && (!row.available || !identity.scopes.includes(requiredIntegrationScope(row)))) throw forbidden();
-    const access = connectionAccess(row, identity.scopes, identity.policy, identity.explicit || this.auth.explicitIntegrationScopes);
+    const access = connectionAccess(row, identity.scopes, identity.policy, identity.explicit || this.auth.explicitIntegrationScopes, identity.liveOAuthInstallation);
     if (access === "blocked") throw forbidden();
     if (access === "requestable") throw new AgentApiError(403, "insufficient_scope", "Approve this integration before making the request.", requiredIntegrationScope(row));
     return {identity, integration: row};
@@ -113,8 +113,8 @@ export class AgentApiService {
     return new CredentialBackedEgress(this.env, this.auth.tenantId, this.database,
       integration => this.authorize(integration), () => this.identity());
   }
-  forward(integration: string, path: string, request: Request) {
-    return this.egress().forward(integration, path, request);
+  forward(integration: string, path: string, request: Request, expectedEpoch?: number) {
+    return this.egress().forward(integration, path, request, expectedEpoch);
   }
   forwardX(connectionId: string, path: string, request: Request) {
     return this.egress().forwardX(connectionId, path, request);
