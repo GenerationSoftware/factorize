@@ -19,6 +19,7 @@ export function useHetznerIntegration() {
   const session = useQuery(sessionQuery);
   const owner = session.data?.authenticated && session.data.team?.role === "owner";
   const [screen, setScreen] = useState<"edit" | "delete" | "inventory" | null>(null);
+  const [provisioningEnabled, setProvisioningEnabled] = useState(false);
   const [name, setName] = useState("");
   const [token, setToken] = useState("");
   const [notice, setNotice] = useState("");
@@ -34,7 +35,7 @@ export function useHetznerIntegration() {
     return data;
   } });
   const write = useMutation({ retry: false, mutationFn: async (operation: "save" | "delete") => {
-    const result = operation === "save" ? await api.PUT(connectionPath, { body: { name: name.trim(), token: token.trim() } }) :
+    const result = operation === "save" ? await api.PUT(connectionPath, { body: { name: name.trim(), token: token.trim(), ...(provisioningEnabled ? { provisioningEnabled: true } : {}) } }) :
       await api.DELETE(connectionPath);
     if (!result.data || result.error) throw new Error(withRequestReference(messageOf(result.error), result.response));
     return operation;
@@ -46,6 +47,7 @@ export function useHetznerIntegration() {
   }, onSettled: () => setToken("") });
   function open(next: typeof screen) {
     setName(connection?.name ?? "");
+    setProvisioningEnabled(connection?.provisioningEnabled === true);
     setToken("");
     setNotice("");
     write.reset();
@@ -56,21 +58,23 @@ export function useHetznerIntegration() {
   return {
     count: owner && connection ? 1 : 0,
     pending: Boolean(owner && query.isPending),
-    rows: owner && connection ? <IntegrationRow kind="hetzner" credentialId="hetzner" name="Hetzner Cloud" detail={connection.name} actions={[
+    rows: owner && connection ? <IntegrationRow kind="hetzner" credentialId="hetzner" name="Hetzner Cloud" detail={connection.name} status={connection.provisioningEnabled ? "Provisioning enabled" : undefined} actions={[
       { label: "View servers", onClick: () => open("inventory") },
       { label: "Replace connection", onClick: () => open("edit") },
       { label: "Delete", destructive: true, onClick: () => open("delete") },
     ]} /> : null,
-    tile: owner && <ProviderTile kind="hetzner" name="Hetzner Cloud" description="Read project inventory and check enrolled SSH servers." count={connection ? 1 : 0}
+    tile: owner && <ProviderTile kind="hetzner" name="Hetzner Cloud" description="Read project inventory, provision small servers when allowed, and check SSH authentication." count={connection ? 1 : 0}
       onAdd={() => open("edit")} />,
     feedback: owner && <>{query.error && <p role="alert">{query.error.message}</p>}{notice && <p role="status">{notice}</p>}</>,
     dialog: owner && <>
       {screen === "edit" && <Dialog title={connection ? "Replace Hetzner Cloud connection" : "Add Hetzner Cloud integration"} close={close} busy={write.isPending}>
         <form autoComplete="off" method="post" className="grid gap-3" onSubmit={event => { event.preventDefault(); write.mutate("save"); }}>
           <Label>Project name <Input value={name} maxLength={120} required disabled={write.isPending} onChange={event => setName(event.target.value)} /></Label>
-          <Label>Read-only project API token <SecretInput name="hetzner-project-token" value={token} maxLength={256} required disabled={write.isPending} onChange={event => setToken(event.target.value)} /></Label>
-          <p className="text-sm">Create a project API token with Read permission in Hetzner Cloud Console. Factorize checks that it can list servers; it cannot verify the token’s permission setting.</p>
-          {connection && <p className="text-sm">Replacing the connection also removes any saved SSH keys for this project from Factorize.</p>}
+          <label className="flex items-center gap-2"><input type="checkbox" checked={provisioningEnabled} disabled={write.isPending} onChange={event => setProvisioningEnabled(event.target.checked)} /> Allow authorized clients to create small servers</label>
+          {provisioningEnabled && <p role="status" className="text-sm">Creating servers and public IPv4 addresses can incur charges. Enable this only for a project whose costs you control.</p>}
+          <Label>{provisioningEnabled ? "Read & Write project API token" : "Read-only project API token"} <SecretInput name="hetzner-project-token" value={token} maxLength={256} required disabled={write.isPending} onChange={event => setToken(event.target.value)} /></Label>
+          <p className="text-sm">Create a project API token in Hetzner Cloud Console with {provisioningEnabled ? "Read & Write" : "Read"} permission. Factorize tests inventory on save. Hetzner enforces write permission at server creation.</p>
+          {connection && <p className="text-sm">Replacing the connection removes saved SSH keys and clears client access. Reassign the Hetzner checkbox for clients you still want to use it.</p>}
           <div className="flex flex-wrap gap-2"><Button variant="primary" disabled={write.isPending || !name.trim() || !token.trim()}>{write.isPending ? "Saving…" : "Save connection"}</Button>
           <Button type="button" onClick={close} disabled={write.isPending}>Cancel</Button></div>
         </form>{error}

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "factorize-api-client";
 import { Button, Input, Label } from "../../shared/ui";
+import { clientsQuery } from "../access-control/queries";
 import { messageOf } from "../auth/session";
 
 const path = "/api/v1/hetzner/ssh";
@@ -10,6 +11,8 @@ const key = ["settings", "hetzner", "ssh"];
 export function HetznerSsh({ servers }: { servers: Array<{ id: number; name: string }> }) {
   const cache = useQueryClient();
   const [server, setServer] = useState("");
+  const [client, setClient] = useState("");
+  const clients = useQuery(clientsQuery);
   const [username, setUsername] = useState("");
   const [fingerprint, setFingerprint] = useState("");
   const [notice, setNotice] = useState("");
@@ -21,12 +24,12 @@ export function HetznerSsh({ servers }: { servers: Array<{ id: number; name: str
   } });
   const install = useMutation({ mutationFn: async () => {
     const { data, error } = await api.POST(path, { body: {
-      serverId: Number(server), username: username.trim(), hostFingerprint: fingerprint.trim(),
+      serverId: Number(server), username: username.trim(), hostFingerprint: fingerprint.trim(), ...(client ? { clientInstallationId: client } : {}),
     } });
     if (!data || error) throw new Error(messageOf(error));
   }, onSuccess: async () => {
-    setServer(""); setUsername(""); setFingerprint("");
-    setNotice("Enrollment saved. Install its public key before checking SSH.");
+    setServer(""); setUsername(""); setFingerprint(""); setClient("");
+    setNotice("Enrollment saved. For an existing server, install its restricted public-key line before checking SSH.");
     await cache.invalidateQueries({ queryKey: key });
   } });
   const action = useMutation({ mutationFn: async ({ id, remove }: { id: number; remove: boolean }) => {
@@ -48,7 +51,7 @@ export function HetznerSsh({ servers }: { servers: Array<{ id: number; name: str
   const available = servers.filter(s => !enrolled.data?.some(e => e.serverId === s.id));
   return <section className="mt-5 space-y-4" aria-label="Hetzner SSH">
     <h3 className="font-semibold">SSH health checks</h3>
-    <p>Use a dedicated non-root server account. Clients with Hetzner access can check enrolled servers. Get the server’s Ed25519 fingerprint from its trusted console. Factorize never shows the private key.</p>
+    <p>Use a dedicated non-root server account. Each client uses its own key and can only check servers enrolled for that client. Get the server’s Ed25519 fingerprint from its trusted console. Factorize never shows the private key.</p>
     {notice && <p role="status">{notice}</p>}
     {[enrolled.error, install.error, action.error].filter(Boolean).map((error, index) => <p key={index} role="alert">{error?.message}</p>)}
     {enrolled.data?.map(item => <div key={item.serverId} className="space-y-2">
@@ -62,13 +65,19 @@ export function HetznerSsh({ servers }: { servers: Array<{ id: number; name: str
             <Button type="button" onClick={() => setConfirm(null)}>Cancel</Button></>
           : <Button type="button" disabled={pending} onClick={() => setConfirm(item.serverId)}>Delete SSH enrollment</Button>}
       </div>
-      {confirm === item.serverId && <p className="text-sm">This removes Factorize’s key. Remove the public key from the server separately.</p>}
+      {confirm === item.serverId && <p className="text-sm">This removes Factorize’s enrollment. Remove that key from the server separately if the client should lose access.</p>}
     </div>)}
     {available.length > 0 && <form className="grid gap-3" onSubmit={event => { event.preventDefault(); install.mutate(); }}>
       <Label>Server<select value={server} onChange={event => setServer(event.target.value)} required disabled={pending}>
         <option value="">Select a server</option>{available.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
       </select></Label>
       <Label>SSH user<Input value={username} required maxLength={32} onChange={event => setUsername(event.target.value)} disabled={pending} /></Label>
+      <p className="text-sm">For a server created here, enter <code>factorize-agent</code> and leave the client on automatic selection.</p>
+      <Label>Authorized client<select value={client} onChange={event => setClient(event.target.value)} disabled={pending}>
+        <option value="">Automatic on new servers; owner only on existing servers</option>
+        {clients.data?.filter(c => !c.expiresAt || Date.parse(c.expiresAt) > Date.now()).map(c => <option key={c.grantId} value={c.grantId}>{c.clientName} · {c.grantId.slice(0,8)}</option>)}
+      </select></Label>
+      {clients.error && <p role="alert">Could not list authorized clients.</p>}
       <Label>Ed25519 host fingerprint<Input value={fingerprint} placeholder="SHA256:…" required onChange={event => setFingerprint(event.target.value)} disabled={pending} /></Label>
       <Button type="submit" variant="primary" disabled={pending || !server || !username || !fingerprint}>Generate SSH key</Button>
     </form>}

@@ -1,3 +1,4 @@
+import { HetznerProvisionService } from "./integrations/application/hetzner-provision";
 import { AwsIntegrationService } from "./integrations/application/aws-service";
 import { HetznerSshService } from "./integrations/application/hetzner-ssh";
 import { ProxyService } from "./proxy/application/proxy-service";
@@ -46,6 +47,7 @@ export class ApiService {
   get integrations() {
     return new IntegrationsService(this.env, this.auth, scope => this.authorize(scope), scope => this.authorizeOwnerSession(scope));
   }
+  get hetznerProvision() { return new HetznerProvisionService(this.env, this.auth); }
   get hetznerSsh() {
     return new HetznerSshService(this.env, this.auth, scope => this.authorizeOwnerSession(scope));
   }

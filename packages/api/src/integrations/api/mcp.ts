@@ -1,3 +1,4 @@
+import { hetznerCreateInput, type HetznerCreateInput } from "./hetzner-contracts";
 import { awsCodeInput } from "./aws-contracts";
 import { hetznerSshToolInput } from "./hetzner-ssh-contracts";
 import { z } from "zod";
@@ -19,6 +20,8 @@ export const tailTools = [
 
 export const hetznerTools = [
   mcpTool(null, "list_hetzner_servers", "List server inventory for a connected Hetzner project whose access is granted to this client.", z.strictObject({}), service => () => service.hetznerSsh.inventoryAsClient()),
+  mcpTool(null, "get_hetzner_ssh_public_key", "Get this authorized OAuth installation’s public SSH key. The owner must install it on existing servers; the private key is never returned.", z.strictObject({}), service => () => service.hetznerProvision.publicKey()),
+  mcpTool<HetznerCreateInput>(null, "create_hetzner_server", "Create one small Hetzner Cloud server only when the owner enabled provisioning. This can incur charges. Provide an intentionally chosen name and a stable requestId. Retrying the same request only checks its outcome. Requires an owner-verified host fingerprint before SSH.", hetznerCreateInput, service => input => service.hetznerProvision.create(input)),
   mcpTool(null, "check_hetzner_ssh", "Check SSH access for one owner-enrolled Hetzner Cloud server. Uses the pinned host identity and a Factorize-held credential. Proves fresh key authentication; no SSH channel, commands or remote output.", hetznerSshToolInput, service =>
     (input: {serverId: number}) => service.hetznerSsh.checkAsClient(input.serverId)),
 ];

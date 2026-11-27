@@ -36,6 +36,7 @@ export class HetznerSshBroker extends DurableObject<Env> {
           const [current, currentProject, member] = await Promise.all([hosts.get(serverId), projects.get(), members.member(ownerId)]);
           if (current?.version !== version || currentProject?.revision !== project.revision || member?.role !== "owner" || member.sessionVersion !== sessionVersion) return false;
           if (authority.type === "owner") return true;
+          if (current.clientInstallationId !== authority.installationId) return false;
           return (await activeHetznerScope(db.pool, { tenantId, userId: ownerId, sessionVersion,
             installationId: authority.installationId, grantId: authority.grantId, expiresAt: authority.expiresAt })) === authority.scope;
         },

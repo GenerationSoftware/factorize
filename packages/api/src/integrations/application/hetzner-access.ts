@@ -8,7 +8,7 @@ export type HetznerOAuthClient = {
 };
 
 export async function activeHetznerScope(db: DatabaseClient, client: HetznerOAuthClient) {
-  if (client.expiresAt <= Date.now() / 1000) return null;
+  if (!Number.isFinite(client.expiresAt) || client.expiresAt <= Date.now() / 1000) return null;
   const [installation, integration] = await Promise.all([
     getOAuthInstallation(db, client.tenantId, client.userId, client.installationId),
     db.query<AgentIntegration>("SELECT * FROM app.agent_integrations WHERE tenant_id=$1 AND kind='hetzner' AND credential_id='hetzner'", [client.tenantId])
