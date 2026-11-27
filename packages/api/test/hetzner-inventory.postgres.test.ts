@@ -116,7 +116,7 @@ describe.skipIf(!databaseUrl)("owner-only Hetzner project inventory REST routes 
       expect(await repo.get()).toBeNull();
       expect(await otherGeneric.get("hetzner-ssh:41")).not.toBeNull();
       expect((await otherRepo.get())?.token).toBe(otherToken);
-      expect(provider).toHaveBeenCalledTimes(4);
+      expect(provider).toHaveBeenCalledTimes(5);
     } finally { vi.unstubAllGlobals(); await f.cleanup(); }
   });
 });
