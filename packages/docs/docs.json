@@ -30,9 +30,12 @@
             "pages": [
               "work/use-an-api",
               "work/vm-access",
-              "integrations/aws",
               "work/triggers"
             ]
+          },
+          {
+            "group": "Account integrations",
+            "pages": ["integrations/aws"]
           },
           {
             "group": "Event sources",
