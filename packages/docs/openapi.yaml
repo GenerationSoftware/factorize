@@ -7735,7 +7735,7 @@ paths:
                         properties:
                           name:
                             type: string
-                          provisioningEnabled:
+                          nativeWritesEnabled:
                             type: boolean
                         required:
                           - name
@@ -7770,7 +7770,7 @@ paths:
     put:
       summary: Save a Hetzner Cloud project connection
       description: |-
-        Owner browser session only. Supply a project API token with Read permission, or Read & Write only when enabling server provisioning. Factorize verifies that it can list servers and stores it encrypted; saving does not change provider resources.
+        Owner browser session only. Supply a project API token with Read permission, or Read & Write only when explicitly enabling native API writes through the proxy. Factorize verifies that it can list servers and stores it encrypted; saving does not change provider resources.
 
         Requires the integrations:write scope.
 
@@ -7788,7 +7788,7 @@ paths:
                     properties:
                       name:
                         type: string
-                      provisioningEnabled:
+                      nativeWritesEnabled:
                         type: boolean
                     required:
                       - name
@@ -7832,7 +7832,7 @@ paths:
                   type: string
                   minLength: 1
                   maxLength: 120
-                provisioningEnabled:
+                nativeWritesEnabled:
                   type: boolean
                 token:
                   type: string

@@ -25,5 +25,6 @@ export async function mcpMissingScopes(env: Env, auth: OAuthProps, body: unknown
       !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(integration)) return missing;
   const row = (await databaseFor(env).pool.query<AgentIntegration>(
     "SELECT * FROM app.agent_integrations WHERE tenant_id=$1 AND id=$2", [auth.tenantId, integration])).rows[0];
+  // Hetzner access comes from the live owner checkbox rather than OAuth scope escalation.
   return row && row.kind !== "hetzner" && connectionAccess(row, auth.scopes, policy, auth.explicitIntegrationScopes) === "requestable" ? ["proxy:use", requiredIntegrationScope(row)] : missing;
 }

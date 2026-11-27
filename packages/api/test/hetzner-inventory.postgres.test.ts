@@ -133,11 +133,11 @@ it.skipIf(!databaseUrl)("lets a live client read Hetzner only while its workspac
     const scope = `integration:${id}:${epoch}`;
     await f.db.pool.query(`INSERT INTO app.oauth_installations
       (tenant_id,user_id,id,client_id,redirect_uri,active_grant_id,active_session_version,active_scopes,selected_scopes)
-      VALUES($1,$2,$3,'fixture-client','https://client.example/callback',$4,$5,'{}','{}')`,
+      VALUES($1,$2,$3,'fixture-client','https://client.example/callback',$4,$5,ARRAY['proxy:use'],ARRAY['proxy:use'])`,
       [f.tenantId,f.userId,installation,grant,f.auth.sessionVersion]);
     const call = mcpRequest(f.env, { ...f.auth, authMethod:"oauth", oauthInstallationId:installation,
-      oauthClientId:"fixture-client", oauthGrantId:grant, oauthExpiresAt:Date.now()/1000 + 300, scopes:[] });
-    const list = () => call("tools/call", { name:"list_hetzner_servers", arguments:{} });
+      oauthClientId:"fixture-client", oauthGrantId:grant, oauthExpiresAt:Date.now()/1000 + 300, scopes:["proxy:use"] });
+    const list = () => call("tools/call", { name:"request_api", arguments:{integration:id,method:"GET",path:"/v1/servers",execution:"sync"} });
     const ssh = () => call("tools/call", { name:"check_hetzner_ssh", arguments:{serverId:1} });
     const save = async (scopes: string[]) => worker.fetch(new Request(f.env.APP_ORIGIN + `/api/v1/access/authorizations/${installation}/permissions`, {
       method: "PUT", headers: { Cookie:f.cookie, Origin:f.env.APP_ORIGIN, "Content-Type":"application/json" },
@@ -146,10 +146,10 @@ it.skipIf(!databaseUrl)("lets a live client read Hetzner only while its workspac
     expect((await list()).message.result.isError).toBe(true);
     expect((await ssh()).message.result.isError).toBe(true);
     expect(provider).not.toHaveBeenCalled();
-    expect((await save([scope])).status).toBe(200);
-    expect((await list()).message.result.structuredContent).toMatchObject({servers:[],truncated:false});
+    expect((await save(["proxy:use",scope])).status).toBe(200);
+    expect((await list()).message.result.structuredContent).toMatchObject({status:200,body:JSON.stringify({ servers: [], meta: { pagination: { next_page: null } } })});
     expect(provider).toHaveBeenCalledOnce();
-    expect((await save([])).status).toBe(200);
+    expect((await save(["proxy:use"])).status).toBe(200);
     expect((await list()).message.result.isError).toBe(true);
     expect((await ssh()).message.result.isError).toBe(true);
     expect(provider).toHaveBeenCalledOnce();

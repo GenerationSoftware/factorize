@@ -1,3 +1,4 @@
+import { activeHetznerScope } from "../../integrations/application/hetzner-access";
 import { proxyLimits } from "../../config/limits";
 import { appConfig } from "../../config/runtime";
 import { CredentialBackedEgress } from "../transport/credential-backed-egress";
@@ -26,7 +27,7 @@ import type { z } from "zod";
 const STORAGE_BLOCK_BYTES = proxyLimits.artifactBlockBytes;
 const forbidden = () => new AgentApiError(403, "forbidden", "This integration is not authorized.");
 const invalidIdentity = () => new AgentApiError(401, "invalid_token", "The agent authorization is no longer active.");
-const publicIntegration = (row: AgentIntegration) => ({ id: row.id, kind: row.kind, credentialId: row.credential_id, name: row.name, description: row.description, available: row.available, policy: row.policy, revision: row.revision, requiredScope: requiredIntegrationScope(row) });
+const publicIntegration = (row: AgentIntegration) => ({ id: row.id, kind: row.kind, credentialId: row.credential_id, name: row.name, description: row.kind === "hetzner" ? "Native Hetzner Cloud project API, with owner-controlled write access." : row.description, available: row.available, policy: row.policy, revision: row.revision, requiredScope: requiredIntegrationScope(row) });
 
 /** These are structural checks only: reflection never refreshes/decrypts secrets. */
 export async function integrationConsentLabels(env: Env, tenantId: string, scopes: string[]) {
@@ -79,7 +80,16 @@ export class AgentApiService {
   async authorize(integration: string) {
     const identity = await this.identity();
     const row = (await this.database.pool.query<AgentIntegration>("SELECT * FROM app.agent_integrations WHERE tenant_id=$1 AND id=$2", [this.auth.tenantId, integration])).rows[0];
-    if (!row || row.kind === "hetzner" || row.policy==="disabled") throw forbidden();
+    if (!row || row.policy === "disabled") throw forbidden();
+    if (row.kind === "hetzner") {
+      const { tenantId, userId, sessionVersion, oauthInstallationId, oauthGrantId, oauthExpiresAt } = this.auth;
+      if (identity.kind !== "oauth" || row.credential_id !== "hetzner" || !oauthInstallationId || !oauthGrantId ||
+          typeof oauthExpiresAt !== "number" || await activeHetznerScope(this.database.pool, { tenantId, userId, sessionVersion,
+            installationId: oauthInstallationId, grantId: oauthGrantId, expiresAt: oauthExpiresAt }) !== requiredIntegrationScope(row)) {
+        throw forbidden();
+      }
+      return { identity, integration: row };
+    }
     if (identity.kind === "vm" && (!row.available || !identity.scopes.includes(requiredIntegrationScope(row)))) throw forbidden();
     const access = connectionAccess(row, identity.scopes, identity.policy, identity.explicit || this.auth.explicitIntegrationScopes);
     if (access === "blocked") throw forbidden();
@@ -91,18 +101,16 @@ export class AgentApiService {
     const rows = (await this.database.pool.query<AgentIntegration>("SELECT * FROM app.agent_integrations WHERE tenant_id=$1 ORDER BY name,id", [this.auth.tenantId])).rows;
     const result = [];
     for (const row of rows) {
-      // Hetzner is surfaced in permission settings and by its typed MCP tools,
-      // never as a generic request_api destination.
-      if (row.kind === "hetzner" || row.policy === "disabled" || (identity.kind === "vm" && !identity.scopes.includes(requiredIntegrationScope(row)))) continue;
+      if (row.policy === "disabled" || (identity.kind === "vm" && (row.kind === "hetzner" || !identity.scopes.includes(requiredIntegrationScope(row))))) continue;
       let access: "granted" | "requestable" | "unavailable" = "granted";
       try { await this.authorize(row.id); } catch (error) {
         if (!(error instanceof AgentApiError) || error.status === 401) throw error;
         access = error.code === "insufficient_scope" ? "requestable" : "unavailable";
       }
-      const path = row.kind === "linear" ? "/graphql" : row.kind === "x" ? "/2/users/me" : row.kind === "cloudflare" ? "/zones" : row.kind === "fly" ? "/v1/apps" : row.kind === "exe" ? "/exec" : "/";
+      const path = row.kind === "linear" ? "/graphql" : row.kind === "x" ? "/2/users/me" : row.kind === "cloudflare" ? "/zones" : row.kind === "fly" ? "/v1/apps" : row.kind === "hetzner" ? "/v1/servers" : row.kind === "exe" ? "/exec" : "/";
       const method = row.kind === "linear" || row.kind === "exe" ? "POST" : "GET";
       const requestExample = {integration:row.id,method,path,...(row.kind === "linear" ? {headers:{"Content-Type":"application/json"},body:JSON.stringify({query:"query { viewer { id name } }"})} : row.kind === "exe" ? {headers:{"Content-Type":"text/plain"},body:"help"} : {})};
-      result.push({...publicIntegration(row), access, requestExample, instructions: "Call MCP request_api with this integration ID and requestExample; no shell, local VM, raw HTTP client or access token is needed. Read retained results with read_api_response. " + (row.kind === "cloudflare" ? "Use paths relative to the Cloudflare v4 REST API. Cloudflare enforces the accounts and permissions authorized on its consent screen." : row.kind === "x" ? "Use the HTTP request endpoint with an X API v2 path, such as /2/users/me. Only granted OAuth scopes and supported resources are available." : row.kind === "linear" ? "Use the HTTP request endpoint with path /graphql and a JSON GraphQL body." : row.kind === "exe" ? "Use the HTTP request endpoint with POST /exec and a text/plain exe.dev command body." : row.kind === "amp" ? "Use the HTTP request endpoint with a path relative to the configured Amp API base." : row.kind === "clickup" ? "Use the HTTP request endpoint with a path relative to /api/v2." : row.kind === "fly" ? "Use the HTTP request endpoint with a Fly Machines API path, such as /v1/apps." : row.kind === "model" ? "Use the HTTP request endpoint with an OpenAI-compatible path relative to /v1." : "Use the HTTP request endpoint with a relative API path and query. Access covers this integration, bounded by the upstream credential permissions.")});
+      result.push({...publicIntegration(row), access, requestExample, instructions: "Call MCP request_api with this integration ID and requestExample; no shell, local VM, raw HTTP client or access token is needed. Read retained results with read_api_response. " + (row.kind === "cloudflare" ? "Use paths relative to the Cloudflare v4 REST API. Cloudflare enforces the accounts and permissions authorized on its consent screen." : row.kind === "x" ? "Use the HTTP request endpoint with an X API v2 path, such as /2/users/me. Only granted OAuth scopes and supported resources are available." : row.kind === "linear" ? "Use the HTTP request endpoint with path /graphql and a JSON GraphQL body." : row.kind === "exe" ? "Use the HTTP request endpoint with POST /exec and a text/plain exe.dev command body." : row.kind === "amp" ? "Use the HTTP request endpoint with a path relative to the configured Amp API base." : row.kind === "clickup" ? "Use the HTTP request endpoint with a path relative to /api/v2." : row.kind === "fly" ? "Use the HTTP request endpoint with a Fly Machines API path, such as /v1/apps." : row.kind === "hetzner" ? "Use native Hetzner Cloud /v1 paths, methods, query and body. Reads require the owner’s Hetzner grant. Mutating methods also require explicit native writes enablement and a Read & Write project token." : row.kind === "model" ? "Use the HTTP request endpoint with an OpenAI-compatible path relative to /v1." : "Use the HTTP request endpoint with a relative API path and query. Access covers this integration, bounded by the upstream credential permissions.")});
     }
     return {identity: {id: identity.id, kind: identity.kind}, scopes: normalizeScopes(identity.scopes).filter(scope => !identity.policy.disabled_scopes.includes(scope)), proxy: {
       requestUrl: appConfig(this.env).origin + "/api/v1/agent/requests",
@@ -117,6 +125,9 @@ export class AgentApiService {
   }
   forward(integration: string, path: string, request: Request, expectedOperationEpoch?: number) {
     return this.egress().forward(integration, path, request, expectedOperationEpoch);
+  }
+  assertRequest(integration: AgentIntegration, path: string, method: string) {
+    return this.egress().assertRequest(integration, path, method);
   }
   forwardX(connectionId: string, path: string, request: Request) {
     return this.egress().forwardX(connectionId, path, request);

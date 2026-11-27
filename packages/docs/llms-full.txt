@@ -353,58 +353,48 @@ kept. Reconnecting does not restore removed configuration or grants.
 
 ### Hetzner Cloud
 
-Open **Integrations → Hetzner Cloud** and enter a project token with **Read**
-permission for inventory. To let clients provision servers, explicitly enable
-provisioning and use a token with **Read & Write** permission in the same
-project. Factorize validates inventory on save; Hetzner checks write permission
-when a server is created. Replacing or deleting the project clears the previous
-client permissions and Factorize's stored SSH keys and enrollments. Reassign
-access for the intended clients after replacing the connection.
+Add the project in **Integrations → Hetzner Cloud** with a Hetzner project
+token. The default is read only. To allow writes, an owner must explicitly
+enable **native API writes**, use a **Read & Write** token, and check the
+Hetzner permission for each intended OAuth client. Enabling this makes the
+project's native write methods available, including destructive changes.
+The former bounded server-provisioning opt-in does not enable native writes.
+Replacing the project resets client grants and stored SSH keys. Reassign only
+the clients that should have access.
 
-The owner can enable **Hetzner Cloud** in a client's permissions. The change
-takes effect on the current OAuth connection. Without that checkbox the client
-cannot list servers, create servers, access its Hetzner key, or check SSH.
-With access the client can call `list_hetzner_servers` and
-`get_hetzner_ssh_public_key`. Each OAuth installation gets a different
-Factorize-managed key. The private key is encrypted and is never returned.
+Use `get_api_reflection` to find the authorized Hetzner connection ID. Then
+use the standard `request_api` tool with the method, relative `/v1/...` path,
+query, and JSON body described in the [Hetzner Cloud API](https://docs.hetzner.cloud/reference/cloud).
+For example, list servers using `GET /v1/servers`. To create a server, use
+Hetzner's native `POST /v1/servers` body. Factorize does not rewrite it or
+return the project token. Hetzner enforces the token's access. As with other
+proxy connections, OAuth also needs `proxy:use`; Hetzner's checkbox controls
+access to the specific project and is rechecked before dispatch and before
+retained results can be read. The proxy defaults to asynchronous execution.
+Use a stable `idempotencyKey` for a write and inspect the operation instead of
+repeating an uncertain request.
 
-#### Provision a server
+#### Factorize SSH key management
 
-When provisioning is enabled, `create_hetzner_server` accepts an intentional
-lowercase name, a small server type, a supported location, and a request UUID.
-It provisions one Ubuntu 24.04 server with public IPv4. The project's cloud
-resources may incur charges. Check size availability and pricing in Hetzner
-first. Factorize reserves up to three create attempts per day and 20 per
-connection, including uncertain attempts.
+`get_hetzner_ssh_public_key` returns the calling OAuth installation's public
+key and a restricted authorized-keys line. Private keys are encrypted and
+not exposed. Owners and their authorized clients can use Hetzner's native
+SSH-key API through the proxy. A Hetzner project SSH-key record by itself
+does not install a key on an existing server. During native server creation,
+Hetzner's `ssh_keys` field places keys according to the selected image's
+defaults. To use Factorize's authentication check, configure the complete
+restricted key line on a dedicated non-root account, then independently
+obtain the host's Ed25519 fingerprint from a trusted console. In **View
+servers**, the owner enrolls that account, selects the exact OAuth client,
+and sets the trusted fingerprint. Existing enrollments created by Factorize's
+former server tool retain their original client binding.
 
-Reuse the same request UUID if the first result is uncertain. Factorize looks
-up the original creation and won't send a second create request for that UUID.
-Check the provider console before starting a different request. Factorize
-does not automatically delete servers in cleanup; owners can do that in
-Hetzner.
-
-The server starts with the requesting client's restricted public key assigned
-to the dedicated non-root `factorize-agent` account through cloud-init. Server
-creation does not prove that bootstrap finished. In **View servers**, an owner
-must independently obtain the server's Ed25519 host-key fingerprint from a trusted
-console and enroll `factorize-agent` for SSH authentication. Leave client
-selection automatic for provisioned servers.
-
-#### Enroll an existing server
-
-Choose an authorized client, a dedicated non-root account, and an Ed25519
-host-key fingerprint from the trusted server console. Install the complete
-restricted public-key line shown by Factorize on that account. Leaving the
-client blank on an existing server makes it owner-only. For older shared
-enrollments, delete and re-enroll with the intended client and replace the old
-key on the server before checking again.
-
-`check_hetzner_ssh` checks only servers enrolled for the calling client. It
-revalidates the project's server and enrolled IPv4, authenticates with the
-pinned host key, and closes immediately. It cannot run `ls` or any other
-command. The server needs a reachable public IPv4 address and SSH on port 22.
-Remove the authorized key from the server when retiring access; removing the
-integration or enrollment in Factorize does not change the server.
+`check_hetzner_ssh` revalidates project membership and the pinned public IPv4
+for the client's enrolled server, proves fresh authentication with the
+pinned host key, and closes immediately. It never starts a shell, runs
+commands, or returns output. Remove the installed public key on the server
+when retiring access; removing a connection in Factorize does not change
+the server.
 
 ## Connection problems
 Source: https://docs.factorize.sh/troubleshooting/connection
@@ -463,7 +453,6 @@ its input and enforces the operation's required scope.
 | `check_hetzner_ssh` | Check SSH access for one owner-enrolled Hetzner Cloud server. Uses the pinned host identity and a Factorize-held credential. Proves fresh key authentication; no SSH channel, commands or remote output. |
 | `create_app` | Register a server-side app. Create client secrets separately in the browser. |
 | `create_event` | Create a durable Event that one or more Triggers can publish. |
-| `create_hetzner_server` | Create one small Hetzner Cloud server only when the owner enabled provisioning. This can incur charges. Provide an intentionally chosen name and a stable requestId. Retrying the same request only checks its outcome. Requires an owner-verified host fingerprint before SSH. |
 | `create_payload` | Reserve a temporary request body. Open browserUploadUrl to upload an existing file for that connection, or append/finalize generated text in chunks. Pass the finalized handle to request_api bodySource. |
 | `create_trigger` | Create an input Trigger attached to an Event. Credentials are never accepted or returned. |
 | `delete_event` | Permanently delete an Event, all its Triggers and input configurations, and its occurrence history. |
@@ -490,7 +479,6 @@ its input and enforces the operation's required scope.
 | `list_events` | List Events, their current payload schema revisions, and Trigger and occurrence counts. |
 | `list_exe_connections` | List safe metadata for saved exe.dev connections. API tokens are never returned. |
 | `list_github_installations` | List connected GitHub App installations, including the installation IDs needed by GitHub Trigger events. Credentials are never returned. |
-| `list_hetzner_servers` | List server inventory for a connected Hetzner project whose access is granted to this client. |
 | `list_trigger_webhook_activity` | List matching, rejected, duplicate, and accepted webhook activity for a trigger |
 | `list_triggers` | List triggers and their parent Events |
 | `list_vms` | List active Factorize permission grants for team VMs. Requires vms:read. |

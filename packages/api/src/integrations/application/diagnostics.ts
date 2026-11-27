@@ -1,7 +1,7 @@
 import type { HetznerFailure } from "../providers/hetzner-cloud";
 
 type Diagnostic =
-  | { provider: "hetzner"; operation: "validate_token" | "list_servers" | "lookup_server" | "provision_server";
+  | { provider: "hetzner"; operation: "validate_token" | "list_servers" | "lookup_server";
       reason: HetznerFailure;
       upstreamStatus?: number }
   | { provider: "aws"; operation: "list_connections" | "prepare_connection" | "download_template" | "verify_role";
