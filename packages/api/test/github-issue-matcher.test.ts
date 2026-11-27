@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { matchingGitHubIssue } from "../src/github-issue-matcher";
+import { matchingGitHubIssue } from "../src/triggers/domain/github-issue-matcher";
 
 const issue = { state: "open", user: { id: 1 }, assignees: [{ id: 2 }], labels: [{ id: 3 }] };
 

@@ -1,4 +1,4 @@
-import type { Database } from "./database";
+import type { Database } from "../../postgres/database";
 
 type Collection = { kind: "event"; id: string } | { kind: "subscription"; id: string; userId: string };
 type Row = { id: string | null; occurred_at: string; source: string; delivery: string; acknowledgment: string };

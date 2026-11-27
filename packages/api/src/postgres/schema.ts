@@ -3,7 +3,7 @@ import {
   bigint, boolean, check, foreignKey, index, integer, jsonb, pgSchema,
   primaryKey, text, timestamp, unique, uniqueIndex, uuid,
 } from "drizzle-orm/pg-core";
-import type { TriggerSourceKind } from "../trigger-domain";
+import type { TriggerSourceKind } from "../triggers/domain/trigger-domain";
 
 export const app = pgSchema("app");
 const createdAt = () => timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow();

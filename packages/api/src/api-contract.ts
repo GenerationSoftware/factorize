@@ -1,6 +1,6 @@
 import { integrationRemovalConfirmation, integrationRemovalPreview, integrationRemovalTarget } from "./integration-removal-contracts";
-import { enrichmentRun } from "./event-enrichment-contracts";
-import { eventOccurrenceSummaryPage, subscriptionOccurrenceSummaryPage, occurrenceSummaryQuery } from "./event-contracts";
+import { enrichmentRun } from "./events/api/event-enrichment-contracts";
+import { eventOccurrenceSummaryPage, subscriptionOccurrenceSummaryPage, occurrenceSummaryQuery } from "./events/api/event-contracts";
 import { cloudflareStartResult, cloudflareStatus } from "./cloudflare-oauth";
 import { cloneInfo, gitCredential } from "./git-https-contracts";
 import { profileInput, profileResponse } from "./usernames";
@@ -12,7 +12,7 @@ import { queryOf } from "./query-params";
 import { consentPreviewInput, consentPreviewResponse, consentDecisionInput, consentDecisionResponse } from "./consent-api";
 import { exeConnection, integrationStatus, clientPermissionsUpdate, clientNameInput, authorizedClient, accessToken, createdAccessToken, savedExe, savedAmp, okResult, teamPermissionList, teamPermissionUpdate } from "./settings-contracts";
 import { eventAvailabilityResponse, namedOption, providerOptions, githubInstallation, githubRepository, tailIntegration } from "./editor-contracts";
-import { triggerResponse, triggerUpdateInput } from "./trigger-contracts";
+import { triggerResponse, triggerUpdateInput } from "./triggers/api/trigger-contracts";
 import { z } from "zod";
 import { oidcConsentInput, oidcConsentPreview } from "./oidc-provider";
 import { appRegistrationInput, appRegistrationUpdate, appSecret, connectedApp, registeredApp } from "./apps-contracts";
@@ -20,13 +20,13 @@ import type { ApiService } from "./api-service";
 import {
   triggerInputSchema,
   fireTriggerInputSchema, triggerConditionsTestSchema, scopeSchema, teamResponse,
-} from "./trigger-schemas";
+} from "./triggers/api/trigger-schemas";
 
 import { X_OAUTH_SCOPES } from "./x-oauth";
 import document from "./api-document.json";
 import { authInputs, authSuccess, continuationSuccess, connectionStartInput, connectionStartSuccess, connectionResumeInput, loginSuccess, sessionResponse, googleAvailability, googleStartResult, googlePendingResult, googleUsernameResult, totpStatusResponse, totpSetupResponse, totpEnabledResponse, type AuthAction } from "./auth-api";
 import { flyConnectionInput, flyConnectionMetadata } from "./fly-account-client";
-import { eventSubscription, eventSubscriptionId, eventSubscriptionList, eventDefinitionInput, eventDefinitionUpdate, eventDefinitionResponse, eventDefinitionList, eventOccurrenceQuery, eventOccurrencePage } from "./event-contracts";
+import { eventSubscription, eventSubscriptionId, eventSubscriptionList, eventDefinitionInput, eventDefinitionUpdate, eventDefinitionResponse, eventDefinitionList, eventOccurrenceQuery, eventOccurrencePage } from "./events/api/event-contracts";
 import { vmGrantInput, vmGrantList, vmGrantRef, vmGrantResult, vmRevokeResult } from "./vm-grant-contracts";
 
 type JsonSchema = Record<string, any>;

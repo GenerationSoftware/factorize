@@ -1,4 +1,4 @@
-import type { MatchRule } from "./types";
+import type { MatchRule } from "../../types";
 
 type GitHubIssue = {
   state?: string;

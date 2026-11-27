@@ -13,7 +13,7 @@ import { AuthRepository } from "./postgres/auth-repository";
 import { IdentityRepository } from "./postgres/identity-repository";
 import { ConnectionRepository } from "./postgres/connection-repository";
 import { GitHubRepository } from "./postgres/github-repository";
-import { WebhookService } from "./postgres/webhook-service";
+import { WebhookService } from "./triggers/application/webhook-service";
 
 const app = new Hono<{ Bindings: Env; Variables: { authorizationDuration: number } }>();
 

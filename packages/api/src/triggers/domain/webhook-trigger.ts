@@ -1,6 +1,6 @@
 import type { WebhookConditions } from "./webhook-conditions";
 import { matchingIssue } from "./matcher";
-import type { MatchRule } from "./types";
+import type { MatchRule } from "../../types";
 import { matchingGitHubIssue } from "./github-issue-matcher";
 
 export type WebhookProvider = "linear" | "clickup" | "github" | "cloudflareTail";

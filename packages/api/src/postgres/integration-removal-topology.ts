@@ -1,5 +1,5 @@
 import Mustache from "mustache";
-import type { EventEnrichment } from "../event-enrichment-contracts";
+import type { EventEnrichment } from "../events/api/event-enrichment-contracts";
 import type { DatabaseClient } from "./database";
 
 export type IntegrationTopologyTarget = { kind: string; id: string; registrationId?: string | null };

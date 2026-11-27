@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { matchingIssue } from "../src/matcher";
+import { matchingIssue } from "../src/triggers/domain/matcher";
 
 const triggerWithRule = (type: "status" | "label", targetId: string) => ({ projectId: "project-1", matchRules: [{ type, targetId }] });
 const statusTrigger = triggerWithRule("status", "todo");

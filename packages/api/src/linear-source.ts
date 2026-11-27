@@ -1,4 +1,4 @@
-import { renderTextTemplate } from "./text-template";
+import { renderTextTemplate } from "./triggers/domain/text-template";
 import type { WorkItem } from "./types";
 
 const object = (value: unknown): Record<string, any> => value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, any> : {};

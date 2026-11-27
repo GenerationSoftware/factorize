@@ -1,4 +1,4 @@
-import { inputMapping } from "./event-enrichment-contracts";
+import { inputMapping } from "../../events/api/event-enrichment-contracts";
 import { z } from "zod";
 import { triggerInputSchema, triggerSourceSchema, webhookSourceConfigSchema } from "./trigger-schemas";
 

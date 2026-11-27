@@ -1,11 +1,11 @@
-import { EnrichmentBudget } from "../event-enrichment";
-import { catchUpOccurrence, nextOccurrence, validateScheduleConfig } from "../schedule";
-import type { Env } from "../types";
-import type { Database } from "./database";
-import { githubHeaders, installationToken } from "../github";
-import { adaptWebhook, type WebhookEventConfig } from "../webhook-trigger";
-import { evaluateWebhookConditions } from "../webhook-conditions";
-import { EventMatchRepository } from "./event-match-repository";
+import { EnrichmentBudget } from "../../events/application/event-enrichment";
+import { catchUpOccurrence, nextOccurrence, validateScheduleConfig } from "../domain/schedule";
+import type { Env } from "../../types";
+import type { Database } from "../../postgres/database";
+import { githubHeaders, installationToken } from "../../github";
+import { adaptWebhook, type WebhookEventConfig } from "../domain/webhook-trigger";
+import { evaluateWebhookConditions } from "../domain/webhook-conditions";
+import { EventMatchRepository } from "../../events/storage/event-match-repository";
 
 /** Turns scheduled and verified provider input into durable event occurrences. */
 export class AutomationScheduler {

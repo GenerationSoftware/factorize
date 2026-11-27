@@ -1,13 +1,13 @@
-import { EnrichmentBudget } from "../event-enrichment";
-import { clickUpJson, matchingClickUpTask } from "../clickup";
-import { equalHmac } from "../crypto";
-import type { Trigger } from "../trigger-domain";
-import { evaluateWebhookConditions } from "../webhook-conditions";
-import type { Env } from "../types";
-import { adaptWebhook, type WebhookProvider, type WebhookEventConfig } from "../webhook-trigger";
-import { ConnectionRepository } from "./connection-repository";
-import type { Database } from "./database";
-import { EventMatchRepository, wakeMcpDeliveries } from "./event-match-repository";
+import { EnrichmentBudget } from "../../events/application/event-enrichment";
+import { clickUpJson, matchingClickUpTask } from "../../clickup";
+import { equalHmac } from "../../crypto";
+import type { Trigger } from "../domain/trigger-domain";
+import { evaluateWebhookConditions } from "../domain/webhook-conditions";
+import type { Env } from "../../types";
+import { adaptWebhook, type WebhookProvider, type WebhookEventConfig } from "../domain/webhook-trigger";
+import { ConnectionRepository } from "../../postgres/connection-repository";
+import type { Database } from "../../postgres/database";
+import { EventMatchRepository, wakeMcpDeliveries } from "../../events/storage/event-match-repository";
 
 export class WebhookService {
   private enrichmentBudget = new EnrichmentBudget();

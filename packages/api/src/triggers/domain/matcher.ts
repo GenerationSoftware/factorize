@@ -1,4 +1,4 @@
-import type { MatchRule } from "./types";
+import type { MatchRule } from "../../types";
 
 type IssueReference = { id?: string; project?: { id?: string }; state?: { id?: string }; assignee?: { id?: string }; creator?: { id?: string }; owner?: { id?: string }; labels?: Array<{ id?: string }> };
 type EventData = {

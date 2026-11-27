@@ -1,5 +1,6 @@
+import { validAgainstSchema } from "../src/events/domain/event-match";
 import { describe, expect, it, vi } from "vitest";
-import { EventMatchRepository, validAgainstSchema } from "../src/postgres/event-match-repository";
+import { EventMatchRepository } from "../src/events/storage/event-match-repository";
 import { loadingFixture } from "./helpers/loading-fixture";
 import { ApiService } from "../src/api-service";
 import { inspectOAuthGrant, scopesForOAuthCredential } from "../src/mcp-oauth-auth";
@@ -62,7 +63,7 @@ describe.skipIf(!url)("durable Event occurrences", () => {
         WHERE tenant_id=$1 AND definition_id=$2 AND revision=1`, [f.tenantId, definitionId, { type: "object", required: ["value"], properties: { value: { type: "number" } }, additionalProperties: false }]);
       expect(() => validAgainstSchema({ value: "bad" }, { type: "object", properties: { value: { type: "number" } } })).toThrow("must be number");
       const matches = new EventMatchRepository(f.db);
-      const { EventDefinitionRepository } = await import("../src/postgres/event-definition-repository");
+      const { EventDefinitionRepository } = await import("../src/events/storage/event-definition-repository");
       const definitions = new EventDefinitionRepository(f.db, f.tenantId);
       const firstInput = { tenantId: f.tenantId, triggerId, triggerRevision: 1, sourceIdentity: "fixture:delivery-1", deduplicationKey: "delivery-1", evidence: { value: 7 }, decision: "matched" as const };
       const first = await matches.match(firstInput);

@@ -6,7 +6,7 @@ import { googleSignInCallback } from "./auth-api";
 import { clearExpiredGoogleSignIns, googleCallbackPath } from "./google-sign-in";
 import { AlarmCoordinator as BaseAlarmCoordinator } from "./alarm-coordinator";
 import { pruneRevokedMcpSubscriptions } from "./postgres/mcp-event-outbox";
-import { wakeMcpDeliveries } from "./postgres/event-match-repository";
+import { wakeMcpDeliveries } from "./events/storage/event-match-repository";
 import { staticApp, securityHeaders } from "./static-app";
 import { OAuthProvider, AuthorizationError, getOAuthApi, type AuthRequest, type OAuthProviderOptions } from "@cloudflare/workers-oauth-provider";
 import app from "./index";

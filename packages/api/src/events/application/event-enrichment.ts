@@ -1,13 +1,13 @@
 import { compile, search } from "@jmespath-community/jmespath";
-import { AgentApiService } from "./agent-api";
-import { AgentApiError } from "./agent-api-error";
-import { requiredIntegrationScope } from "./agent-integration-access";
-import { requestApiInput } from "./agent-api-contracts";
-import { normalizeScopes } from "./access-tokens";
-import { getOAuthInstallation } from "./oauth-installations";
-import { databaseFor } from "./postgres/database";
-import type { EventEnrichment, InputMapping } from "./event-enrichment-contracts";
-import type { Env, OAuthProps } from "./types";
+import { AgentApiService } from "../../agent-api";
+import { AgentApiError } from "../../agent-api-error";
+import { requiredIntegrationScope } from "../../agent-integration-access";
+import { requestApiInput } from "../../agent-api-contracts";
+import { normalizeScopes } from "../../access-tokens";
+import { getOAuthInstallation } from "../../oauth-installations";
+import { databaseFor } from "../../postgres/database";
+import type { EventEnrichment, InputMapping } from "../api/event-enrichment-contracts";
+import type { Env, OAuthProps } from "../../types";
 
 type Scalar = string | number | boolean;
 type StepResult = { name: string; outcome: "ok" | "failed"; status?: number };
@@ -89,7 +89,7 @@ async function currentAuth(env: Env, tenantId: string, authority: EvaluatorAutho
     if (grant) {
       if (grant.userId !== authority.userId || grant.clientId !== authority.clientId || grant.metadata?.tenantId !== tenantId
           || (grant.expiresAt && grant.expiresAt <= Date.now()/1000)) break;
-      const { inspectOAuthGrant, scopesForOAuthCredential } = await import("./mcp-oauth-auth");
+      const { inspectOAuthGrant, scopesForOAuthCredential } = await import("../../mcp-oauth-auth");
       const inspection = await deadline(inspectOAuthGrant(sql, { tenantId, ...authority, oauthClientId: authority.clientId, oauthInstallationId: installation?.id }, grant.id), signal);
       if (inspection.reason) break;
       const liveScopes = new Set(normalizeScopes(grant.scope));

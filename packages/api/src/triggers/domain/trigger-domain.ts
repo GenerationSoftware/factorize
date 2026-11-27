@@ -1,4 +1,4 @@
-import type { InputMapping } from "./event-enrichment-contracts";
+import type { InputMapping } from "../../events/api/event-enrichment-contracts";
 
 export type TriggerSourceKind = "manual" | "schedule" | "webhook";
 

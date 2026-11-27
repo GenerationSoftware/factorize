@@ -4,7 +4,7 @@ import { createHmac } from "node:crypto";
 import { AlarmCoordinator } from "../src/alarm-coordinator";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { dispatchMcpEvents } from "../src/mcp-event-subscriptions";
-import { EventMatchRepository } from "../src/postgres/event-match-repository";
+import { EventMatchRepository } from "../src/events/storage/event-match-repository";
 import { IdentityRepository } from "../src/postgres/identity-repository";
 import worker from "../src/worker";
 import app from "../src/index";

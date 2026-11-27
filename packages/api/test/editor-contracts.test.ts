@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { namedOption, providerOptions, githubInstallation, githubRepository, tailIntegration } from "../src/editor-contracts";
-import { triggerResponse } from "../src/trigger-contracts";
+import { triggerResponse } from "../src/triggers/api/trigger-contracts";
 import { generateOpenApi } from "../src/api-contract";
 describe("public editor contracts", () => {
   it("validates provider resource schemas without exposing credential fields", () => {

@@ -1,7 +1,7 @@
 import pg from "pg";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { evaluateWebhookConditions } from "../src/webhook-conditions";
+import { evaluateWebhookConditions } from "../src/triggers/domain/webhook-conditions";
 // @ts-expect-error Standalone deployment helper has no declaration file.
 import { restoreConditionsCutover } from "./webhook-conditions-cutover.mjs";
 const connection = new URL(process.env.DATABASE_URL!);

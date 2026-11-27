@@ -1,7 +1,7 @@
-import { lockIntegrationTopology, validateTopologySources } from "./integration-removal-topology";
-import type { TriggerSource, Trigger, TriggerRepository } from "../trigger-domain";
-import { nextOccurrence, validateScheduleConfig } from "../schedule";
-import type { Database, DatabaseClient } from "./database";
+import { lockIntegrationTopology, validateTopologySources } from "../../postgres/integration-removal-topology";
+import type { TriggerSource, Trigger, TriggerRepository } from "../domain/trigger-domain";
+import { nextOccurrence, validateScheduleConfig } from "../domain/schedule";
+import type { Database, DatabaseClient } from "../../postgres/database";
 
 export class StaleTriggerEdit extends Error {}
 type SourceRow = { id: string; trigger_id: string; kind: TriggerSource["kind"]; slug: string; enabled: boolean; config: Record<string, unknown>; encrypted_template: string | null; created_at: Date; updated_at: Date };

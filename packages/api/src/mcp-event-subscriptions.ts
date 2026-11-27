@@ -7,7 +7,7 @@ import { callbackAccepted, canonicalCallbackURL, canonicalWebhookSecret, sendMcp
 import { getOAuthInstallation, installationScopes } from "./oauth-installations";
 import { applyConnectionScopes, type ConnectionScopePolicy } from "./oauth-connection-settings";
 import { databaseFor, type DatabaseClient } from "./postgres/database";
-import { wakeMcpDeliveries } from "./postgres/event-match-repository";
+import { wakeMcpDeliveries } from "./events/storage/event-match-repository";
 import { installationCanReceiveMcpEvents, joinMcpInstallation, lockEventOutbox, lockMcpEventGrant } from "./postgres/mcp-event-outbox";
 import type { Env, OAuthProps } from "./types";
 

@@ -21,12 +21,12 @@ import { createMcpHandler, McpServer, ResourceTemplate, ProtocolError, ProtocolE
 import { createMcpHonoApp } from "@modelcontextprotocol/hono";
 import { z } from "zod";
 import { ApiService, ServiceError } from "./api-service";
-import { triggerConditionsTestSchema, triggerIdSchema, mcpTriggerInputSchema, fireTriggerInputSchema, type TriggerInput } from "./trigger-schemas";
+import { triggerConditionsTestSchema, triggerIdSchema, mcpTriggerInputSchema, fireTriggerInputSchema, type TriggerInput } from "./triggers/api/trigger-schemas";
 import type { Env, OAuthProps } from "./types";
 import { executeAuth, validBrowserOrigin } from "./auth-api";
 import { matchApiOperation } from "./api-contract";
 import { normalizeScopes } from "./access-tokens";
-import { eventDefinitionInput, eventDefinitionUpdate, eventOccurrenceQuery } from "./event-contracts";
+import { eventDefinitionInput, eventDefinitionUpdate, eventOccurrenceQuery } from "./events/api/event-contracts";
 import { listenForEvents } from "./event-subscription";
 import { activeVmAuthorization } from "./vm-auth";
 import { vmGrantInput, vmGrantRef } from "./vm-grant-contracts";

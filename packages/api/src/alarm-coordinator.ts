@@ -1,6 +1,6 @@
 import { processProxyOperation } from "./proxy-operations";
 import { DurableObject } from "cloudflare:workers";
-import { AutomationScheduler } from "./postgres/automation-scheduler";
+import { AutomationScheduler } from "./triggers/application/automation-scheduler";
 import { databaseFor } from "./postgres/database";
 import { cleanupAgentResponses } from "./agent-api";
 import { maintainProxyOperations } from "./proxy-operations";

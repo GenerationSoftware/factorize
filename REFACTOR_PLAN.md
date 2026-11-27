@@ -10,7 +10,7 @@ are part of validation.
   VM. Capture the public interface baseline and add an HTTP-to-Postgres
   characterization for Event/Trigger publication and unauthorised access.
   Acceptance: the characterization passes before moving code.
-- [ ] **Events and Triggers.** Colocate adapters, use cases/domain rules, and
+- [x] **Events and Triggers.** Colocate adapters, use cases/domain rules, and
   Postgres adapters by capability. Give the Event and Trigger API slice
   explicit use-case homes. Preserve revision checks, idempotency, and the
   atomic occurrence/outbox write. Acceptance: characterization plus Event,

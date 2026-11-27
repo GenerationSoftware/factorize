@@ -1,15 +1,16 @@
+import { TriggersService } from "./triggers/application/triggers-service";
+import { EventsService } from "./events/application/events-service";
 import { IntegrationRemoval } from "./postgres/integration-removal";
 import { lockIntegrationTopology } from "./postgres/integration-removal-topology";
 import { integrationRemovalConfirmation, integrationRemovalTarget } from "./integration-removal-contracts";
-import { authorizeEnrichment } from "./event-enrichment";
-import { enrichmentRun } from "./event-enrichment-contracts";
-import { readOccurrenceSummaries } from "./postgres/occurrence-summary-repository";
-import { eventOccurrenceSummaryPage, subscriptionOccurrenceSummaryPage, parseOccurrenceSummaryCursor } from "./event-contracts";
+
+import { readOccurrenceSummaries } from "./events/storage/occurrence-summary-repository";
+import { subscriptionOccurrenceSummaryPage, parseOccurrenceSummaryCursor } from "./events/api/event-contracts";
 import { cloudflareState, startCloudflare } from "./cloudflare-oauth";
 import { integrationForScope, lockOAuthPolicy } from "./oauth-reconnect";
 import { installationScopes, listLegacyOAuthGrants, listOAuthInstallations, materializeLegacyOAuthInstallation } from "./oauth-installations";
 import { deleteMcpGrantSubscriptions, lockMcpEventGrant } from "./postgres/mcp-event-outbox";
-import { eventPayloadSchema, occurrenceEventName, occurrenceInputSchema, type ReadEventOccurrencesInput, type subscribeEventInput, type unsubscribeEventInput, type setProcessingAcknowledgmentsInput, type acknowledgeEventsInput } from "./mcp-event-contracts";
+import { eventPayloadSchema, occurrenceEventName, occurrenceInputSchema, type subscribeEventInput, type unsubscribeEventInput, type setProcessingAcknowledgmentsInput, type acknowledgeEventsInput } from "./mcp-event-contracts";
 import { subscribeMcpEvent, unsubscribeMcpEvent, getProcessingAcknowledgments, setProcessingAcknowledgments, acknowledgeEvents, replayUnacknowledgedEvents } from "./mcp-event-subscriptions";
 import { vmGrantInput, vmGrantList, vmGrantResult, vmRevokeResult } from "./vm-grant-contracts";
 import { VmGrantRepository, vmGrantActor, type VmGrant } from "./postgres/vm-grant-repository";
@@ -18,74 +19,58 @@ import { vmGrantAudience } from "./vm-grant-provider";
 import { writeVmPermissionSnapshot } from "./vm-permissions";
 import { activeVmAuthorization } from "./vm-auth";
 import { BuiltinSkillError, builtinSkillDocuments, builtinSkillEntry, builtinSkill, builtinSkillResource } from "./builtin-skills";
-import {createHash} from "node:crypto";
-import {Buffer} from "node:buffer";
+
 import { TeamRepository } from "./postgres/team-repository";
-import type { DatabaseClient } from "./postgres/database";
 
 import { decideOidcConsent, inspectOidcConsent, oidcConsentInput, oidcConsentPreview } from "./oidc-provider";
 import { AppsRepository } from "./postgres/apps-repository";
 import { appRegistrationInput, appRegistrationUpdate, appSecret, connectedApp, registeredApp } from "./apps-contracts";
 import { AgentApiError, AgentApiService, listAgentPolicies } from "./agent-api";
-import {ProxyPayloads,createPayloadInput,appendPayloadInput,finalizePayloadInput,attachmentInput} from "./proxy-payloads";
-import {ProxyOperations,operationRef,operationRead} from "./proxy-operations";
-import {queryApiResponseInput} from "./agent-api-contracts";
+import { ProxyPayloads, createPayloadInput, appendPayloadInput, finalizePayloadInput, attachmentInput } from "./proxy-payloads";
+import { ProxyOperations, operationRef, operationRead } from "./proxy-operations";
+import { queryApiResponseInput } from "./agent-api-contracts";
 import { apiPolicyInput, integrationRef, requestApiInput, readApiResponseInput } from "./agent-api-contracts";
 import { integrationStatus, exeConnection, accessToken, createdAccessToken, clientPermissionsUpdate, clientNameInput, authorizedClient } from "./settings-contracts";
 import { namedOption, providerOptions, githubRepository, githubInstallation, tailIntegration } from "./editor-contracts";
 import { z } from "zod";
 import { teamPermissionList, teamPermissionUpdate } from "./settings-contracts";
 import { permissionKey, standardPermissions, teamPermissionPreferences } from "./team-permission-defaults";
-import { eventContextCatalog } from "./trigger-context";
+
 import type { Env, OAuthProps } from "./types";
-import { type TriggerInput, type FireTriggerInput, triggerConditionsTestSchema } from "./trigger-schemas";
-import { nextOccurrence, validateScheduleConfig } from "./schedule";
+
 import { databaseFor } from "./postgres/database";
 import { IdentityRepository } from "./postgres/identity-repository";
 import { AccessTokenRepository } from "./postgres/access-token-repository";
-import { triggerResponse } from "./trigger-contracts";
-import { PostgresTriggerRepository, StaleTriggerEdit } from "./postgres/trigger-repository";
+
 import { ConnectionRepository } from "./postgres/connection-repository";
 import { CredentialRepository, IntegrationIdempotencyConflictError, IntegrationValidationError, StaleIntegrationRevisionError } from "./postgres/credential-repository";
 import { XConnectionRepository } from "./postgres/x-connection-repository";
 import { createXPKCE, signXOAuthState, validateXOAuthScopes, type XOAuthScope } from "./x-oauth";
-import { decrypt, encrypt } from "./crypto";
-import { type Trigger, type TriggerSource } from "./trigger-domain";
+
 import { GitHubRepository } from "./postgres/github-repository";
 import { IntegrationService } from "./postgres/integration-service";
-import { OperationsRepository } from "./postgres/operations-repository";
-import { installedEventAvailability } from "./trigger-availability";
-import { evaluateWebhookConditions } from "./webhook-conditions";
 
 import { ProviderCatalog } from "./postgres/provider-catalog";
 import { ACCESS_SCOPES, AGENT_SCOPES, accessTokenDigest, issueAccessToken, normalizeScopes } from "./access-tokens";
 
-import { EventMatchRepository, wakeMcpDeliveries } from "./postgres/event-match-repository";
-import { EventDefinitionRepository, EventDefinitionConflict } from "./postgres/event-definition-repository";
+import { EventDefinitionRepository } from "./events/storage/event-definition-repository";
 import { readEventSubscriptions } from "./postgres/event-subscription-repository";
-import { eventSubscription, eventSubscriptionList, parseOccurrenceCursor, eventDefinitionInput, eventDefinitionUpdate, eventDefinitionResponse, eventDefinitionList, eventOccurrencePage } from "./event-contracts";
+import { eventSubscription, eventSubscriptionList } from "./events/api/event-contracts";
 import { createFlyAccountClient, FlyAccountError, flyConnectionInput } from "./fly-account-client";
 import { FlyConnectionRepository } from "./postgres/fly-connection-repository";
 
-
-
-export class ServiceError extends Error {
-  constructor(public status: number, public code: string, message: string) { super(message); }
-}
-
-/** Response validation failures are server defects, never malformed client input. */
-export function publicValue<T extends z.ZodType>(schema: T, value: unknown): z.output<T> {
-  const result = schema.safeParse(value);
-  if (!result.success) {
-    console.error(JSON.stringify({ event: "public_contract_failure", issues: result.error.issues.map(issue => ({ path: issue.path, code: issue.code })) }));
-    throw new ServiceError(500, "internal_error", "Factorize returned an invalid resource.");
-  }
-  return result.data;
-}
+export { ServiceError, publicValue } from "./service-contract";
+import { ServiceError, publicValue } from "./service-contract";
 
 type Scope = (typeof AGENT_SCOPES)[number];
 
 export class ApiService {
+  private get events_service() {
+    return new EventsService(this.env, this.auth, scope => this.authorize(scope));
+  }
+  private get triggers_service() {
+    return new TriggersService(this.env, this.auth, scope => this.authorize(scope));
+  }
   authorizationDuration = 0;
   constructor(private env: Env, private auth: OAuthProps, private ctx?: ExecutionContext) {}
 
@@ -94,37 +79,13 @@ export class ApiService {
     throw new ServiceError(error.kind === "auth" ? 401 : error.kind === "organization" ? 403 : 502, "fly_account_error", error.message);
   }
 
-  private triggers() { return new PostgresTriggerRepository(databaseFor(this.env), this.auth.tenantId, value => encrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY), value => decrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY)); }
+  
   private connections() { return new ConnectionRepository(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY); }
   private flyConnections() { return new FlyConnectionRepository(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY); }
 
-  private normalizedSources(input: TriggerInput["sources"], existing: TriggerSource[] = []): TriggerSource[] {
-    const sources = input.some(source => source.kind === "manual") ? input : [{ kind: "manual" as const, enabled: true, config: {} }, ...input];
-    const prior = new Map(existing.map(source => [source.id, source])), used = new Set(existing.map(source => source.slug));
-    let next = 1, timestamp = new Date().toISOString();
-    return sources.map(source => {
-      // A source's kind is part of its identity. Changing kind is a removal
-      // plus an insertion, never an in-place mutation of historical identity.
-      const candidate = source.id ? prior.get(source.id) : undefined;
-      const old = candidate?.kind === source.kind ? candidate : undefined;
-      if (source.kind === "webhook" && source.config.provider === "cloudflareTail") {
-        if (!old || old.config.provider !== "cloudflareTail" || old.config.integrationId !== source.config.integrationId) {
-          throw new ServiceError(400, "invalid_request", "Cloudflare Tail is retired. Remove this source or choose a different provider.");
-        }
-        // Retain historical configuration unchanged when editing other fields.
-        return { ...old, enabled: false };
-      }
-      while (used.has(`source-${next}`)) next++;
-      const slug = old?.slug ?? source.slug ?? `source-${next++}`; used.add(slug);
-      return { id: old?.id ?? crypto.randomUUID(), triggerId: old?.triggerId ?? "", kind: source.kind, slug, enabled: source.enabled !== false, config: source.config, template:source.template, createdAt: old?.createdAt ?? timestamp, updatedAt: timestamp };
-    });
-  }
+  
 
-
-
-  private async presentTrigger(trigger: Trigger) {
-    return publicValue(triggerResponse, { ...trigger, eventId: trigger.eventId ?? null, sources: trigger.sources.map(source => ({ ...source, enabled: source.kind === "webhook" && source.config.provider === "cloudflareTail" ? false : source.enabled, config: source.kind === "webhook" ? { ...source.config, ...(source.config.signingSecret || source.config.secret ? { secretConfigured: true } : {}) } : source.config })) });
-  }
+  
   async mcpListSkills(cursor?:string) {
     await this.authorizeIdentity();
     if(cursor)throw new BuiltinSkillError("The built-in catalog has no further pages.");
@@ -197,7 +158,6 @@ export class ApiService {
     return this.listApiPolicies();
   }
 
-
   async listExeConnections() { await this.authorize("integrations:read"); return publicValue(z.array(exeConnection), (await new IntegrationService(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY).status()).exeConnections); }
   async getFlyConnection() { await this.authorizeOwnerSession("integrations:read"); return { connection: await this.flyConnections().get() }; }
   async validateFlyConnection(input: unknown) {
@@ -221,9 +181,8 @@ export class ApiService {
   }
   async listGitHubInstallations() { await this.authorize("integrations:read"); return publicValue(z.array(githubInstallation), JSON.parse(JSON.stringify(await new GitHubRepository(databaseFor(this.env), this.auth.tenantId).installations()))); }
   async listTailIntegrations() { await this.authorize("integrations:read"); return publicValue(z.array(tailIntegration), await new IntegrationService(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY).tails()); }
-  async eventContextMetadata() { await this.authorize("triggers:read"); return eventContextCatalog; }
-  private eventDefinitions() { return new EventDefinitionRepository(databaseFor(this.env), this.auth.tenantId); }
-  async listEvents() { await this.authorize("triggers:read"); return publicValue(eventDefinitionList, await this.eventDefinitions().list()); }
+  eventContextMetadata(...args: Parameters<TriggersService["eventContextMetadata"]>) { return this.triggers_service.eventContextMetadata(...args); }
+  listEvents(...args: Parameters<EventsService["listEvents"]>) { return this.events_service.listEvents(...args); }
   async listDashboardEventSubscriptions() {
     await this.authorizeOwnerSession("triggers:read");
     return publicValue(eventSubscriptionList, await readEventSubscriptions(databaseFor(this.env), this.auth.tenantId, this.auth.userId));
@@ -234,37 +193,18 @@ export class ApiService {
     if (!result) throw new ServiceError(404, "not_found", "Event subscription not found");
     return publicValue(eventSubscription, result);
   }
-  async getEvent(id: string) { await this.authorize("triggers:read"); const event = await this.eventDefinitions().get(id); if (!event) throw new ServiceError(404, "not_found", "Event not found"); return publicValue(eventDefinitionResponse, event); }
-  async createEvent(input: unknown) { await this.authorize("triggers:write"); const parsed = eventDefinitionInput.parse(input); return publicValue(eventDefinitionResponse, await this.eventDefinitions().create({ ...parsed, evaluatorAuthority: parsed.enrichment ? await authorizeEnrichment(this.env,this.auth,parsed.enrichment) : undefined })); }
-  async updateEvent(id: string, input: unknown) { await this.authorize("triggers:write"); const parsed = eventDefinitionUpdate.parse(input); try { const result = await this.eventDefinitions().update(id, { ...parsed, evaluatorAuthority: parsed.enrichment ? await authorizeEnrichment(this.env,this.auth,parsed.enrichment) : undefined }, parsed.expectedRevision); if (!result) throw new ServiceError(404, "not_found", "Event not found"); return publicValue(eventDefinitionResponse, result); } catch (error) { if (error instanceof EventDefinitionConflict) throw new ServiceError(409, "stale_event", "Event changed since it was loaded."); throw error; } }
-  async listEnrichmentRuns(id: string) {
-    await this.authorize("triggers:read");
-    if (!await this.eventDefinitions().get(id)) throw new ServiceError(404,"not_found","Event not found");
-    const { rows } = await databaseFor(this.env).pool.query<{id:string;trigger_id:string;created_at:Date;state:string;stage:string|null;reason:string|null;steps:unknown;normalized_input:unknown}>(
-      `SELECT id,trigger_id,created_at,steps,normalized_input,
-         CASE WHEN state='running' AND created_at<now()-interval '30 seconds' THEN 'failed' ELSE state END AS state,
-         CASE WHEN state='running' AND created_at<now()-interval '30 seconds' THEN 'evaluation' ELSE stage END AS stage,
-         CASE WHEN state='running' AND created_at<now()-interval '30 seconds' THEN 'interrupted_no_retry' ELSE reason END AS reason
-       FROM app.event_enrichment_runs
-       WHERE tenant_id=$1 AND definition_id=$2 ORDER BY created_at DESC,id LIMIT 50`,[this.auth.tenantId,id]);
-    return publicValue(z.array(enrichmentRun),rows.map(row=>({id:row.id,triggerId:row.trigger_id,createdAt:row.created_at.toISOString(),
-      state:row.state,stage:row.stage,reason:row.reason,steps:row.steps,input:row.normalized_input})));
-  }
-  async deleteEvent(id: string) { await this.authorize("triggers:write"); if (!await this.eventDefinitions().delete(id)) throw new ServiceError(404, "not_found", "Event not found"); return { id, deleted: true as const }; }
+  getEvent(...args: Parameters<EventsService["getEvent"]>) { return this.events_service.getEvent(...args); }
+  createEvent(...args: Parameters<EventsService["createEvent"]>) { return this.events_service.createEvent(...args); }
+  updateEvent(...args: Parameters<EventsService["updateEvent"]>) { return this.events_service.updateEvent(...args); }
+  listEnrichmentRuns(...args: Parameters<EventsService["listEnrichmentRuns"]>) { return this.events_service.listEnrichmentRuns(...args); }
+  deleteEvent(...args: Parameters<EventsService["deleteEvent"]>) { return this.events_service.deleteEvent(...args); }
   private occurrenceSummaryBoundary(id: string, cursor?: string) {
     if (cursor === undefined) return undefined;
     const boundary = parseOccurrenceSummaryCursor(cursor, id);
     if (!boundary) throw new ServiceError(400, "invalid_request", "Cursor does not match this occurrence history.");
     return boundary;
   }
-  async listEventOccurrenceSummaries(id: string, limit: number, cursor?: string) {
-    await this.authorize("triggers:read");
-    id = id.toLowerCase();
-    const result = await readOccurrenceSummaries(databaseFor(this.env), this.auth.tenantId,
-      { kind: "event", id }, limit, this.occurrenceSummaryBoundary(id, cursor));
-    if (!result) throw new ServiceError(404, "not_found", "Event not found");
-    return publicValue(eventOccurrenceSummaryPage, result);
-  }
+  listEventOccurrenceSummaries(...args: Parameters<EventsService["listEventOccurrenceSummaries"]>) { return this.events_service.listEventOccurrenceSummaries(...args); }
   async listSubscriptionOccurrences(id: string, limit: number, cursor?: string) {
     await this.authorizeOwnerSession("triggers:read");
     const result = await readOccurrenceSummaries(databaseFor(this.env), this.auth.tenantId,
@@ -272,7 +212,7 @@ export class ApiService {
     if (!result) throw new ServiceError(404, "not_found", "Event subscription not found");
     return publicValue(subscriptionOccurrenceSummaryPage, result);
   }
-  async listEventOccurrences(id: string, limit: number, cursor?: string) { await this.authorize("triggers:read"); const result = await this.eventDefinitions().occurrences(id, limit, cursor); if (!result) throw new ServiceError(404, "not_found", "Event not found"); return publicValue(eventOccurrencePage, result); }
+  listEventOccurrences(...args: Parameters<EventsService["listEventOccurrences"]>) { return this.events_service.listEventOccurrences(...args); }
   async mcpEventCatalog() {
     await this.authorize("triggers:read");
     return {
@@ -310,99 +250,26 @@ export class ApiService {
     await this.authorize("triggers:read");
     return replayUnacknowledgedEvents(this.env, this.auth, subscriptionId, ids);
   }
-  async readEventOccurrences(input: ReadEventOccurrencesInput) {
-    await this.authorize("triggers:read");
-    const repository = this.eventDefinitions();
-    if ("occurrenceId" in input) {
-      const occurrence = await repository.occurrence(input.occurrenceId);
-      if (!occurrence) throw new ServiceError(404, "not_found", "Event occurrence not found.");
-      return { items: [occurrence], nextCursor: null };
-    }
+  readEventOccurrences(...args: Parameters<EventsService["readEventOccurrences"]>) { return this.events_service.readEventOccurrences(...args); }
+  readEventDeliveryDiagnostics(...args: Parameters<EventsService["readEventDeliveryDiagnostics"]>) { return this.events_service.readEventDeliveryDiagnostics(...args); }
+  mcpReadEvent(...args: Parameters<EventsService["mcpReadEvent"]>) { return this.events_service.mcpReadEvent(...args); }
+  eventOccurrenceStates(...args: Parameters<EventsService["eventOccurrenceStates"]>) { return this.events_service.eventOccurrenceStates(...args); }
+  listTriggers(...args: Parameters<TriggersService["listTriggers"]>) { return this.triggers_service.listTriggers(...args); }
+  getTrigger(...args: Parameters<TriggersService["getTrigger"]>) { return this.triggers_service.getTrigger(...args); }
+  listTriggerEvents(...args: Parameters<TriggersService["listTriggerEvents"]>) { return this.triggers_service.listTriggerEvents(...args); }
+  listWebhookDeliveries(...args: Parameters<TriggersService["listWebhookDeliveries"]>) { return this.triggers_service.listWebhookDeliveries(...args); }
+  getWebhookDelivery(...args: Parameters<TriggersService["getWebhookDelivery"]>) { return this.triggers_service.getWebhookDelivery(...args); }
+  testTriggerConditions(...args: Parameters<TriggersService["testTriggerConditions"]>) { return this.triggers_service.testTriggerConditions(...args); }
+  createTrigger(...args: Parameters<TriggersService["createTrigger"]>) { return this.triggers_service.createTrigger(...args); }
+  updateTrigger(...args: Parameters<TriggersService["updateTrigger"]>) { return this.triggers_service.updateTrigger(...args); }
 
-    const definitionId = input.definitionId.toLowerCase();
-    const cursor = input.cursor ? parseOccurrenceCursor(input.cursor, definitionId, input.since) : null;
-    if (input.cursor !== undefined && !cursor) throw new ServiceError(400, "invalid_request", "Cursor does not match the Event definition and since time.");
-    if (!await repository.get(definitionId)) throw new ServiceError(404, "not_found", "Event not found.");
-    return repository.recordedOccurrences(definitionId, input.since, input.limit, cursor ? [cursor[2], cursor[3]] : undefined);
-  }
-  async readEventDeliveryDiagnostics(occurrenceId: string) {
-    if (this.auth.authMethod === "vm") throw new ServiceError(403, "owner_required", "An owner credential is required.");
-    await this.authorize("triggers:read");
-    const result = await this.eventDefinitions().deliveryDiagnostics(occurrenceId);
-    if (!result) throw new ServiceError(404, "not_found", "Event occurrence not found.");
-    return result;
-  }
-  async mcpReadEvent(uri: string) {
-    let parsed: URL; try { parsed = new URL(uri); } catch { throw new ServiceError(400, "invalid_resource", "Expected a Factorize Event resource URI."); }
-    if (parsed.protocol !== "factorize:" || parsed.hostname !== "events" || !/^\/[0-9a-f-]{36}\/occurrences$/.test(parsed.pathname)) throw new ServiceError(400, "invalid_resource", "Expected a Factorize Event occurrence URI.");
-    const eventId = parsed.pathname.split("/")[1];
-    const page = await this.listEventOccurrences(eventId, 100);
-    return { contents: [{ uri, mimeType: "application/json", text: JSON.stringify(page) }] };
-  }
-  async eventOccurrenceStates(eventIds: string[]) {
-    await this.authorize("triggers:read");
-    if (!eventIds.length) return [];
-    const result = await databaseFor(this.env).pool.query<{definition_id:string;id:string}>(`SELECT DISTINCT ON (definition_id) definition_id,id FROM app.event_occurrences WHERE tenant_id=$1 AND definition_id=ANY($2::uuid[]) ORDER BY definition_id,occurred_at DESC,id DESC`, [this.auth.tenantId,eventIds]);
-    return result.rows;
-  }
-  async listTriggers() { await this.authorize("triggers:read"); return Promise.all((await this.triggers().list()).map(trigger => this.presentTrigger(trigger))); }
-  async getTrigger(triggerId: string) { await this.authorize("triggers:read"); const trigger = await this.triggers().getTrigger(triggerId); if (!trigger) throw new ServiceError(404, "not_found", "Trigger not found"); return this.presentTrigger(trigger); }
-  async listTriggerEvents(triggerId: string, limit = 50) { await this.authorize("triggers:read"); return new OperationsRepository(databaseFor(this.env), this.auth.tenantId).triggerEvents(triggerId, limit); }
-  async listWebhookDeliveries(query: URLSearchParams) { await this.authorize("triggers:read"); return new OperationsRepository(databaseFor(this.env), this.auth.tenantId).deliveries(query); }
-  async getWebhookDelivery(deliveryId: string) { await this.authorize("triggers:read"); const value = await new OperationsRepository(databaseFor(this.env), this.auth.tenantId).delivery(deliveryId); if (!value) throw new ServiceError(404,"not_found","Webhook delivery not found"); return value; }
-  async testTriggerConditions(input: unknown) { await this.authorize("triggers:write"); const parsed = triggerConditionsTestSchema.parse(input); return evaluateWebhookConditions(parsed.conditions, parsed.webhook); }
-  async createTrigger(request: TriggerInput) {
-    await this.authorize("triggers:write");
-    const event = await this.eventDefinitions().get(request.eventId);
-    if (!event) throw new ServiceError(404, "not_found", "Event not found");
-    if (event.enrichment) await authorizeEnrichment(this.env, this.auth, event.enrichment);
-    const id = crypto.randomUUID(), timestamp = new Date().toISOString();
-    const sources = this.normalizedSources(request.sources).map(source => ({ ...source, triggerId: id }));
-    const trigger: Trigger = { id, eventId: request.eventId, name: request.name, description: "", slug: request.name, revision: 1, enabled: true, sources, ...(request.inputMapping ? {inputMapping: request.inputMapping} : {}), createdAt: timestamp, updatedAt: timestamp };
-    try { const saved = await this.triggers().create(trigger); await this.wakeScheduler(); return this.presentTrigger(saved); }
-    catch (error: any) { if ((error?.code ?? error?.cause?.code) === "23505") throw new ServiceError(409, "conflict", "Trigger name is already in use"); throw error; }
-  }
-  async updateTrigger(triggerId: string, request: TriggerInput & { expectedUpdatedAt?: string }) {
-    await this.authorize("triggers:write");
-    const repository = this.triggers(), current = await repository.getTrigger(triggerId);
-    if (!current) throw new ServiceError(404, "not_found", "Trigger not found");
-    const eventId = request.eventId;
-    const event = await this.eventDefinitions().get(eventId);
-    if (!event) throw new ServiceError(404, "not_found", "Event not found");
-    if (event.enrichment) await authorizeEnrichment(this.env, this.auth, event.enrichment);
-    const sources = this.normalizedSources(request.sources, current.sources).map(source => ({ ...source, triggerId }));
-    try { const saved = await repository.update({ ...current, eventId, name: request.name, slug: request.name, sources, inputMapping: request.inputMapping === null ? undefined : request.inputMapping ?? current.inputMapping, updatedAt: new Date().toISOString() }, request.expectedUpdatedAt); await this.wakeScheduler(); return this.presentTrigger(saved); }
-    catch (error) { if ((error as any)?.code === "23505") throw new ServiceError(409, "conflict", "Trigger name is already in use"); if (error instanceof StaleTriggerEdit) throw new ServiceError(409, "stale_trigger", "This Trigger changed. Reload it before saving."); throw error; }
-  }
-
-
-  async deleteTrigger(triggerId: string) {
-    await this.authorize("triggers:write");
-    if (!(await this.triggers().delete(triggerId))) throw new ServiceError(404, "not_found", "Trigger not found");
-    return { id: triggerId, deleted: true };
-  }
-  private async wakeScheduler() {
-    if (this.env.SCHEDULER) await this.env.SCHEDULER.get(this.env.SCHEDULER.idFromName("global")).fetch("https://scheduler/wake", { method: "POST" });
-  }
-  async setTriggerEnabled(triggerId: string, enabled: boolean) { await this.authorize("triggers:write"); if (!await this.triggers().setEnabled(triggerId, enabled, new Date().toISOString())) throw new ServiceError(404, "not_found", "Trigger not found"); await this.wakeScheduler(); return { id: triggerId, enabled }; }
+  deleteTrigger(...args: Parameters<TriggersService["deleteTrigger"]>) { return this.triggers_service.deleteTrigger(...args); }
+  
+  setTriggerEnabled(...args: Parameters<TriggersService["setTriggerEnabled"]>) { return this.triggers_service.setTriggerEnabled(...args); }
   async getTeam() { await this.authorize("team:read"); const team = await new TeamRepository(databaseFor(this.env), this.auth.tenantId).get(); if (!team) throw new ServiceError(404, "not_found", "Team not found"); return team; }
-  async fireTrigger(triggerId: string, input: FireTriggerInput) {
-    await this.authorize("triggers:write"); const trigger = await this.triggers().getTrigger(triggerId); if (!trigger) throw new ServiceError(404, "not_found", "Trigger not found");
-    const source = trigger.sources.find(value => value.kind === "manual" && value.enabled); if (!source) throw new ServiceError(409, "operation_failed", "The manual Trigger source is disabled");
-    const deduplicationKey = input.idempotencyKey ?? crypto.randomUUID();
-    const result = await new EventMatchRepository(databaseFor(this.env), () => wakeMcpDeliveries(this.env), this.env).match({ tenantId: this.auth.tenantId, triggerId, triggerRevision: trigger.revision, sourceIdentity: `manual:${source.id}`, deduplicationKey, evidence: input.data ?? {}, decision: "matched" });
-    return { occurrenceId: result.occurrence?.id ?? null, duplicate: result.duplicate, ...(result.evaluationId ? {evaluationId:result.evaluationId} : {}) };
-  }
-  async listTriggerEventAvailability() { await this.authorize("triggers:read"); const [kinds, installations] = await Promise.all([this.connections().kinds(), new GitHubRepository(databaseFor(this.env),this.auth.tenantId).installations()]), states=installations.map((x:any)=>x.state); return installedEventAvailability(kinds.includes("linear"),kinds.includes("clickup"),states); }
-  async previewSchedule(input: unknown) {
-    await this.authorize("triggers:read");
-    try {
-      const config = validateScheduleConfig(input);
-      return { nextRunAt: nextOccurrence(config, new Date()).toISOString() };
-    } catch (error) {
-      throw new ServiceError(400, "invalid_request", error instanceof Error ? error.message : "Invalid schedule");
-    }
-  }
+  fireTrigger(...args: Parameters<TriggersService["fireTrigger"]>) { return this.triggers_service.fireTrigger(...args); }
+  listTriggerEventAvailability(...args: Parameters<TriggersService["listTriggerEventAvailability"]>) { return this.triggers_service.listTriggerEventAvailability(...args); }
+  previewSchedule(...args: Parameters<TriggersService["previewSchedule"]>) { return this.triggers_service.previewSchedule(...args); }
 
   private integrations() { return new IntegrationService(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY); }
   private providers() { return new ProviderCatalog(databaseFor(this.env), this.env, this.auth.tenantId); }

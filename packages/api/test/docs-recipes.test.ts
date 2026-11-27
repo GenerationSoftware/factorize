@@ -2,8 +2,8 @@ import { example } from "./helpers/docs-example";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { requestApiInput } from "../src/agent-api-contracts";
-import { eventDefinitionInput } from "../src/event-contracts";
-import { fireTriggerInputSchema, mcpTriggerInputSchema } from "../src/trigger-schemas";
+import { eventDefinitionInput } from "../src/events/api/event-contracts";
+import { fireTriggerInputSchema, mcpTriggerInputSchema } from "../src/triggers/api/trigger-schemas";
 import { vmGrantInput } from "../src/vm-grant-contracts";
 
 describe("canonical Factorize recipe inputs", () => {

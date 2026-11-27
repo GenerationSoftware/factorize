@@ -1,9 +1,9 @@
-import { inputMapping } from "./event-enrichment-contracts";
+import { inputMapping } from "../../events/api/event-enrichment-contracts";
 import Mustache from "mustache";
 import { z } from "zod";
-import { ACCESS_SCOPES } from "./access-tokens";
-import { resourceName } from "./resource-names";
-import { conditionsSchema, preparedWebhookSchema } from "./webhook-conditions";
+import { ACCESS_SCOPES } from "../../access-tokens";
+import { resourceName } from "../../resource-names";
+import { conditionsSchema, preparedWebhookSchema } from "../domain/webhook-conditions";
 
 export const scopeSchema = z.enum(ACCESS_SCOPES);
 export const matchRuleSchema = z.object({ type: z.enum(["owner", "creator", "status", "label", "assignee"]), targetId: z.string().min(1) });
