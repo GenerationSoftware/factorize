@@ -20,7 +20,7 @@ vi.mock("../src/ssh/transport/edgeport-exec", () => ({
 const url = process.env.AUTH_TEST_DATABASE_URL;
 const ctx = { waitUntil() {} } as unknown as ExecutionContext;
 
-it.skipIf(!url)("resolves Hetzner IDs under the live project grant and fences a changed host pin until explicitly verified again", async () => {
+it.skipIf(!url)("pins a Hetzner SSH fingerprint on the first successful login and fences changes until explicitly verified again", async () => {
   const f = await loadingFixture(url!);
   const installation = crypto.randomUUID(), grant = "grant-" + installation, serverId = 987;
   const identity: OAuthProps = { ...f.auth, scopes: ["proxy:use"], authMethod: "oauth",
@@ -67,34 +67,47 @@ it.skipIf(!url)("resolves Hetzner IDs under the live project grant and fences a 
     expect(await run()).toContain("hetzner_ssh_access_denied");
     expect(provider).not.toHaveBeenCalled();
     await setAccess(true);
-    expect(await run()).toContain("ssh_host_unverified");
-    expect(provider).not.toHaveBeenCalled();
+    expect(await run()).toContain("ssh_busy_or_no_key");
+    expect(openSshSession).not.toHaveBeenCalled();
     expect(await run({})).not.toContain('"stdout"');
     expect(await run({ hetznerServerId: serverId, targetId: crypto.randomUUID() })).not.toContain('"stdout"');
     await mcp("tools/call", { name: "get_ssh_public_key", arguments: {} });
 
-    expect((await ownerRequest(path + "/" + serverId, "PUT", pin)).status).toBe(200);
+    expect(await (await ownerRequest(path, "GET")).json()).toEqual({ targets: [] });
+    vi.mocked(openSshSession).mockImplementationOnce(async (_target, _privateKey, _port, observe) => {
+      observe?.(pin.hostFingerprint);
+      throw new Error("login refused");
+    });
+    expect(await run({ hetznerServerId: serverId, username: pin.username })).toContain("ssh_login_failed");
+    expect(await (await ownerRequest(path, "GET")).json()).toEqual({ targets: [] });
+    expect(execBounded).not.toHaveBeenCalled();
+    vi.mocked(openSshSession).mockImplementationOnce(async (target, _privateKey, _port, observe) => {
+      expect(target).toMatchObject({ address, username: pin.username, hostFingerprint: null });
+      observe?.(pin.hostFingerprint);
+      return session as unknown as Awaited<ReturnType<typeof openSshSession>>;
+    });
+
+    expect(await run({ hetznerServerId: serverId, username: pin.username })).toContain('"stdout":"ok"');
     expect(await (await ownerRequest(path, "GET")).json()).toEqual({ targets: [{...pin, serverId, needsVerification: false}] });
-    expect(await run()).toContain('"stdout":"ok"');
-    expect(vi.mocked(openSshSession).mock.calls[0]?.[0]).toMatchObject({ address, username: pin.username, hostFingerprint: pin.hostFingerprint });
+    expect(await run()).toContain('"reusedConnection":true');
 
     // Hetzner reassigns its public address. Do not use the old warm connection.
     address = "8.8.8.8";
     vi.mocked(openSshSession).mockRejectedValueOnce(new SshHostFingerprintMismatch());
     expect(await run()).toContain("ssh_host_fingerprint_changed");
     expect(session.close).toHaveBeenCalled();
-    expect(execBounded).toHaveBeenCalledTimes(1);
+    expect(execBounded).toHaveBeenCalledTimes(2);
     expect(await run()).toContain("ssh_host_unverified");
-    expect(openSshSession).toHaveBeenCalledTimes(2);
+    expect(openSshSession).toHaveBeenCalledTimes(3);
     expect(await (await ownerRequest(path, "GET")).json()).toEqual({ targets: [{...pin, serverId, needsVerification: true}] });
 
     const verified = { ...pin, hostFingerprint: "SHA256:" + "B".repeat(43) };
     expect((await ownerRequest(path + "/" + serverId, "PUT", verified)).status).toBe(200);
     expect(await run()).toContain('"stdout":"ok"');
-    expect(vi.mocked(openSshSession).mock.calls[2]?.[0]).toMatchObject({ address, hostFingerprint: verified.hostFingerprint });
+    expect(vi.mocked(openSshSession).mock.calls[3]?.[0]).toMatchObject({ address, hostFingerprint: verified.hostFingerprint });
     missing = true;
     expect(await run()).toContain("hetzner_ssh_lookup_failed");
-    expect(execBounded).toHaveBeenCalledTimes(2);
+    expect(execBounded).toHaveBeenCalledTimes(3);
     await setAccess(false);
     expect(await run()).toContain("hetzner_ssh_access_denied");
     await project.save("Replacement", "synthetic-replacement");

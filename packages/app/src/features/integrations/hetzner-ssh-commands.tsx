@@ -32,12 +32,12 @@ export function HetznerSshCommands({ servers }: { servers: Array<{ id: number; n
   if (servers.length === 0 && !pins.data?.length && !pins.error) return null;
   return <section className="mt-5 space-y-3" aria-label="Hetzner SSH commands">
     <h3 className="font-semibold">SSH commands</h3>
-    <p>Choose an existing server. Verify its Ed25519 host fingerprint through a trusted console before saving it. The server must also have the client’s public key installed on the selected non-root account.</p>
+    <p>Factorize saves the host fingerprint after the first successful SSH login and blocks changes. To verify the first fingerprint independently or replace a changed one, check it through a trusted console and save it here. Install the client’s public key on the server’s non-root SSH account before connecting.</p>
     {notice && <p role="status">{notice}</p>}
     {(pins.error || write.error) && <p role="alert">{(pins.error ?? write.error)?.message}</p>}
     {pins.data?.map(pin => <div key={pin.serverId} className="flex flex-wrap items-center gap-2">
       <span>{servers.find(s => s.id === pin.serverId)?.name ?? "Server " + pin.serverId} (#{pin.serverId})</span>
-      <span>{pin.needsVerification ? "Fingerprint changed. Verify again." : "Verified"}</span>
+      <span>{pin.needsVerification ? "Fingerprint changed. Verify again." : "Fingerprint saved"}</span>
       <Button type="button" disabled={write.isPending} onClick={() => write.mutate({ serverId: String(pin.serverId), remove: true })}>Remove fingerprint</Button>
     </div>)}
     {servers.length > 0 && <form className="grid gap-3" onSubmit={event => { event.preventDefault(); write.mutate({ serverId: server }); }}>

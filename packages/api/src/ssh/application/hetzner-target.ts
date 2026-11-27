@@ -25,20 +25,49 @@ export function hetznerSshAllowed(db: DatabaseClient, caller: SshClientAuthority
     installationId: caller.oauthInstallationId, grantId: caller.oauthGrantId, expiresAt: caller.oauthExpiresAt });
 }
 
-export async function resolveHetznerSshTarget(env: Env, caller: SshClientAuthority, serverId: number) {
-  const db = databaseFor(env).pool, { connections, inventory, pins } = hetznerSshContext(env, caller, db);
+export async function resolveHetznerSshTarget(env: Env, caller: SshClientAuthority, serverId: number, username?: string) {
+  const database = databaseFor(env), db = database.pool;
+  const { connections, inventory, pins } = hetznerSshContext(env, caller, db);
   if (!await hetznerSshAllowed(db, caller)) throw new ServiceError(403, "hetzner_ssh_access_denied", "This client does not have access to the connected Hetzner project.");
-  const pin = await pins.get(serverId);
   const project = await connections.get();
-  if (!pin || pin.needsVerification || pin.projectRevision !== project?.revision) throw new ServiceError(412, "ssh_host_unverified", "Verify this server's SSH host fingerprint in Factorize before connecting.");
+  const pin = await pins.get(serverId);
+  const unverified = () => new ServiceError(412, "ssh_host_unverified", "Recheck this server's SSH host identity before connecting.");
+  if (!project || (pin && (pin.needsVerification || pin.projectRevision !== project.revision))) throw unverified();
   const server = await inventory.targetForServer(serverId);
-  if (!isPublicAddress(server.ipv4) || server.connectionRevision !== pin.projectRevision) {
-    throw new ServiceError(412, "ssh_host_unverified", "Recheck this server's SSH host identity before connecting.");
-  }
+  if (!isPublicAddress(server.ipv4) || server.connectionRevision !== project.revision) throw unverified();
+
+  const target = {
+    id: pin?.revision ?? crypto.randomUUID(),
+    name: "Hetzner " + serverId,
+    address: server.ipv4,
+    username: username ?? pin?.username ?? "factorize-agent",
+    hostFingerprint: pin?.hostFingerprint ?? null,
+  };
+  const persist = async (observed: string): Promise<"saved" | "changed" | "stale"> =>
+    database.transaction(async sql => {
+      await lockIntegrationTopology(sql, caller.tenantId);
+      const scoped = hetznerSshContext(env, caller, sql);
+      if (!await hetznerSshAllowed(sql, caller) || (await scoped.connections.get(sql))?.revision !== project.revision) return "stale";
+      const latest = await scoped.pins.get(serverId);
+      if (latest) {
+        if (latest.needsVerification || latest.projectRevision !== project.revision) return "stale";
+        if (latest.hostFingerprint !== observed) {
+          // A concurrent first connection or owner write won. Never overwrite its fingerprint.
+          return "changed";
+        }
+        target.id = latest.revision;
+      } else {
+        await scoped.pins.save({ serverId, revision: target.id, username: target.username,
+          hostFingerprint: observed, projectRevision: project.revision, needsVerification: false });
+      }
+      target.hostFingerprint = observed;
+      return "saved";
+    });
+
   return {
-    target: { id: pin.revision, name: "Hetzner " + serverId, address: server.ipv4, username: pin.username, hostFingerprint: pin.hostFingerprint },
+    target, persist,
     markMismatch: async () => {
-      const database = databaseFor(env);
+      if (!pin) return;
       await database.transaction(async sql => {
         await lockIntegrationTopology(sql, caller.tenantId);
         const scoped = hetznerSshContext(env, caller, sql).pins;
@@ -50,7 +79,7 @@ export async function resolveHetznerSshTarget(env: Env, caller: SshClientAuthori
     },
     current: async () => {
       const [scope, latest, active] = await Promise.all([hetznerSshAllowed(db, caller), pins.get(serverId), connections.get()]);
-      return Boolean(scope && latest?.revision === pin.revision && !latest.needsVerification && active?.revision === pin.projectRevision);
+      return Boolean(scope && latest?.revision === target.id && !latest.needsVerification && active?.revision === project.revision);
     },
   };
 }

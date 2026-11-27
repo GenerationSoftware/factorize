@@ -8,13 +8,21 @@ const OUTPUT_LIMIT = 32 * 1024;
 
 export class SshHostFingerprintMismatch extends Error {}
 
-export async function openSshSession(target: SshTarget, privateKey: string, port = 22) {
-  const expected = Buffer.from(target.hostFingerprint.slice("SHA256:".length), "base64");
+type ConnectionTarget = Omit<SshTarget, "hostFingerprint"> & { hostFingerprint: string | null };
+
+export async function openSshSession(target: ConnectionTarget, privateKey: string, port = 22, observe?: (fingerprint: string) => void) {
+  const expected = target.hostFingerprint === null ? null : Buffer.from(target.hostFingerprint.slice("SHA256:".length), "base64");
   let mismatch = false;
   try { return await connect({
     hostname: target.address, port, username: target.username, privateKey: { pem: privateKey },
     timeoutMs: SSH_CONNECT_MS,
     hostKey: { verify: (type, wireKey) => {
+      if (!expected) {
+        if (type !== "ssh-ed25519" || !observe) return false;
+        // edgeport verifies the server's proof of possession before invoking this callback.
+        observe("SHA256:" + createHash("sha256").update(wireKey).digest("base64").replace(/=+$/, ""));
+        return true;
+      }
       const matches = type === "ssh-ed25519" && timingSafeEqual(expected, createHash("sha256").update(wireKey).digest());
       if (!matches) mismatch = true;
       return matches;

@@ -14,9 +14,16 @@ export class FixtureBroker extends DurableObject<Env> {
     const path = new URL(request.url).pathname;
     if (path === "/close") { await this.session?.close(); this.session = undefined; return new Response(null, {status: 204}); }
     if (path === "/public") return Response.json({ publicKey: this.client.publicKey });
-    if (path !== "/probe" && path !== "/exec") return new Response(null, { status: 404 });
+    if (path !== "/probe" && path !== "/exec" && path !== "/observe") return new Response(null, { status: 404 });
     const { port, fingerprint, command } = await request.json<{ port: number; fingerprint: string; command?: string }>();
     try {
+      if (path === "/observe") {
+        let observed: string | undefined;
+        const session = await openSshSession({ id: "test", name: "fixture", address: "127.0.0.1",
+          username: "fixture-check", hostFingerprint: null }, this.client.privateKey, port, value => { observed = value; });
+        await session.close();
+        return Response.json({ fingerprint: observed });
+      }
       if (path === "/exec" && command) {
         const reusedConnection = Boolean(this.session);
         this.session ??= await openSshSession({ id: "test", name: "fixture", address: "127.0.0.1",
