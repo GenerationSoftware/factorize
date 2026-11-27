@@ -17,18 +17,16 @@ const url = process.env.AUTH_TEST_DATABASE_URL;
 const issuer = "https://oidc.fly.io/example";
 const origin = "https://api.machines.dev/v1/apps/demo";
 const machine = origin + "/machines/1234abcd";
-const vendorKey = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
+const vendorKey = generateKeyPairSync("rsa", { modulusLength: 2048 });
 const guest = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
 const base64url = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
 
 function flyToken(audience: string, machineId = "1234abcd") {
   const now = Math.floor(Date.now() / 1000);
-  const unsigned = base64url({ alg: "ES256", kid: "current" }) + "." + base64url({
+  const unsigned = base64url({ alg: "RS256", kid: "current" }) + "." + base64url({
     iss: issuer, sub: "example:demo:workload", aud: audience, machine_id: machineId, iat: now, exp: now + 300,
   });
-  return unsigned + "." + sign("sha256", Buffer.from(unsigned), {
-    key: vendorKey.privateKey, dsaEncoding: "ieee-p1363",
-  }).toString("base64url");
+  return unsigned + "." + sign("RSA-SHA256", Buffer.from(unsigned), vendorKey.privateKey).toString("base64url");
 }
 
 function requestProof(grant: string, token: string, method: string, target: string) {
@@ -76,7 +74,7 @@ describe.skipIf(!url)("Fly permission enrollment", () => {
             attemptedIds.push(id);
             const publicKey = guest.publicKey.export({ type: "spki", format: "der" }).toString("base64");
             const proof = sign("sha256", Buffer.from(challenge), guest.privateKey).toString("base64");
-            const response = Buffer.from(JSON.stringify({ token: flyToken(audience) })).toString("base64");
+            const response = Buffer.from(flyToken(audience)).toString("base64");
             return Response.json({ stdout: [publicKey, proof, response].join("\n"), exit_code: 0 });
           }
           case issuer + "/.well-known/openid-configuration":
