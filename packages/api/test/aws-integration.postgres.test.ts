@@ -79,8 +79,8 @@ it.skipIf(!url)("limits AWS Code Mode to the exact active OAuth installation wit
 
     const verifier = await crypto.subtle.importKey("jwk", jwks.keys[0], { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["verify"]);
     vi.stubGlobal("fetch", async (value: string | Request, init?: RequestInit) => {
-      const request = value instanceof Request ? value : new Request(value, init);
-      expect(request.redirect).toBe("error");
+      const request = new Request(value, init);
+      expect(request.redirect).toBe("manual");
       if (request.url === "https://sts.us-east-1.amazonaws.com/") {
         exchanges++;
         const data = new URLSearchParams(await request.text());

@@ -19,7 +19,7 @@ describe("fixed Hetzner Cloud inventory client", () => {
       `https://api.hetzner.cloud/v1/servers?page=${page}&per_page=25`));
     const signal = fetcher.mock.calls[0]?.[1]?.signal;
     for (const [, options] of fetcher.mock.calls) {
-      expect(options).toMatchObject({ method: "GET", redirect: "error", headers: { authorization: `Bearer ${token}` } });
+      expect(options).toMatchObject({ method: "GET", redirect: "manual", headers: { authorization: `Bearer ${token}` } });
       expect(options?.signal).toBe(signal);
     }
     expect(JSON.stringify(result)).not.toContain(token);
@@ -60,6 +60,8 @@ describe("fixed Hetzner Cloud inventory client", () => {
     } finally { clock.mockRestore(); }
     await expect(createHetznerCloudClient(async () => { throw new Error(token); }).validate(token))
       .rejects.toMatchObject({ reason: "transport_error" });
+    await expect(createHetznerCloudClient(async () => new Response(token, { status: 307, headers: { Location: "https://redirect.invalid" } })).validate(token))
+      .rejects.toMatchObject({ reason: "unexpected_status", upstreamStatus: 307 });
     await expect(createHetznerCloudClient(async () => new Response(token, { status: 503 })).validate(token))
       .rejects.toMatchObject({ reason: "upstream_error", upstreamStatus: 503 });
   });

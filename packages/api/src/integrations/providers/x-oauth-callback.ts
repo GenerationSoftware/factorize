@@ -1,3 +1,4 @@
+import { fetchWithoutRedirects } from "../../transport/http/fetch-without-redirects";
 import { appConfig, signingConfig } from "../../config/runtime";
 import { requestCookie } from "../../auth/application/session";
 import { readBrowserSession } from "../../auth/application/browser-session";
@@ -43,8 +44,8 @@ export async function xOAuthCallback(request: Request, env: Env): Promise<Respon
 
   const redirectUri = `${appConfig(env).origin}/oauth/x/callback`;
   try {
-    const tokenResponse = await fetch("https://api.x.com/2/oauth2/token", {
-      method: "POST", redirect: "error", signal: AbortSignal.timeout(15_000),
+    const tokenResponse = await fetchWithoutRedirects("https://api.x.com/2/oauth2/token", {
+      method: "POST", signal: AbortSignal.timeout(15_000),
       headers: { Authorization: `Basic ${btoa(`${credentials.clientId}:${credentials.clientSecret}`)}`, "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
       body: new URLSearchParams({ grant_type: "authorization_code", code, redirect_uri: redirectUri, code_verifier: attempt.verifier }),
     });
@@ -54,8 +55,8 @@ export async function xOAuthCallback(request: Request, env: Env): Promise<Respon
     const grantedScopes = [...new Set(token.scope.split(/\s+/).filter(Boolean))].sort();
     if (verified.scopes.some(scope => !grantedScopes.includes(scope))) { await repository.resetOAuthAttempt(verified.connectionId); return fail("scope_mismatch"); }
 
-    const meResponse = await fetch("https://api.x.com/2/users/me?user.fields=id%2Cusername", {
-      headers: { Authorization: `Bearer ${token.access_token}`, Accept: "application/json" }, redirect: "error", signal: AbortSignal.timeout(15_000),
+    const meResponse = await fetchWithoutRedirects("https://api.x.com/2/users/me?user.fields=id%2Cusername", {
+      headers: { Authorization: `Bearer ${token.access_token}`, Accept: "application/json" }, signal: AbortSignal.timeout(15_000),
     });
     if (!meResponse.ok) throw new Error("identity_verification_failed");
     const me = await meResponse.json() as { data?: { id?: unknown; username?: unknown } };

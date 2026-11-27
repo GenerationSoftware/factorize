@@ -1,3 +1,4 @@
+import { fetchWithoutRedirects, OutboundRedirectError } from "../../transport/http/fetch-without-redirects";
 import { z } from "zod";
 
 const origin = "https://api.hetzner.cloud";
@@ -65,11 +66,12 @@ export function createHetznerCloudClient(fetchImpl: typeof fetch = fetch) {
   async function request(url: URL, token: string, signal: AbortSignal) {
     let response: Response;
     try {
-      response = await fetchImpl(url, {
+      response = await fetchWithoutRedirects(url, {
         method: "GET", headers: { authorization: `Bearer ${token}`, accept: "application/json" },
-        redirect: "error", signal,
-      });
-    } catch {
+        signal,
+      }, fetchImpl);
+    } catch (error) {
+      if (error instanceof OutboundRedirectError) throw new HetznerCloudError("unavailable", "unexpected_status", error.status);
       throw new HetznerCloudError("unavailable", signal.aborted ? "timeout" : "transport_error");
     }
     if (!response.ok) {

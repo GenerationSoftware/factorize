@@ -1,3 +1,4 @@
+import { fetchWithoutRedirects } from "../../../transport/http/fetch-without-redirects";
 import { AwsClient } from "aws4fetch";
 import type { AwsRegion } from "./policy";
 import { awsDeadline, type AwsCredentials } from "./sts";
@@ -20,9 +21,9 @@ export async function runAwsScript(credentials: AwsCredentials, region: AwsRegio
     if (protocol) headers.set("mcp-protocol-version", protocol);
     const request = await signer.sign(endpoint, {
       method: payload ? "POST" : "DELETE", headers, body: payload ? JSON.stringify(payload) : undefined,
-      redirect: "error", signal: deadline, aws: { allHeaders: true },
+      signal: deadline, aws: { allHeaders: true },
     });
-    const response = await fetch(request);
+    const response = await fetchWithoutRedirects(request);
     if (!response.ok) {
       void response.body?.cancel().catch(() => {});
       throw new AwsUpstreamError([401, 403].includes(response.status) ? "denied" : "upstream");
