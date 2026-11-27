@@ -6,7 +6,7 @@ webhook routes, OAuth behavior, migrations, storage formats, and Worker resource
 identities. No production deploy, data changes, or external-provider writes
 are part of validation.
 
-- [ ] **Baseline and contract harness.** Run the cloned revision in an isolated
+- [x] **Baseline and contract harness.** Run the cloned revision in an isolated
   VM. Capture the public interface baseline and add an HTTP-to-Postgres
   characterization for Event/Trigger publication and unauthorised access.
   Acceptance: the characterization passes before moving code.
