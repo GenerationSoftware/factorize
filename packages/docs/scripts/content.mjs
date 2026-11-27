@@ -40,8 +40,7 @@ export async function checkContent() {
   const main = first.map(name => guides.get(name)).join("\n");
   for (const url of ["https://app.factorize.sh", "https://app.factorize.sh/mcp"]) if (!main.includes(url)) throw new Error("Missing hosted URL");
   const quickstart = guides.get("quickstart");
-  const registry = await readFile(resolve(root, "../api/src/protected-api.ts"), "utf8");
-  const tools = new Set(registeredTools(registry).map(([name]) => name));
+  const tools = new Set((await registeredTools()).map(([name]) => name));
   for (const { title, file, skill, tools: required, scopes } of pathways) {
     const section = quickstart.split("## " + title + "\n")[1]?.split("\n## ")[0];
     if (!section?.includes("\n> ") || !section.includes("](/" + file + ")")) throw new Error("Missing prompt or agent link: " + title);
