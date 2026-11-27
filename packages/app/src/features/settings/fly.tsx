@@ -28,7 +28,7 @@ export function useFlyIntegration(remove: StartIntegrationRemoval, removalBusy: 
     count: connection.data ? 1 : 0, pending: connection.isPending,
     rows: connection.data ? [<IntegrationRow key="fly" kind="fly" credentialId="fly" name="Fly.io" detail={`${connection.data.organizationName} (${connection.data.organizationSlug})`} actions={[
       {label: "Edit / verify connection", onClick: () => {action.reset(); setOpen(true);}},
-      {label: "Disconnect", destructive: true, disabled: action.isPending || removalBusy, onClick: () => remove({ kind: "fly", id: "fly", name: "Fly.io" })},
+      {label: "Delete", destructive: true, disabled: action.isPending || removalBusy, onClick: () => remove({ kind: "fly", id: "fly", name: "Fly.io" })},
     ]} />] : [],
     tile: <ProviderTile kind="fly" name="Fly.io" description="Connect the Fly Machines API for MCP clients." count={connection.data ? 1 : 0} onAdd={() => {action.reset(); setOpen(true);}} />,
     feedback: <>{connection.error && <p role="alert">{connection.error.message}</p>}{!open && action.error && <p role="alert">{action.error.message}</p>}{!open && action.isSuccess && action.data === "save" && <p role="status">Fly.io integration saved.</p>}</>,

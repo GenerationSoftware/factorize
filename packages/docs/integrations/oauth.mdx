@@ -12,6 +12,10 @@ Bearer API, GitHub, Linear, ClickUp, X, Fly.io, exe.dev, Amp, and Cloudflare RES
 integrations have distinct setup flows. Cloudflare Tail is retired. Use the browser's Integrations page to connect or revoke
 credentials and to choose which MCP clients may access them.
 
-Events and Trigger source definitions store references and configuration, not
-credentials. Disconnecting an integration can prevent its future input
-processing; it does not rewrite already stored Event occurrences.
+Choose **Delete** on a supported integration to preview its impact, then confirm.
+Deleting removes the connection from Factorize, not the provider. For Linear,
+Factorize removes its saved OAuth connection and webhook routing for that
+workspace. Affected Trigger sources, Event lookups, and client or workload
+access are listed before confirmation. A Trigger with no sources left is
+removed, but Event definitions, subscriptions, and recorded occurrences are
+kept. Reconnecting does not restore removed configuration or grants.

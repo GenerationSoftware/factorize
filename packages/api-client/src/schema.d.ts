@@ -1138,7 +1138,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Preview what removing one installed integration affects
+         * Preview what deleting one installed integration affects
          * @description Requires the integrations:write scope.
          *
          *     An interactive owner session is required; bearer tokens cannot call this operation.
@@ -1160,7 +1160,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Remove one installed integration with verified impact
+         * Delete one installed integration with verified impact
          * @description The owner must explicitly confirm affected references. An outdated impact fingerprint returns 409 without any change.
          *
          *     Requires the integrations:write scope.
@@ -1229,7 +1229,7 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Disconnect Cloudflare from this workspace
+         * Delete a Cloudflare connection from this workspace
          * @description Requires the integrations:write scope.
          *
          *     An interactive owner session is required; bearer tokens cannot call this operation.
@@ -1859,7 +1859,7 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Disconnect a GitHub installation
+         * Delete the Factorize connection to a GitHub installation
          * @description Requires the integrations:write scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
@@ -5451,7 +5451,7 @@ export interface operations {
             content: {
                 "application/json": {
                     /** @enum {string} */
-                    kind: "exe" | "amp" | "github" | "cloudflareTail" | "cloudflare" | "fly" | "bearer";
+                    kind: "linear" | "exe" | "amp" | "github" | "cloudflareTail" | "cloudflare" | "fly" | "bearer";
                     id: string;
                 };
             };
@@ -5519,7 +5519,7 @@ export interface operations {
             content: {
                 "application/json": {
                     /** @enum {string} */
-                    kind: "exe" | "amp" | "github" | "cloudflareTail" | "cloudflare" | "fly" | "bearer";
+                    kind: "linear" | "exe" | "amp" | "github" | "cloudflareTail" | "cloudflare" | "fly" | "bearer";
                     id: string;
                     fingerprint: string;
                     confirmImpact: boolean;
@@ -5527,7 +5527,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Removed */
+            /** @description Deleted */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -5629,7 +5629,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Cloudflare disconnected */
+            /** @description Cloudflare connection deleted */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6850,7 +6850,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Disconnected */
+            /** @description Connection deleted */
             200: {
                 headers: {
                     [name: string]: unknown;

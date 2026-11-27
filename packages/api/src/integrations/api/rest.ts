@@ -54,13 +54,13 @@ const bearerIntegrationWriteResult = z.object({ revision: z.number().int().nonne
 const bearerIntegrationDeleteResult = z.object({ id: z.uuid(), deleted: z.literal(true), revision: z.number().int().nonnegative(), duplicate: z.boolean() });
 export const integrationRoutes = [
   route("POST", "/api/v1/integrations/removal/preview", "integrations:write", {
-    summary: "Preview what removing one installed integration affects",
+    summary: "Preview what deleting one installed integration affects",
     responses: { "200": { description: "Exact references and an impact fingerprint", content: { "application/json": { schema: jsonSchema(integrationRemovalPreview, "output") } } } },
   }, (service, {body}) => service.integrations.previewIntegrationRemoval(body), { ownerSession:true, body:integrationRemovalTarget }),
   route("POST", "/api/v1/integrations/removal/confirm", "integrations:write", {
-    summary: "Remove one installed integration with verified impact",
+    summary: "Delete one installed integration with verified impact",
     description: "The owner must explicitly confirm affected references. An outdated impact fingerprint returns 409 without any change.",
-    responses: { "200": { description: "Removed", content: { "application/json": { schema: jsonSchema(z.object({deleted:z.literal(true)}), "output") } } } },
+    responses: { "200": { description: "Deleted", content: { "application/json": { schema: jsonSchema(z.object({deleted:z.literal(true)}), "output") } } } },
   }, (service, {body}) => service.integrations.confirmIntegrationRemoval(body), { ownerSession:true, body:integrationRemovalConfirmation }),
   route("GET", "/api/v1/integrations/cloudflare", "integrations:read", {
     summary: "Read Cloudflare connections",
@@ -74,8 +74,8 @@ export const integrationRoutes = [
     return Response.json({ authorizationUrl: started.authorizationUrl }, { headers: { "Set-Cookie": started.cookie } });
   }, { ownerSession: true }),
   route("DELETE", "/api/v1/integrations/cloudflare/{connectionId}", "integrations:write", {
-    summary: "Disconnect Cloudflare from this workspace",
-    responses: { "200": { description: "Cloudflare disconnected", content: { "application/json": { schema: jsonSchema(okResult, "output") } } } },
+    summary: "Delete a Cloudflare connection from this workspace",
+    responses: { "200": { description: "Cloudflare connection deleted", content: { "application/json": { schema: jsonSchema(okResult, "output") } } } },
   }, (service, { params }) => service.integrations.disconnectCloudflare(params.connectionId), { ownerSession: true, parameters: z.object({ connectionId: z.uuid() }) }),
   route("GET", "/api/v1/x/connections", "integrations:read", {
     summary: "List X connections",
@@ -391,8 +391,8 @@ export const integrationRoutes = [
     "/api/v1/providers/github/installations/{installationId}",
     "integrations:write",
     {
-      summary: "Disconnect a GitHub installation",
-      responses: { "200": { description: "Disconnected" } },
+      summary: "Delete the Factorize connection to a GitHub installation",
+      responses: { "200": { description: "Connection deleted" } },
     },
     (service, { params }) =>
       service.integrations.removeGitHubInstallation(Number(params.installationId)),

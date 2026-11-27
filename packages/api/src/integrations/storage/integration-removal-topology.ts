@@ -28,7 +28,7 @@ export function removedLookupSteps(enrichment: EventEnrichment, registrationId: 
 }
 
 export async function inspectIntegrationTopology(sql: DatabaseClient, tenantId: string, target: IntegrationTopologyTarget): Promise<IntegrationTopology> {
-  const provider = target.kind === "github" ? "github" : target.kind === "cloudflareTail" ? "cloudflareTail" : null;
+  const provider = target.kind === "github" || target.kind === "cloudflareTail" || target.kind === "linear" ? target.kind : null;
   const sources: Source[] = [];
   const lookups: Lookup[] = [];
   const pausedEvents: Paused[] = [];
@@ -40,7 +40,7 @@ export async function inspectIntegrationTopology(sql: DatabaseClient, tenantId: 
       FROM app.events s JOIN app.triggers t ON (t.tenant_id,t.id)=(s.tenant_id,s.trigger_id)
       JOIN app.event_definitions d ON (d.tenant_id,d.id)=(t.tenant_id,t.event_definition_id)
       WHERE s.tenant_id=$1 AND s.removed_at IS NULL AND s.kind='webhook' AND s.config->>'provider'=$2
-        AND s.config->>(CASE WHEN $2='github' THEN 'installationId' ELSE 'integrationId' END)=$3
+        AND ($2='linear' OR s.config->>(CASE WHEN $2='github' THEN 'installationId' ELSE 'integrationId' END)=$3)
       ORDER BY t.id,s.id`, [tenantId, provider, target.id]);
     const counts = new Map<string,number>();
     for (const row of rows) counts.set(row.triggerId, (counts.get(row.triggerId) ?? 0)+1);

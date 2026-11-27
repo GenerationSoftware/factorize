@@ -27,6 +27,9 @@ export class IntegrationRemoval {
     if (kind === "exe" || kind === "amp" || kind === "cloudflareTail") {
       const key = (kind === "cloudflareTail" ? "cloudflare-tail" : kind) + ":" + id;
       credential = await first("SELECT xmin::text AS stamp FROM app.connections WHERE tenant_id=$1 AND kind=$2", [tenant,key]);
+    } else if (kind === "linear") {
+      if (id !== "linear") throw notFound();
+      credential = await first("SELECT xmin::text AS stamp FROM app.connections WHERE tenant_id=$1 AND kind='linear'", [tenant]);
     } else if (kind === "github") {
       if (!/^[1-9]\d*$/.test(id) || !Number.isSafeInteger(Number(id))) throw notFound();
       credential = await first("SELECT xmin::text AS stamp FROM app.github_installations WHERE tenant_id=$1 AND installation_id=$2", [tenant,id]);
@@ -88,6 +91,9 @@ export class IntegrationRemoval {
           expectedRevision:legacyBearer?.expectedRevision ?? impact.collectionRevision,
           idempotencyKey:legacyBearer?.idempotencyKey ?? crypto.randomUUID(),
         },sql);
+      } else if (kind === "linear") {
+        await sql.query("DELETE FROM app.linear_workspaces WHERE tenant_id=$1", [tenant]);
+        await sql.query("DELETE FROM app.connections WHERE tenant_id=$1 AND kind='linear'", [tenant]);
       } else if (kind === "github") {
         await sql.query("DELETE FROM app.github_installations WHERE tenant_id=$1 AND installation_id=$2", [tenant,id]);
       } else if (kind === "fly") {

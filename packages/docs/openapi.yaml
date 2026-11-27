@@ -5204,7 +5204,7 @@ paths:
             pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
   /api/v1/integrations/removal/preview:
     post:
-      summary: Preview what removing one installed integration affects
+      summary: Preview what deleting one installed integration affects
       responses:
         "200":
           description: Exact references and an impact fingerprint
@@ -5354,6 +5354,7 @@ paths:
                 kind:
                   type: string
                   enum:
+                    - linear
                     - exe
                     - amp
                     - github
@@ -5371,7 +5372,7 @@ paths:
               additionalProperties: false
   /api/v1/integrations/removal/confirm:
     post:
-      summary: Remove one installed integration with verified impact
+      summary: Delete one installed integration with verified impact
       description: |-
         The owner must explicitly confirm affected references. An outdated impact fingerprint returns 409 without any change.
 
@@ -5380,7 +5381,7 @@ paths:
         An interactive owner session is required; bearer tokens cannot call this operation.
       responses:
         "200":
-          description: Removed
+          description: Deleted
           content:
             application/json:
               schema:
@@ -5427,6 +5428,7 @@ paths:
                 kind:
                   type: string
                   enum:
+                    - linear
                     - exe
                     - amp
                     - github
@@ -5561,10 +5563,10 @@ paths:
       x-owner-session-required: true
   /api/v1/integrations/cloudflare/{connectionId}:
     delete:
-      summary: Disconnect Cloudflare from this workspace
+      summary: Delete a Cloudflare connection from this workspace
       responses:
         "200":
-          description: Cloudflare disconnected
+          description: Cloudflare connection deleted
           content:
             application/json:
               schema:
@@ -7908,10 +7910,10 @@ paths:
             pattern: ^[0-9]+$
   /api/v1/providers/github/installations/{installationId}:
     delete:
-      summary: Disconnect a GitHub installation
+      summary: Delete the Factorize connection to a GitHub installation
       responses:
         "200":
-          description: Disconnected
+          description: Connection deleted
           content:
             application/json:
               schema:
