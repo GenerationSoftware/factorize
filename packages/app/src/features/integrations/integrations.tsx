@@ -1,3 +1,4 @@
+import { useGhcrIntegrations } from "./ghcr";
 import { useAwsIntegration } from "./aws";
 import { useHetznerIntegration } from "./hetzner";
 import { useCloudflareIntegration } from "./cloudflare";
@@ -31,6 +32,7 @@ function IntegrationsContent() {
   const bearer = useBearerIntegrations(removal.open, removal.busy);
   const x = useXConnections();
   const aws = useAwsIntegration();
+  const ghcr = useGhcrIntegrations(removal.open, removal.busy);
   const cloudflare = useCloudflareIntegration(removal.open, removal.busy);
   const [setup, setSetup] = useState<{title: string; form: ReactNode} | null>(null);
   const actions = (kind: Kind, id: string, name: string, edit?: () => void): IntegrationAction[] => [
@@ -39,8 +41,8 @@ function IntegrationsContent() {
   ];
   const open = (title: string, form: ReactNode) => setSetup({title, form});
   const data = status.data;
-  const count = (data?.linear ? 1 : 0) + (data?.clickup ? 1 : 0) + (github.data?.length ?? 0) + (data?.exeConnections.length ?? 0) + (data?.ampConnections.length ?? 0) + (data?.cloudflareTail.installations.length ?? 0) + fly.count + hetzner.count + bearer.count + x.count + cloudflare.count + aws.count;
-  const pending = status.isPending || github.isPending || fly.pending || hetzner.pending || bearer.pending || x.pending || cloudflare.pending || aws.pending;
+  const count = (data?.linear ? 1 : 0) + (data?.clickup ? 1 : 0) + (github.data?.length ?? 0) + (data?.exeConnections.length ?? 0) + (data?.ampConnections.length ?? 0) + (data?.cloudflareTail.installations.length ?? 0) + fly.count + hetzner.count + bearer.count + x.count + cloudflare.count + aws.count + ghcr.count;
+  const pending = status.isPending || github.isPending || fly.pending || hetzner.pending || bearer.pending || x.pending || cloudflare.pending || aws.pending || ghcr.pending;
   return <>
     {[status.error, github.error].filter(Boolean).map((error, i) => <p role="alert" key={i}>{error?.message}</p>)}
     <section aria-labelledby="your-integrations-heading"><h2 id="your-integrations-heading" className="text-xl font-bold">Installed Integrations</h2><p className="mb-4 mt-1 text-sm text-slate-600 dark:text-slate-400">Manage workspace connections. Defaults only preselect integrations for new connections.</p>
@@ -52,11 +54,11 @@ function IntegrationsContent() {
         {github.data?.map(i => <IntegrationRow key={i.installationId} kind="github" credentialId={String(i.installationId)} name="GitHub" detail={`${i.accountLogin} · ${i.accountType} · #${i.installationId}`} status={i.state === "active" ? undefined : `Needs attention · ${i.state}`} actions={[{label: "Manage on GitHub", href: "https://github.com/settings/installations", external: true}, ...actions("github", String(i.installationId), `GitHub · ${i.accountLogin} · #${i.installationId}`)]} />)}
         {data?.exeConnections.map(c => <IntegrationRow key={c.connectionId} kind="exe" credentialId={c.connectionId} name="exe.dev" detail={c.connectionId} actions={actions("exe", c.connectionId, `exe.dev · ${c.connectionId}`, () => open("Edit exe.dev integration", <IntegrationForm kind="exe" connectionId={c.connectionId} />))} />)}
         {data?.ampConnections.map(c => <IntegrationRow key={c.connectionId} kind="amp" credentialId={c.connectionId} name="Amp" detail={c.project} actions={actions("amp", c.connectionId, `Amp · ${c.project}`, () => open("Edit Amp integration", <IntegrationForm kind="amp" connectionId={c.connectionId} initialName={c.project} initialApiBaseUrl={c.apiBaseUrl} />))} />)}
-        {fly.rows}{hetzner.rows}{bearer.rows}{x.rows}{cloudflare.rows}{aws.rows}
+        {fly.rows}{hetzner.rows}{bearer.rows}{x.rows}{cloudflare.rows}{aws.rows}{ghcr.rows}
         {data?.cloudflareTail.installations.map(c => <IntegrationRow key={c.integrationId} kind="tail" credentialId={c.integrationId} name="Cloudflare Tail" status="Retired" detail={`${c.name} · Referenced by ${c.referencedTriggerCount} ${c.referencedTriggerCount === 1 ? "trigger" : "triggers"}`} actions={actions("cloudflareTail", c.integrationId, `Cloudflare Tail · ${c.name}`)} />)}
       </tbody></Table></>}
       {removal.notice}
-      {fly.feedback}{hetzner.feedback}{bearer.feedback}{x.feedback}{cloudflare.feedback}{aws.feedback}
+      {fly.feedback}{hetzner.feedback}{bearer.feedback}{x.feedback}{cloudflare.feedback}{aws.feedback}{ghcr.feedback}
     </section>
     <section aria-labelledby="available-integrations-heading" className="mt-10"><h2 id="available-integrations-heading" className="text-xl font-bold">Available integrations</h2><p className="mb-4 mt-1 text-sm text-slate-600 dark:text-slate-400">Choose a provider to connect or configure an integration.</p><ul aria-label="Available integration providers" className="overflow-hidden rounded-xl border border-stone-200 dark:border-slate-800">
       <ProviderTile kind="linear" name="Linear" description="Create and update issues." count={data?.linear ? 1 : 0} href="/auth/linear" />
@@ -64,8 +66,8 @@ function IntegrationsContent() {
       <ProviderTile kind="github" name="GitHub" description="Connect repositories and pull requests." count={github.data?.length ?? 0} href="/auth/github/install" />
       <ProviderTile kind="exe" name="exe.dev" description="Connect an exe.dev API for client access." count={data?.exeConnections.length ?? 0} onAdd={() => open("Add exe.dev integration", <IntegrationForm kind="exe" />)} />
       <ProviderTile kind="amp" name="Amp" description="Connect an Amp project API for client access." count={data?.ampConnections.length ?? 0} onAdd={() => open("Add Amp integration", <IntegrationForm kind="amp" />)} />
-      {fly.tile}{hetzner.tile}{bearer.tile}{x.tile}{cloudflare.tile}{aws.tile}
+      {fly.tile}{hetzner.tile}{bearer.tile}{x.tile}{cloudflare.tile}{aws.tile}{ghcr.tile}
     </ul></section>
-    {setup && <Dialog title={setup.title} close={() => setSetup(null)}>{setup.form}</Dialog>}{fly.dialog}{hetzner.dialog}{bearer.dialog}{x.dialog}{cloudflare.dialog}{aws.dialog}{removal.dialog}
+    {setup && <Dialog title={setup.title} close={() => setSetup(null)}>{setup.form}</Dialog>}{fly.dialog}{hetzner.dialog}{bearer.dialog}{x.dialog}{cloudflare.dialog}{aws.dialog}{ghcr.dialog}{removal.dialog}
   </>;
 }

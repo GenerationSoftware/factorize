@@ -1,3 +1,4 @@
+import { ghcrRoutes } from "./ghcr-rest";
 import { awsRoutes } from "./aws-rest";
 import { hetznerSshRoutes } from "./hetzner-ssh-rest";
 import { hetznerConnectionInput, hetznerConnectionMetadata, hetznerInventory } from "./hetzner-contracts";
@@ -60,6 +61,7 @@ const bearerIntegrationDeleteResult = z.object({ id: z.uuid(), deleted: z.litera
 export const integrationRoutes = [
   ...hetznerSshRoutes,
   ...awsRoutes,
+  ...ghcrRoutes,
   route("POST", "/api/v1/integrations/removal/preview", "integrations:write", {
     summary: "Preview what deleting one installed integration affects",
     responses: { "200": { description: "Exact references and an impact fingerprint", content: { "application/json": { schema: jsonSchema(integrationRemovalPreview, "output") } } } },

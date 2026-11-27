@@ -35,7 +35,7 @@
           },
           {
             "group": "Account integrations",
-            "pages": ["integrations/aws"]
+            "pages": ["integrations/aws", "integrations/ghcr"]
           },
           {
             "group": "Event sources",

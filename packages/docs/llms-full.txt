@@ -280,6 +280,20 @@ Before enabling setup, configure the Worker secret `AWS_WORKLOAD_SIGNING_KEYS` w
 
 For key rotation, first publish the new public key alongside the old active key and allow for AWS JWKS caching. Then switch the active signer and keep the old public key for the overlap. Never include a private key in the public key set or store it in source control.
 
+## GitHub Container Registry
+Source: https://docs.factorize.sh/integrations/ghcr
+
+Connect an image at `ghcr.io` from **Settings → Integrations → Add GitHub Container Registry integration**. Enter the image as `owner/image` without a host, tag, or digest, the username that owns the token, and a classic GitHub personal access token with `read:packages`. The GitHub account must have access to the package. If your organization requires SSO, authorize the token for that organization first. See [GitHub's Container registry authentication guide](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry#authenticating-to-the-container-registry).
+
+Give a Factorize OAuth connection or workload access to the integration through the usual integration permissions. The client can discover it with `get_api_reflection` and call `request_api` using the integration ID and one of these paths:
+
+- `GET /tags/list?n=25` lists tags. For another page, pass the last returned tag as `last`; `n` is at most 100.
+- `GET /manifests/latest` retrieves a manifest or index by tag. A `sha256:` digest also works. `HEAD` reads the media type and content digest without downloading the manifest.
+
+The paths are relative to the configured image. Factorize exchanges the encrypted stored credential for a pull-scoped token at `ghcr.io` and uses it only for that image. The client cannot retrieve either credential or point the integration at a different host or image. Replacing the token preserves existing grants. Deleting the connection removes Factorize access; revoke the personal access token in GitHub separately if needed.
+
+This is read-only metadata access, not a Docker registry endpoint. Downloading image layers, `docker login`, pushing images, and deleting packages are not supported.
+
 ## Event payloads and conditions
 Source: https://docs.factorize.sh/integrations/events
 

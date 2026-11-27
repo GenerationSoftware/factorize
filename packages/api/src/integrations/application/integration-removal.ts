@@ -36,6 +36,9 @@ export class IntegrationRemoval {
     } else if (kind === "fly") {
       if (id !== "fly") throw notFound();
       credential = await first("SELECT xmin::text AS stamp FROM app.fly_connections WHERE tenant_id=$1", [tenant]);
+    } else if (kind === "ghcr") {
+      if (!z.uuid().safeParse(id).success) throw notFound();
+      credential = await first("SELECT xmin::text AS stamp FROM app.ghcr_connections WHERE tenant_id=$1 AND id=$2", [tenant,id]);
     } else if (kind === "cloudflare") {
       if (!z.uuid().safeParse(id).success) throw notFound();
       // Serialize with the Cloudflare authorize/refresh lifecycle before locking the credential.
@@ -98,6 +101,8 @@ export class IntegrationRemoval {
         await sql.query("DELETE FROM app.github_installations WHERE tenant_id=$1 AND installation_id=$2", [tenant,id]);
       } else if (kind === "fly") {
         await sql.query("DELETE FROM app.fly_connections WHERE tenant_id=$1", [tenant]);
+      } else if (kind === "ghcr") {
+        await sql.query("DELETE FROM app.ghcr_connections WHERE tenant_id=$1 AND id=$2", [tenant,id]);
       } else if (kind === "cloudflare") {
         await sql.query("UPDATE app.cloudflare_connections SET encrypted_credentials=NULL WHERE tenant_id=$1 AND id=$2", [tenant,id]);
         // Only the current singleton is replaceable by an in-flight OAuth dialog.

@@ -1,4 +1,6 @@
 import { fetchWithoutRedirects } from "../../transport/http/fetch-without-redirects";
+import { GhcrConnections } from "../storage/ghcr-connections";
+import { ghcrCreate, ghcrReplace } from "../api/ghcr-contracts";
 import { HetznerConnectionRepository } from "../../credentials/storage/hetzner-connection-repository";
 import { HetznerInventoryService } from "./hetzner-inventory";
 import { exeConnection } from "../api/connection-contracts";
@@ -31,6 +33,29 @@ import { ServiceError, publicValue } from "../../service-contract";
 
 export class IntegrationsService {
   constructor(private env: Env, private auth: OAuthProps, private authorize: (scope: (typeof AGENT_SCOPES)[number]) => Promise<void>, private authorizeOwnerSession: (scope: (typeof AGENT_SCOPES)[number]) => Promise<void>) {}
+
+  private ghcrConnections() { return new GhcrConnections(databaseFor(this.env), this.auth.tenantId, signingConfig(this.env).credentialKey); }
+
+  async listGhcrConnections() {
+    await this.authorizeOwnerSession("integrations:read");
+    return this.ghcrConnections().list();
+  }
+
+  async createGhcrConnection(input: unknown) {
+    await this.authorizeOwnerSession("integrations:write");
+    const { image, username, token } = ghcrCreate.parse(input);
+    const record = await this.ghcrConnections().create(image, username, token);
+    if (!record) throw new ServiceError(409, "conflict", "This image is already connected.");
+    return record;
+  }
+
+  async replaceGhcrConnection(id: string, input: unknown) {
+    await this.authorizeOwnerSession("integrations:write");
+    const { username, token, expectedRevision } = ghcrReplace.parse(input);
+    const record = await this.ghcrConnections().replace(id, username, token, expectedRevision);
+    if (!record) throw new ServiceError(409, "conflict", "The registry connection changed. Reload before replacing the token.");
+    return record;
+  }
 
   private flyConnections() { return new FlyConnectionRepository(databaseFor(this.env), this.auth.tenantId, signingConfig(this.env).credentialKey); }
 

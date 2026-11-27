@@ -8,6 +8,8 @@ export type OutboundCredential = {
   headers?: Record<string, string>;
   /** Opt-in egress allowlist for integrations with alternative auth headers. */
   requestHeaders?: readonly string[];
+  responseHeaders?: readonly string[];
+  responseBytes?: number;
   /** Set only from an owner-configured model endpoint. */
   allowInsecureHttp?:boolean;
 };
@@ -65,8 +67,8 @@ export async function forwardOutbound(request: Request, selected: OutboundCreden
     await response.body?.cancel();
     throw new Error("Upstream redirects are not permitted");
   }
-  const output = filteredHeaders(response.headers, false);
+  const output = filteredHeaders(response.headers, false, selected.responseHeaders);
   output.delete("Content-Length");
   output.set("Cache-Control", "no-store");
-  return new Response(bounded(response.body, options.responseBytes ?? proxyLimits.responseBytes, abort), { status: response.status, statusText: response.statusText, headers: output });
+  return new Response(bounded(response.body, Math.min(options.responseBytes ?? proxyLimits.responseBytes, selected.responseBytes ?? Infinity), abort), { status: response.status, statusText: response.statusText, headers: output });
 }

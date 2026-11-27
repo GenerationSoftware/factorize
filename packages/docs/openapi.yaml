@@ -6037,6 +6037,256 @@ paths:
             type: string
             format: uuid
             pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+  /api/v1/integrations/ghcr:
+    get:
+      summary: List GitHub Container Registry connections
+      responses:
+        "200":
+          description: Secret-free connections
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                      format: uuid
+                      pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                    image:
+                      type: string
+                      maxLength: 255
+                      pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*(?:\/[a-z0-9]+(?:(?:[.]|_{1,2}|-+)[a-z0-9]+)*)+$
+                    username:
+                      type: string
+                      minLength: 1
+                      maxLength: 39
+                      pattern: ^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$
+                    revision:
+                      type: integer
+                      minimum: 0
+                      maximum: 9007199254740991
+                  required:
+                    - id
+                    - image
+                    - username
+                    - revision
+                  additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the integrations:read scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      operationId: get_api_v1_integrations_ghcr
+      tags:
+        - integrations
+      security:
+        - cookieAuth: []
+      x-required-scope: integrations:read
+      x-owner-session-required: true
+    post:
+      summary: Connect one GitHub Container Registry image
+      description: |-
+        Save a classic GitHub personal access token for read-only tag and manifest inspection of one fixed image. No registry tokens are returned.
+
+        Requires the integrations:write scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      responses:
+        "201":
+          description: Connection saved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                  image:
+                    type: string
+                    maxLength: 255
+                    pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*(?:\/[a-z0-9]+(?:(?:[.]|_{1,2}|-+)[a-z0-9]+)*)+$
+                  username:
+                    type: string
+                    minLength: 1
+                    maxLength: 39
+                    pattern: ^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$
+                  revision:
+                    type: integer
+                    minimum: 0
+                    maximum: 9007199254740991
+                required:
+                  - id
+                  - image
+                  - username
+                  - revision
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: post_api_v1_integrations_ghcr
+      tags:
+        - integrations
+      security:
+        - cookieAuth: []
+      x-required-scope: integrations:write
+      x-owner-session-required: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                image:
+                  type: string
+                  maxLength: 255
+                  pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*(?:\/[a-z0-9]+(?:(?:[.]|_{1,2}|-+)[a-z0-9]+)*)+$
+                username:
+                  type: string
+                  minLength: 1
+                  maxLength: 39
+                  pattern: ^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$
+                token:
+                  type: string
+                  pattern: ^[A-Za-z0-9_]{16,255}$
+                  writeOnly: true
+              required:
+                - image
+                - username
+                - token
+              additionalProperties: false
+  /api/v1/integrations/ghcr/{connectionId}:
+    put:
+      summary: Replace a GitHub Container Registry credential
+      description: |-
+        Rotate the credential without changing the image or its client approvals.
+
+        Requires the integrations:write scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      responses:
+        "200":
+          description: Credential replaced
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                  image:
+                    type: string
+                    maxLength: 255
+                    pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*(?:\/[a-z0-9]+(?:(?:[.]|_{1,2}|-+)[a-z0-9]+)*)+$
+                  username:
+                    type: string
+                    minLength: 1
+                    maxLength: 39
+                    pattern: ^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$
+                  revision:
+                    type: integer
+                    minimum: 0
+                    maximum: 9007199254740991
+                required:
+                  - id
+                  - image
+                  - username
+                  - revision
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: put_api_v1_integrations_ghcr_connectionId
+      tags:
+        - integrations
+      security:
+        - cookieAuth: []
+      x-required-scope: integrations:write
+      x-owner-session-required: true
+      parameters:
+        - name: connectionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+                  minLength: 1
+                  maxLength: 39
+                  pattern: ^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$
+                token:
+                  type: string
+                  pattern: ^[A-Za-z0-9_]{16,255}$
+                  writeOnly: true
+                expectedRevision:
+                  type: integer
+                  minimum: 0
+                  maximum: 2147483646
+              required:
+                - username
+                - token
+                - expectedRevision
+              additionalProperties: false
   /api/v1/integrations/removal/preview:
     post:
       summary: Preview what deleting one installed integration affects
@@ -6197,6 +6447,7 @@ paths:
                     - cloudflare
                     - fly
                     - bearer
+                    - ghcr
                 id:
                   type: string
                   minLength: 1
@@ -6271,6 +6522,7 @@ paths:
                     - cloudflare
                     - fly
                     - bearer
+                    - ghcr
                 id:
                   type: string
                   minLength: 1
@@ -9124,6 +9376,7 @@ paths:
                             - x
                             - cloudflare
                             - hetzner
+                            - ghcr
                         policy:
                           type: string
                           enum:
@@ -10851,6 +11104,7 @@ paths:
                             - x
                             - cloudflare
                             - hetzner
+                            - ghcr
                         policy:
                           type: string
                           enum:
@@ -10954,6 +11208,7 @@ paths:
                             - x
                             - cloudflare
                             - hetzner
+                            - ghcr
                         policy:
                           type: string
                           enum:
