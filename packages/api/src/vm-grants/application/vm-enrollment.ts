@@ -17,7 +17,7 @@ const conflict = () => new AgentApiError(409, "conflict", "The VM already has a 
 
 async function providerConnection(db: DatabaseClient, tenantId: string, id: string) {
   const row = (await db.query<{ kind: VmProvider; epoch: number }>(
-    `SELECT kind,epoch FROM app.agent_integrations
+    `SELECT kind,operation_epoch AS epoch FROM app.agent_integrations
      WHERE tenant_id=$1 AND id=$2 AND kind IN ('exe','fly') AND available FOR SHARE`,
     [tenantId, id],
   )).rows[0];

@@ -266,7 +266,7 @@ it.skipIf(!database)("keeps an approved client live through Cloudflare replaceme
       const state = new URL(authorizationUrl).searchParams.get("state")!;
       const callback = await api("GET", "/oauth/cloudflare/callback?" + new URLSearchParams({ code: "fixture", state }), cookie);
       expect(callback.headers.get("Location")).toContain("cloudflare=connected");
-      return (await f.db.pool.query<{id:string;epoch:number;credential_id:string}>(`SELECT i.id,i.epoch,i.credential_id
+      return (await f.db.pool.query<{id:string;epoch:number;operation_epoch:number;credential_id:string}>(`SELECT i.id,i.epoch,i.operation_epoch,i.credential_id
         FROM app.agent_integrations i JOIN app.cloudflare_connections c ON i.tenant_id=c.tenant_id AND i.credential_id=c.id::text
         WHERE i.tenant_id=$1 AND i.kind='cloudflare' AND c.account_id IS NULL AND c.encrypted_credentials IS NOT NULL`, [f.tenantId])).rows[0];
     };
@@ -292,19 +292,18 @@ it.skipIf(!database)("keeps an approved client live through Cloudflare replaceme
       arguments: { integration: id, method: "GET", path: "/accounts/fixture/widgets", execution: "sync" } }, identity);
     expect((await call()).message.result.structuredContent.status).toBe(200);
     const second = await authorize();
-    expect(second).toMatchObject({ id: first.id, credential_id: first.credential_id, epoch: first.epoch + 1 });
+    expect(second).toMatchObject({ id: first.id, credential_id: first.credential_id, epoch: first.epoch, operation_epoch: first.operation_epoch + 1 });
     const currentScope = `integration:${second.id}:${second.epoch}`;
     const reflection = await request("tools/call", { name: "get_api_reflection", arguments: {} });
     expect(reflection.message.result.structuredContent.integrations).toContainEqual(expect.objectContaining({ id: first.id, access: "granted" }));
     expect((await call()).message.result.structuredContent.status).toBe(200);
     expect(requests).toEqual(["Bearer provider-fixture-1", "Bearer provider-fixture-2"]);
     await expect(new AgentApiService(f.env, auth).forward(first.id, "/accounts/fixture/widgets",
-      new Request(f.env.APP_ORIGIN), first.epoch)).rejects.toMatchObject({ status: 403 });
+      new Request(f.env.APP_ORIGIN), first.operation_epoch)).rejects.toMatchObject({ status: 403 });
 
     const sibling = crypto.randomUUID();
     await seed(sibling, "no-cloudflare", ["proxy:use"]);
     expect((await call(first.id, { ...auth, oauthInstallationId: sibling, oauthGrantId: "no-cloudflare" })).status).toBe(403);
-    expect((await call(first.id, { ...auth, oauthIssuanceId: undefined } as typeof auth)).status).toBe(403);
     expect(requests).toHaveLength(2);
     const list = async () => (await (await api("GET", "/api/v1/access/authorized-clients")).json() as Array<{ grantId: string; revision: number }>).find(row => row.grantId === installationId)!;
     expect(await list()).toMatchObject({ scopes: ["proxy:use", currentScope], credentialScopes: ["proxy:use", currentScope], pendingScopes: [] });

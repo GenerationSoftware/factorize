@@ -38,7 +38,7 @@ export class ProxyOperations {
   const serialized=JSON.stringify({...parsed,idempotencyKey:undefined,execution:undefined});
   const row=await this.db.transaction(async client=>{
    const saved=(await client.query<Operation>(`INSERT INTO app.proxy_operations(tenant_id,id,identity_id,integration_id,integration_epoch,idempotency_key,encrypted_request,encrypted_auth)
-    VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(tenant_id,identity_id,idempotency_key) DO UPDATE SET idempotency_key=excluded.idempotency_key RETURNING *`,[this.auth.tenantId,id,identity.id,integration.id,integration.epoch,idempotency,await encrypt(serialized,signingConfig(this.env).credentialKey),await encrypt(JSON.stringify(this.auth),signingConfig(this.env).credentialKey)])).rows[0];
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(tenant_id,identity_id,idempotency_key) DO UPDATE SET idempotency_key=excluded.idempotency_key RETURNING *`,[this.auth.tenantId,id,identity.id,integration.id,integration.operation_epoch,idempotency,await encrypt(serialized,signingConfig(this.env).credentialKey),await encrypt(JSON.stringify(this.auth),signingConfig(this.env).credentialKey)])).rows[0];
    if(await decrypt(saved.encrypted_request,signingConfig(this.env).credentialKey)!==serialized)throw new AgentApiError(409,"idempotency_conflict","This idempotency key identifies a different request.");
    await client.query(`INSERT INTO app.agent_proxy_responses(tenant_id,id,identity_id,integration_id,integration_epoch,object_key,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING`,[saved.tenant_id,saved.id,saved.identity_id,saved.integration_id,saved.integration_epoch,keyFor(saved),saved.expires_at]);return saved;
   });
@@ -50,7 +50,7 @@ export class ProxyOperations {
   const row=(await this.db.pool.query<Operation>("SELECT * FROM app.proxy_operations WHERE tenant_id=$1 AND id=$2 AND identity_id=$3 AND expires_at>now()",[this.auth.tenantId,id,identity.id])).rows[0];
   if(!row)throw new AgentApiError(404,"not_found","Operation not found or expired.");
   if(this.auth.authMethod==="oauth"&&!this.auth.scopes.includes("proxy:use"))throw new AgentApiError(403,"insufficient_scope","The proxy:use scope is required.","proxy:use");
-  const grant=await this.api().authorize(row.integration_id);if(grant.integration.epoch!==row.integration_epoch)throw new AgentApiError(403,"forbidden","Integration access changed.");return row;
+  const grant=await this.api().authorize(row.integration_id);if(grant.integration.operation_epoch!==row.integration_epoch)throw new AgentApiError(403,"forbidden","Integration access changed.");return row;
  }
  async get(id:string){return receipt(await this.authorized(id));}
  async cancel(id:string){
@@ -80,7 +80,7 @@ export async function processProxyOperation(env:Env,tenantId:string,id:string){
   const current=(await db.pool.query("SELECT state,expires_at FROM app.proxy_operations WHERE tenant_id=$1 AND id=$2",[tenantId,id])).rows[0];
   if(current?.expires_at<=new Date())throw new AgentApiError(410,"operation_expired","Operation reached its 30 minute expiry.");
   if(current?.state!=="running")throw new AgentApiError(409,"canceled","Operation is no longer running.");
-  const grant=await api.authorize(row.integration_id);if(grant.integration.epoch!==row.integration_epoch)throw new AgentApiError(403,"forbidden","Integration authorization changed.");
+  const grant=await api.authorize(row.integration_id);if(grant.integration.operation_epoch!==row.integration_epoch)throw new AgentApiError(403,"forbidden","Integration authorization changed.");
   await db.pool.query("UPDATE app.proxy_operations SET updated_at=now() WHERE tenant_id=$1 AND id=$2 AND state='running'",[tenantId,id]);
  };
  const heartbeat=setInterval(()=>{if(checking)return;checking=true;check().catch(error=>{fault=error instanceof AgentApiError?error.code:"authorization_failed";controller.abort();}).finally(()=>{checking=false;});},1000);

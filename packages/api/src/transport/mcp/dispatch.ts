@@ -28,7 +28,7 @@ export async function dispatchMcp(request: Request, env: Env, auth: OAuthProps |
     if (auth.authMethod === "oauth" && auth.oauthGrantId) {
       const missing = await mcpMissingScopes(env, auth, body, oauthPolicy ?? {
         disabled_scopes: [], integration_overrides: initialIntegrationOverrides(auth.initialIntegrationDenials),
-      }, !!auth.oauthInstallationId && !!auth.oauthIssuanceId);
+      });
       if (missing) return mcpOAuthChallenge(env, undefined, missing);
     }
     mcpBodies.set(request,body);

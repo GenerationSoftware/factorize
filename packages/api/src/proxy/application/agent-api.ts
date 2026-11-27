@@ -44,7 +44,7 @@ export async function integrationConsentLabels(env: Env, tenantId: string, scope
 export class AgentApiService {
   constructor(private env: Env, private auth: OAuthProps) {}
   private get database() { return databaseFor(this.env); }
-  async identity(): Promise<{id: string; kind: "vm" | "oauth"; policy: ConnectionPolicy; scopes: string[]; explicit?: boolean; liveOAuthInstallation?: boolean}> {
+  async identity(): Promise<{id: string; kind: "vm" | "oauth"; policy: ConnectionPolicy; scopes: string[]; explicit?: boolean}> {
     const auth = this.auth;
     if (auth.authMethod === "vm") {
       const scopes = await activeVmAuthorization(this.env, auth);
@@ -74,14 +74,14 @@ export class AgentApiService {
     // Short-lived receipts remain tied to the exact credential. The durable
     // connection changes only authorization, not ownership of transient data.
     return {id: row.id, kind, policy: installation ? { disabled_scopes: [], integration_overrides: {} } : row,
-      scopes: installation ? installationScopes(installation, auth.scopes) : auth.scopes, explicit: !!installation, liveOAuthInstallation: !!installation && !!auth.oauthInstallationId && !!auth.oauthIssuanceId };
+      scopes: installation ? installationScopes(installation, auth.scopes) : auth.scopes, explicit: !!installation };
   }
   async authorize(integration: string) {
     const identity = await this.identity();
     const row = (await this.database.pool.query<AgentIntegration>("SELECT * FROM app.agent_integrations WHERE tenant_id=$1 AND id=$2", [this.auth.tenantId, integration])).rows[0];
     if (!row || row.policy==="disabled") throw forbidden();
     if (identity.kind === "vm" && (!row.available || !identity.scopes.includes(requiredIntegrationScope(row)))) throw forbidden();
-    const access = connectionAccess(row, identity.scopes, identity.policy, identity.explicit || this.auth.explicitIntegrationScopes, identity.liveOAuthInstallation);
+    const access = connectionAccess(row, identity.scopes, identity.policy, identity.explicit || this.auth.explicitIntegrationScopes);
     if (access === "blocked") throw forbidden();
     if (access === "requestable") throw new AgentApiError(403, "insufficient_scope", "Approve this integration before making the request.", requiredIntegrationScope(row));
     return {identity, integration: row};
@@ -113,8 +113,8 @@ export class AgentApiService {
     return new CredentialBackedEgress(this.env, this.auth.tenantId, this.database,
       integration => this.authorize(integration), () => this.identity());
   }
-  forward(integration: string, path: string, request: Request, expectedEpoch?: number) {
-    return this.egress().forward(integration, path, request, expectedEpoch);
+  forward(integration: string, path: string, request: Request, expectedOperationEpoch?: number) {
+    return this.egress().forward(integration, path, request, expectedOperationEpoch);
   }
   forwardX(connectionId: string, path: string, request: Request) {
     return this.egress().forwardX(connectionId, path, request);
@@ -128,7 +128,13 @@ export class AgentApiService {
     catch { throw new AgentApiError(400, "invalid_request", "Invalid base64 request body."); }
     if (bytes && bytes.byteLength > proxyLimits.requestBytes) throw new AgentApiError(413, "request_too_large", "Request body exceeds the proxy limit.");
     const outbound=await proxyRequestBody(this.env,this.auth,parsed);
-    const response = await this.forward(parsed.integration, parsed.path, new Request(`${appConfig(this.env).origin}/mcp`, {method:parsed.method,headers:outbound.headers,body:outbound.body,signal,duplex:"half"} as RequestInit));
+    const { integration } = await this.authorize(parsed.integration);
+    const checkOriginalOperation = async () => {
+      const grant = await this.authorize(parsed.integration);
+      if (grant.integration.operation_epoch !== integration.operation_epoch) throw forbidden();
+      return grant;
+    };
+    const response = await this.forward(parsed.integration, parsed.path, new Request(`${appConfig(this.env).origin}/mcp`, {method:parsed.method,headers:outbound.headers,body:outbound.body,signal,duplex:"half"} as RequestInit),integration.operation_epoch);
     const headers: Record<string,string> = {}; response.headers.forEach((value,key) => {headers[key]=value;});
     const reader = response.body?.getReader(), chunks: Uint8Array[] = [];
     let size = 0, buffered = 0, block = 0;
@@ -153,10 +159,10 @@ export class AgentApiService {
         if (size > proxyLimits.responseBytes) throw new Error("Proxy response exceeds limit");
         if (!key && size > inlineLimit) {
           if (!this.env.PROXY_ARTIFACTS) throw new Error("Response storage unavailable");
-          const grant = await this.authorize(parsed.integration);
+          const grant = await checkOriginalOperation();
           handle = crypto.randomUUID(); expiresAt = new Date(Date.now()+1800_000).toISOString();
           key = `agent-responses/${this.auth.tenantId}/${grant.identity.id}/${handle}`;
-          await this.database.pool.query(`INSERT INTO app.agent_proxy_responses(tenant_id,id,identity_id,integration_id,integration_epoch,object_key,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7)`, [this.auth.tenantId,handle,grant.identity.id,parsed.integration,grant.integration.epoch,key,expiresAt]);
+          await this.database.pool.query(`INSERT INTO app.agent_proxy_responses(tenant_id,id,identity_id,integration_id,integration_epoch,object_key,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7)`, [this.auth.tenantId,handle,grant.identity.id,parsed.integration,grant.integration.operation_epoch,key,expiresAt]);
           // Start the maintenance heartbeat even on otherwise idle tenants.
           if(this.env.SCHEDULER) await this.env.SCHEDULER.get(this.env.SCHEDULER.idFromName("global")).fetch("https://scheduler/wake",{method:"POST"});
           for (const chunk of chunks) await write(chunk);
@@ -166,22 +172,22 @@ export class AgentApiService {
       }
       if (key) {
         if(pendingSize) await this.env.PROXY_ARTIFACTS!.put(`${key}/${block++}`,pending.slice(0,pendingSize).buffer);
-        await this.authorize(parsed.integration);
+        await checkOriginalOperation();
         await this.database.pool.query("UPDATE app.agent_proxy_responses SET size=$3 WHERE tenant_id=$1 AND id=$2", [this.auth.tenantId,handle,size]);
         const receipt={status:response.status,headers,size,encoding:"base64" as const,handle:handle!,expiresAt:expiresAt!};
         return parsed.maxResultBytes ? proxyReceipt(receipt,parsed.maxResultBytes,preview) : receipt;
       }
       const body = new Uint8Array(buffered); let offset = 0; for (const chunk of chunks) {body.set(chunk,offset);offset+=chunk.byteLength;}
-      await this.authorize(parsed.integration);
+      await checkOriginalOperation();
       let result:{status:number;headers:Record<string,string>;size:number;encoding:"utf8"|"base64";body:string};
       try { result={status:response.status,headers,size,encoding:"utf8",body:new TextDecoder("utf-8",{fatal:true,ignoreBOM:true}).decode(body)}; }
       catch { result={status:response.status,headers,size,encoding:"base64",body:encodeBase64(body)}; }
       if(!parsed.maxResultBytes || proxyResultSize(result)<=parsed.maxResultBytes)return result;
       if(!this.env.PROXY_ARTIFACTS)throw new Error("Response storage unavailable");
-      const grant=await this.authorize(parsed.integration);handle=crypto.randomUUID();expiresAt=new Date(Date.now()+1800_000).toISOString();key=`agent-responses/${this.auth.tenantId}/${grant.identity.id}/${handle}`;
-      await this.database.pool.query("INSERT INTO app.agent_proxy_responses(tenant_id,id,identity_id,integration_id,integration_epoch,object_key,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7)",[this.auth.tenantId,handle,grant.identity.id,parsed.integration,grant.integration.epoch,key,expiresAt]);
+      const grant=await checkOriginalOperation();handle=crypto.randomUUID();expiresAt=new Date(Date.now()+1800_000).toISOString();key=`agent-responses/${this.auth.tenantId}/${grant.identity.id}/${handle}`;
+      await this.database.pool.query("INSERT INTO app.agent_proxy_responses(tenant_id,id,identity_id,integration_id,integration_epoch,object_key,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7)",[this.auth.tenantId,handle,grant.identity.id,parsed.integration,grant.integration.operation_epoch,key,expiresAt]);
       await write(body);if(pendingSize)await this.env.PROXY_ARTIFACTS.put(`${key}/${block++}`,pending.slice(0,pendingSize).buffer);
-      await this.authorize(parsed.integration);await this.database.pool.query("UPDATE app.agent_proxy_responses SET size=$3 WHERE tenant_id=$1 AND id=$2",[this.auth.tenantId,handle,size]);
+      await checkOriginalOperation();await this.database.pool.query("UPDATE app.agent_proxy_responses SET size=$3 WHERE tenant_id=$1 AND id=$2",[this.auth.tenantId,handle,size]);
       if(this.env.SCHEDULER)await this.env.SCHEDULER.get(this.env.SCHEDULER.idFromName("global")).fetch("https://scheduler/wake",{method:"POST"});
       return proxyReceipt({status:response.status,headers,size,encoding:"base64",handle,expiresAt},parsed.maxResultBytes,preview);
     } catch (error) {
@@ -231,7 +237,7 @@ export class AgentApiService {
     const row = (await this.database.pool.query<{object_key: string; size: number; integration_id: string; integration_epoch: number}>("SELECT object_key,size,integration_id,integration_epoch FROM app.agent_proxy_responses WHERE tenant_id=$1 AND id=$2 AND identity_id=$3 AND expires_at>clock_timestamp() AND size IS NOT NULL", [this.auth.tenantId,handle,identity.id])).rows[0];
     if (!row) throw new AgentApiError(404,"not_found","Response handle not found or expired.");
     const grant = await this.authorize(row.integration_id);
-    if (grant.integration.epoch !== row.integration_epoch) throw forbidden();
+    if (grant.integration.operation_epoch !== row.integration_epoch) throw forbidden();
     if (offset > row.size) throw new AgentApiError(400,"invalid_request","Offset exceeds response size.");
     return row;
   }

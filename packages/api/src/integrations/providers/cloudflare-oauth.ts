@@ -120,7 +120,7 @@ export async function cloudflareOAuthCallback(request: Request, env: Env) {
       [owner.tenantId, crypto.randomUUID(), encrypted]);
       await sql.query(`INSERT INTO app.agent_integrations AS i(tenant_id,kind,credential_id,name,description,available,policy)
         VALUES($1,'cloudflare',$2,'Cloudflare','Cloudflare REST API',true,'requestable')
-        ON CONFLICT(tenant_id,kind,credential_id) DO UPDATE SET available=true,epoch=i.epoch+1,revision=i.revision+1`,
+        ON CONFLICT(tenant_id,kind,credential_id) DO UPDATE SET available=true,operation_epoch=i.operation_epoch+1,revision=i.revision+1`,
       [owner.tenantId, connection.id]);
       return true;
     });

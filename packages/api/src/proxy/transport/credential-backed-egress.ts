@@ -39,10 +39,10 @@ export class CredentialBackedEgress {
     private requireIdentity: () => Promise<unknown>,
   ) {}
 
-  async forward(integration: string, path: string, request: Request, expectedEpoch?: number) {
+  async forward(integration: string, path: string, request: Request, expectedOperationEpoch?: number) {
     const grant = await this.authorize(integration);
-    if (expectedEpoch !== undefined && grant.integration.epoch !== expectedEpoch) throw forbidden();
-    if (grant.integration.kind === "x") return this.forwardX(grant.integration.credential_id, path, request, expectedEpoch);
+    if (expectedOperationEpoch !== undefined && grant.integration.operation_epoch !== expectedOperationEpoch) throw forbidden();
+    if (grant.integration.kind === "x") return this.forwardX(grant.integration.credential_id, path, request, expectedOperationEpoch);
     let credential;
     try { credential = await resolveAgentCredential(this.env, this.tenantId, grant.integration.kind, grant.integration.credential_id, path); }
     catch (error) {
@@ -52,16 +52,16 @@ export class CredentialBackedEgress {
     if (!credential) throw new AgentApiError(502, "credential_unavailable", "The upstream credential is unavailable; ask the owner to repair it.");
     // Refresh may await a remote provider. Recheck authorization before sending.
     const current = await this.authorize(integration);
-    if (current.integration.epoch !== grant.integration.epoch) throw forbidden();
+    if (current.integration.operation_epoch !== grant.integration.operation_epoch) throw forbidden();
     try { return await forwardOutbound(request, credential); }
     catch { throw new AgentApiError(502, "proxy_failed", "The upstream request failed."); }
   }
-  async forwardX(connectionId: string, path: string, request: Request, expectedEpoch?: number) {
+  async forwardX(connectionId: string, path: string, request: Request, expectedOperationEpoch?: number) {
     await this.requireIdentity();
     const row = (await this.database.pool.query<{id: string}>("SELECT id FROM app.agent_integrations WHERE tenant_id=$1 AND kind='x' AND credential_id=$2", [this.tenantId, connectionId])).rows[0];
     if (!row) throw forbidden();
     const apiGrant = await this.authorize(row.id);
-    if (expectedEpoch !== undefined && apiGrant.integration.epoch !== expectedEpoch) throw forbidden();
+    if (expectedOperationEpoch !== undefined && apiGrant.integration.operation_epoch !== expectedOperationEpoch) throw forbidden();
     const required = xRequiredScope(path, request.method);
     if (!required) throw forbidden();
     const repository = new XConnectionRepository(this.database, this.tenantId, signingConfig(this.env).credentialKey);
@@ -72,7 +72,7 @@ export class CredentialBackedEgress {
     if (!accessToken) throw forbidden();
     const current = await repository.get(connectionId);
     const currentGrant = await this.authorize(apiGrant.integration.id);
-    if (currentGrant.integration.epoch !== apiGrant.integration.epoch) throw forbidden();
+    if (currentGrant.integration.operation_epoch !== apiGrant.integration.operation_epoch) throw forbidden();
     if (current?.status !== "connected" || !current.scopes.includes(required) || !current.grantedScopes.includes(required)) throw forbidden();
     try { return await forwardOutbound(request, { origin: "https://api.x.com", path: path, credential: accessToken }); }
     catch { throw new AgentApiError(502, "proxy_failed", "The X API request failed. Check X API access, credits, and rate limits, then retry if safe."); }

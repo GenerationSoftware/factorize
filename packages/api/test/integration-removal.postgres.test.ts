@@ -240,3 +240,39 @@ it.skipIf(!url)("uses the shared preview and confirm workflow for every existing
     expect((await db.query("SELECT id FROM app.agent_integrations WHERE tenant_id=$1 AND available", [f.tenantId])).rowCount).toBe(0);
   } finally { await f.cleanup(); }
 });
+
+it.skipIf(!url)("preserves the client permission during provider edits and temporary reconnects, but fences old operations", async () => {
+  const f = await loadingFixture(url!);
+  try {
+    const db = f.db.pool, tenant = f.tenantId;
+    const x = crypto.randomUUID();
+    const github = String(Number.parseInt(crypto.randomUUID().slice(0,8),16));
+    await db.query("INSERT INTO app.github_installations(tenant_id,installation_id,account_login,account_type,state) VALUES($1,$2,'fixture','Organization','active')", [tenant, github]);
+    await db.query("INSERT INTO app.fly_connections(tenant_id,organization_slug,organization_name,encrypted_token) VALUES($1,'original','Original','fixture')", [tenant]);
+    await db.query("INSERT INTO app.x_connections(tenant_id,id,name,client_id,scopes,encrypted_secret,status) VALUES($1,$2,'Fixture','client','{}','fixture','connected')", [tenant, x]);
+    const read = async (kind: string) => (await db.query<{id:string;epoch:number;operation_epoch:number;available:boolean}>(
+      "SELECT id,epoch,operation_epoch,available FROM app.agent_integrations WHERE tenant_id=$1 AND kind=$2", [tenant,kind])).rows[0];
+    const fly = await read("fly");
+    await db.query("UPDATE app.fly_connections SET organization_slug='replacement',organization_name='Replacement' WHERE tenant_id=$1", [tenant]);
+    expect(await read("fly")).toEqual({ ...fly, operation_epoch: fly.operation_epoch + 1 });
+
+    const gh = await read("github");
+    await db.query("UPDATE app.github_installations SET state='suspended' WHERE tenant_id=$1 AND installation_id=$2", [tenant,github]);
+    expect(await read("github")).toEqual({ ...gh, available:false, operation_epoch:gh.operation_epoch+1 });
+    await db.query("UPDATE app.github_installations SET state='active' WHERE tenant_id=$1 AND installation_id=$2", [tenant,github]);
+    expect(await read("github")).toEqual({ ...gh, operation_epoch:gh.operation_epoch+1 });
+    await db.query("DELETE FROM app.github_installations WHERE tenant_id=$1 AND installation_id=$2", [tenant,github]);
+    expect(await read("github")).toMatchObject({available:false,epoch:gh.epoch+1});
+
+    const xBefore = await read("x");
+    await db.query("UPDATE app.x_connections SET status='reconnect_required' WHERE tenant_id=$1 AND id=$2", [tenant,x]);
+    expect(await read("x")).toEqual({ ...xBefore, available:false, operation_epoch:xBefore.operation_epoch+1 });
+    await db.query("UPDATE app.x_connections SET status='connected' WHERE tenant_id=$1 AND id=$2", [tenant,x]);
+    expect(await read("x")).toEqual({ ...xBefore, operation_epoch:xBefore.operation_epoch+1 });
+    await db.query("UPDATE app.agent_integrations SET policy='disabled' WHERE tenant_id=$1 AND id=$2", [tenant,xBefore.id]);
+    await db.query("UPDATE app.agent_integrations SET policy='requestable' WHERE tenant_id=$1 AND id=$2", [tenant,xBefore.id]);
+    expect(await read("x")).toEqual({ ...xBefore, epoch:xBefore.epoch+1, operation_epoch:xBefore.operation_epoch+2 });
+    await db.query("UPDATE app.x_connections SET status='revoked' WHERE tenant_id=$1 AND id=$2", [tenant,x]);
+    expect(await read("x")).toMatchObject({available:false,epoch:xBefore.epoch+2});
+  } finally { await f.cleanup(); }
+});
