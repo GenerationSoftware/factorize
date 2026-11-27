@@ -55,11 +55,11 @@ async function activeGrant(db: DatabaseClient, id: string, tenantId?: string, lo
   )).rows[0];
 }
 
-export async function activeVmAuthorization(env: Env, auth: OAuthProps): Promise<string[] | null> {
+export async function activeVmAuthorization(env: Env, auth: OAuthProps, expectedRevision?: number): Promise<string[] | null> {
   if (auth.authMethod !== "vm" || !auth.vmGrantId || !auth.vmTokenExpiresAt || auth.vmTokenExpiresAt <= Date.now() / 1000) return null;
   const db = databaseFor(env);
   const grant = await activeGrant(db.pool, auth.vmGrantId, auth.tenantId);
-  if (!grant) return null;
+  if (!grant || (expectedRevision !== undefined && expectedRevision !== grant.revision)) return null;
   try { requireVmGrantProvider(grant.provider_kind); }
   catch { return null; }
   return currentVmScopes(db.pool, auth.tenantId, grant.scopes.filter(scope => auth.scopes.includes(scope)));

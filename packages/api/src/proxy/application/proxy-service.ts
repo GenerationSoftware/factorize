@@ -1,3 +1,4 @@
+import { ghcrLoginInput, issueGhcrLogin } from "../../integrations/application/ghcr-workload";
 import { AgentApiService, listAgentPolicies } from "./agent-api";
 import { ProxyPayloads, createPayloadInput, appendPayloadInput, finalizePayloadInput, attachmentInput } from "./proxy-payloads";
 import { ProxyOperations, operationRef, operationRead } from "./proxy-operations";
@@ -14,6 +15,8 @@ export class ProxyService {
   constructor(private env: Env, private auth: OAuthProps, private authorize: (scope: (typeof AGENT_SCOPES)[number]) => Promise<void>, private authorizeOwnerSession: (scope: (typeof AGENT_SCOPES)[number]) => Promise<void>) {}
 
   agentApi() { return new AgentApiService(this.env, this.auth); }
+
+  async issueGhcrLogin(input: unknown) { return issueGhcrLogin(this.env, this.auth, ghcrLoginInput.parse(input)); }
 
   async getApiReflection() { return this.agentApi().reflection(); }
 

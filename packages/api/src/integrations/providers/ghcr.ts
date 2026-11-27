@@ -31,13 +31,16 @@ export function ghcrReadPath(image: string, path: string, method: string) {
   throw invalid();
 }
 
-export async function ghcrToken(credential: { image: string; username: string; token: string }) {
+export async function ghcrToken(credential: { image: string; username: string; token: string }, options: {
+  actions?: "pull" | "pull,push"; fetcher?: typeof fetch; signal?: AbortSignal;
+} = {}) {
   const url = new URL("/token", ghcrOrigin);
   url.searchParams.set("service", "ghcr.io");
-  url.searchParams.set("scope", "repository:" + credential.image + ":pull");
-  const response = await fetchWithoutRedirects(url, { signal: AbortSignal.timeout(8000),
+  url.searchParams.set("scope", "repository:" + credential.image + ":" + (options.actions ?? "pull"));
+  const timeout = AbortSignal.timeout(8000);
+  const response = await fetchWithoutRedirects(url, { signal: options.signal ? AbortSignal.any([options.signal, timeout]) : timeout,
     headers: { Authorization: "Basic " + btoa(credential.username + ":" + credential.token), Accept: "application/json" },
-  });
+  }, options.fetcher);
   if (!response.ok) {
     void response.body?.cancel().catch(() => {});
     if (response.status === 401 || response.status === 403) throw new AgentApiError(403, "forbidden", "GitHub denied this GHCR credential or image.");

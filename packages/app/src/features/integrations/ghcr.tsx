@@ -44,10 +44,10 @@ export function useGhcrIntegrations(remove: StartIntegrationRemoval, removalBusy
       { label: "Replace token", onClick: () => start(record) },
       { label: "Delete", destructive: true, disabled: removalBusy, onClick: () => remove({kind:"ghcr", id:record.id, name:record.image}) },
     ]} />),
-    tile: owner && <ProviderTile kind="ghcr" name={title} description="Read tags and manifests for one public or private GHCR image." count={list.length} onAdd={() => start()} />,
+    tile: owner && <ProviderTile kind="ghcr" name={title} description="Allow approved workloads to pull or push one GHCR image." count={list.length} onAdd={() => start()} />,
     feedback: <>{records.error && <p role="alert">{records.error.message}</p>}{notice && !open && <p role="status">{notice}</p>}</>,
     dialog: owner && open && <Dialog title={editing ? "Replace GitHub Container Registry token" : "Add GitHub Container Registry integration"} close={close} busy={save.isPending}>
-      <p className="text-sm">Use a classic GitHub personal access token with <code>read:packages</code>. Enable organization SSO for the token if required. This connection can inspect the image, but cannot download layers, push, or delete packages.</p>
+      <p className="text-sm">Use a classic GitHub personal access token with <code>read:packages</code> for Pull or <code>write:packages</code> for Push. Enable organization SSO if required. Grant Pull and Push separately in the workload permissions.</p>
       <form autoComplete="off" className="mt-3 grid gap-3" onSubmit={event => { event.preventDefault();setNotice("");save.mutate(); }}>
         <Label>Image <Input required maxLength={255} placeholder="owner/image" disabled={!!editing} value={image} onChange={event => setImage(event.target.value)} /></Label>
         <Label>GitHub username <Input required maxLength={39} value={username} onChange={event => setUsername(event.target.value)} /></Label>

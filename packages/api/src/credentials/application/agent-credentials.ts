@@ -17,6 +17,7 @@ export async function resolveAgentCredential(env: Env, tenantId: string, kind: s
   if (kind === "cloudflare") return cloudflareCredential(env, tenantId, credentialId, relativePath);
   const database = databaseFor(env);
   if (kind === "ghcr") {
+    if (credentialId.endsWith(":push")) return null;
     const record = await new GhcrConnections(database, tenantId, signingConfig(env).credentialKey).credential(credentialId);
     if (!record) return null;
     const path = ghcrReadPath(record.image, relativePath, method);

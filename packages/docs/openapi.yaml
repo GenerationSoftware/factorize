@@ -6103,7 +6103,7 @@ paths:
     post:
       summary: Connect one GitHub Container Registry image
       description: |-
-        Save a classic GitHub personal access token for read-only tag and manifest inspection of one fixed image. No registry tokens are returned.
+        Save a classic GitHub personal access token for one fixed image. Use read:packages for pulls or write:packages to additionally allow pushes. GitHub credentials are never returned.
 
         Requires the integrations:write scope.
 
@@ -9286,6 +9286,90 @@ paths:
           schema:
             type: string
             pattern: ^[0-9]+$
+  /api/v1/agent/registry/ghcr/login:
+    post:
+      summary: Issue a temporary GitHub Container Registry proxy login for a VM
+      description: |-
+        Requires an active VM grant and a fresh provider OIDC token and VM request proof. Select Pull or Push explicitly for the connection. The returned credential works only with ghcr.factorize.sh; live permissions are checked on each registry request. GitHub credentials are never returned.
+
+        Requires the proxy:use scope.
+
+        Accepts a scoped bearer token or interactive owner session.
+      responses:
+        "200":
+          description: Short-lived Factorize registry login
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  registry:
+                    type: string
+                    const: ghcr.factorize.sh
+                  image:
+                    type: string
+                  username:
+                    type: string
+                    const: factorize
+                  password:
+                    type: string
+                  expiresAt:
+                    type: string
+                    format: date-time
+                    pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z))$
+                required:
+                  - registry
+                  - image
+                  - username
+                  - password
+                  - expiresAt
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: post_api_v1_agent_registry_ghcr_login
+      tags:
+        - agent
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      x-required-scope: proxy:use
+      x-owner-session-required: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                image:
+                  type: string
+                  maxLength: 255
+                  pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*(?:\/[a-z0-9]+(?:(?:[.]|_{1,2}|-+)[a-z0-9]+)*)+$
+                access:
+                  type: string
+                  enum:
+                    - pull
+                    - push
+              required:
+                - image
+                - access
+              additionalProperties: false
   /api/v1/agent/reflection:
     get:
       summary: Discover agent identity and granted or requestable integration APIs

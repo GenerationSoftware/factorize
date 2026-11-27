@@ -1,3 +1,4 @@
+import { ghcrLoginInput, ghcrLoginOutput } from "../../integrations/application/ghcr-workload";
 import { createPayloadInput, payloadReceipt, appendPayloadInput, finalizePayloadInput, attachmentInput } from "../../proxy/application/proxy-payloads";
 import { operationRef, operationRead, operationReceipt } from "../../proxy/application/proxy-operations";
 import { queryApiResponseInput, queryApiResponseResult } from "../../proxy/api/agent-api-contracts";
@@ -8,6 +9,12 @@ import { z } from "zod";
 import { route, jsonSchema, type RouteContract } from "../../transport/rest/route-contract";
 
 export const proxyRoutes = [
+  route("POST", "/api/v1/agent/registry/ghcr/login", "proxy:use", {
+    summary: "Issue a temporary GitHub Container Registry proxy login for a VM",
+    description: "Requires an active VM grant and a fresh provider OIDC token and VM request proof. Select Pull or Push explicitly for the connection. The returned credential works only with ghcr.factorize.sh; live permissions are checked on each registry request. GitHub credentials are never returned.",
+    responses: {"200": {description:"Short-lived Factorize registry login",content:{"application/json": {schema:jsonSchema(ghcrLoginOutput,"output")}}}},
+  }, async (service,{body}) => Response.json(await service.proxy.issueGhcrLogin(body),{headers:{"Cache-Control":"no-store"}}), {body:ghcrLoginInput,maxBodyBytes:2048}),
+
   route("GET", "/api/v1/agent/reflection", [], { summary: "Discover agent identity and granted or requestable integration APIs", description: "OAuth authorization required. Availability reports connection state, without probing credential health. OAuth integration scopes are integration:{stable UUID}:{revocation epoch}; initial login need not request any integration scopes.", responses: { "200": { description: "Agent reflection", content: { "application/json": { schema: jsonSchema(apiReflection, "output") } } } } }, service => service.proxy.getApiReflection(), {scope: []}),
   route("POST", "/api/v1/agent/requests", [], { summary: "Make an authorized credential-injected API request", description: "OAuth requires proxy:use. An enrolled VM sends its short-lived provider OIDC bearer token, X-Factorize-VM-Grant, and a fresh signed request proof in X-Factorize-VM-Proof. Only server-selected origins are used. Integration-wide grants are bounded by upstream credential permissions. Missing requestable access returns HTTP 403 with WWW-Authenticate insufficient_scope, scope and resource_metadata. Upstream status is returned in the result, including non-2xx. Text is UTF-8; other bodies are base64. Responses above 32 KiB are retained for 30 minutes and read in chunks. Revocation prevents subsequent calls and reads, but cannot undo upstream side effects.", responses: { "200": { description: "Upstream response or retained response handle", content: { "application/json": { schema: jsonSchema(requestApiResponse, "output") } } } } }, (service,{body,signal}) => service.proxy.requestApi(body,signal), {body: requestApiInput, maxBodyBytes: 45_000_000, scope: []}),
   route("POST","/api/v1/proxy-payloads",[],{summary:"Reserve a temporary connection-bound request body",responses:{"200":{description:"Upload/staging receipt",content:{"application/json":{schema:jsonSchema(payloadReceipt,"output")}}}}},(service,{body})=>service.proxy.createProxyPayload(body),{body:createPayloadInput}),

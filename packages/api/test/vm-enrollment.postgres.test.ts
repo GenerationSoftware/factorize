@@ -149,7 +149,54 @@ describe.skipIf(!url)("Fly permission enrollment", () => {
         method, headers: { Cookie: f.cookie, Origin: f.env.APP_ORIGIN, "Content-Type": "application/json" },
         body: body === undefined ? undefined : JSON.stringify(body),
       }), env, { waitUntil() {} } as unknown as ExecutionContext);
-      const edit = { target: { kind: "existing", grantId: active.id, expectedRevision: 1 }, permissions: { scopes: ["vms:read"] } };
+      const registryImage = "example/private-image";
+      const registryPat = "syntheticRegistryPat123";
+      const connectRegistry = await sessionRequest("/api/v1/integrations/ghcr", "POST", {
+        image: registryImage, username: "example", token: registryPat,
+      });
+      expect(connectRegistry.status).toBe(201);
+      const registryRows = (await f.db.pool.query<{id:string;credential_id:string;epoch:number}>(
+        "SELECT id,credential_id,epoch FROM app.agent_integrations WHERE tenant_id=$1 AND kind='ghcr' ORDER BY credential_id",
+        [f.tenantId])).rows;
+      expect(registryRows).toHaveLength(2);
+      const [pullScope, pushScope] = registryRows.map(row => "integration:" + row.id + ":" + row.epoch);
+      const loginPath = "/api/v1/agent/registry/ghcr/login";
+      const login = (access: "pull" | "push", image = registryImage) => worker.fetch(new Request(f.env.APP_ORIGIN+loginPath, {
+        method:"POST", headers:{Authorization:"Bearer "+token,"X-Factorize-VM-Grant":active.id,
+          "X-Factorize-VM-Proof":requestProof(active.id,token,"POST",f.env.APP_ORIGIN+loginPath),"Content-Type":"application/json"},
+        body:JSON.stringify({image,access}),
+      }), env, {waitUntil(){}} as unknown as ExecutionContext);
+      const updateGrant = (expectedRevision: number, scopes: string[]) => sessionRequest("/api/v1/vms/grants", "POST", {
+        target:{kind:"existing",grantId:active.id,expectedRevision},permissions:{scopes},
+      });
+      expect((await login("pull")).status).toBe(403);
+      expect((await sessionRequest(loginPath,"POST",{image:registryImage,access:"pull"})).status).toBe(403);
+      expect((await updateGrant(1,["proxy:use",pullScope!])).status).toBe(200);
+      expect((await login("push")).status).toBe(403);
+      expect((await login("pull","example/another-image")).status).toBe(403);
+      const registryLogin = await login("pull");
+      expect(registryLogin.status).toBe(200);
+      expect(registryLogin.headers.get("Cache-Control")).toBe("no-store");
+      const registryLoginBody = await registryLogin.json() as {password:string; username:string};
+      expect(JSON.stringify(registryLoginBody)).not.toContain(registryPat);
+      const docker = (path: string, password?: string, method = "GET") => worker.fetch(new Request("https://ghcr.factorize.sh"+path, {
+        method,headers:password ? {Authorization:"Basic "+btoa("factorize:"+password)} : {},
+      }), env, {waitUntil(){}} as unknown as ExecutionContext);
+      expect((await docker("/v2/")).headers.get("WWW-Authenticate")).toContain("Basic");
+      expect((await docker("/v2/",registryLoginBody.password)).status).toBe(200);
+      expect((await docker("/v2/",registryLoginBody.password+"x")).status).toBe(401);
+      expect((await docker("/v2/example/another-image/tags/list",registryLoginBody.password)).status).toBe(403);
+      expect((await docker("/v2/"+registryImage+"/manifests/test",registryLoginBody.password,"PUT")).status).toBe(403);
+      expect((await updateGrant(2,["proxy:use",pushScope!])).status).toBe(200);
+      expect((await docker("/v2/",registryLoginBody.password)).status).toBe(403);
+      const pushLogin = await login("push");
+      expect(pushLogin.status).toBe(200);
+      const {password:pushPassword} = await pushLogin.json() as {password:string};
+      expect((await docker("/v2/",pushPassword)).status).toBe(200);
+      expect((await docker("/v2/"+registryImage+"/tags/list",pushPassword)).status).toBe(403);
+      expect((await updateGrant(3,["vms:read"])).status).toBe(200);
+      expect((await docker("/v2/",pushPassword)).status).toBe(403);
+      const edit = { target: { kind: "existing", grantId: active.id, expectedRevision: 4 }, permissions: { scopes: ["vms:read"] } };
       expect((await sessionRequest("/api/v1/vms/grants", "POST", edit)).status).toBe(200);
       expect((await sessionRequest("/api/v1/vms/grants", "POST", edit)).status).toBe(409);
       expect((await sessionRequest("/api/v1/vms/grants/" + active.id, "DELETE")).status).toBe(200);

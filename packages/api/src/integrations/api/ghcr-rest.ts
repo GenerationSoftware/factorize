@@ -9,7 +9,7 @@ export const ghcrRoutes = [
     summary: "List GitHub Container Registry connections", responses: {"200": json(z.array(ghcrConnection), "Secret-free connections")},
   }, service => service.integrations.listGhcrConnections(), { ownerSession: true }),
   route("POST", path, "integrations:write", {
-    summary: "Connect one GitHub Container Registry image", description: "Save a classic GitHub personal access token for read-only tag and manifest inspection of one fixed image. No registry tokens are returned.",
+    summary: "Connect one GitHub Container Registry image", description: "Save a classic GitHub personal access token for one fixed image. Use read:packages for pulls or write:packages to additionally allow pushes. GitHub credentials are never returned.",
     responses: {"201": json(ghcrConnection, "Connection saved")},
   }, (service,{body}) => service.integrations.createGhcrConnection(body), { body: ghcrCreate, ownerSession: true, maxBodyBytes: 4096 }),
   route("PUT", path + "/{connectionId}", "integrations:write", {

@@ -16,12 +16,14 @@ ALTER TABLE app.agent_integrations ADD CONSTRAINT agent_integrations_kind_check
 CREATE FUNCTION app.agent_ghcr_changed() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
  IF TG_OP='DELETE' THEN
-  PERFORM app.sync_agent_integration(OLD.tenant_id,'ghcr',OLD.id::text,'GitHub Container Registry · '||OLD.image,'GHCR image metadata',false);
-  UPDATE app.agent_integrations SET epoch=epoch+1 WHERE tenant_id=OLD.tenant_id AND kind='ghcr' AND credential_id=OLD.id::text;
+  PERFORM app.sync_agent_integration(OLD.tenant_id,'ghcr',OLD.id::text,'GitHub Container Registry · '||OLD.image||' · Pull','Read tags, manifests and image layers',false);
+  PERFORM app.sync_agent_integration(OLD.tenant_id,'ghcr',OLD.id::text||':push','GitHub Container Registry · '||OLD.image||' · Push','Upload layers and publish manifests',false);
+  UPDATE app.agent_integrations SET epoch=epoch+1 WHERE tenant_id=OLD.tenant_id AND kind='ghcr' AND credential_id IN (OLD.id::text, OLD.id::text||':push');
  ELSE
-  PERFORM app.sync_agent_integration(NEW.tenant_id,'ghcr',NEW.id::text,'GitHub Container Registry · '||NEW.image,'GHCR image metadata',true);
+  PERFORM app.sync_agent_integration(NEW.tenant_id,'ghcr',NEW.id::text,'GitHub Container Registry · '||NEW.image||' · Pull','Read tags, manifests and image layers',true);
+  PERFORM app.sync_agent_integration(NEW.tenant_id,'ghcr',NEW.id::text||':push','GitHub Container Registry · '||NEW.image||' · Push','Upload layers and publish manifests',true);
   IF TG_OP='UPDATE' THEN
-   UPDATE app.agent_integrations SET operation_epoch=operation_epoch+1 WHERE tenant_id=NEW.tenant_id AND kind='ghcr' AND credential_id=NEW.id::text;
+   UPDATE app.agent_integrations SET operation_epoch=operation_epoch+1 WHERE tenant_id=NEW.tenant_id AND kind='ghcr' AND credential_id IN (NEW.id::text, NEW.id::text||':push');
   END IF;
  END IF;
  RETURN NULL;
