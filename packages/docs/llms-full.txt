@@ -337,8 +337,7 @@ return it to the browser or the client.
 
 An enrolled client with integration read access can call `check_hetzner_ssh`
 with the server ID. The tool verifies SSH authentication and executes only a
-fixed liveness check. It does not accept commands, expose a shell, or return
-remote output. A live connection can be reused for 30 seconds after a check.
+fresh SSH authentication check after verifying that the connected project still owns the server and its enrolled IPv4 address has not changed. Each handshake has a five-second limit and closes immediately after authentication. Factorize never opens a command channel or returns remote output. After key removal, the next check must authenticate again.
 The server needs a reachable public IPv4 address and SSH on port 22. If a
 connection drops, repeat the check explicitly.
 
@@ -400,7 +399,7 @@ its input and enforces the operation's required scope.
 | `acknowledge_events` | After durable completion or handoff, acknowledge exact original data.occurrenceId UUIDs on your opted-in subscription. Never pass a recovery wake ID or assume an ordered range. Ack successful work promptly; optional cooldown applies only when a new ID is acknowledged, not on retries. Keep client-local pacing and don't drop unfinished work. |
 | `append_payload_chunk` | Append a small generated UTF8/base64 chunk at the returned payload byte size. Identical retries are safe. |
 | `cancel_api_operation` | Cancel an HTTP operation. Upstream writes may already have taken effect. |
-| `check_hetzner_ssh` | Check SSH access for one owner-enrolled Hetzner Cloud server. Uses the pinned host identity and a Factorize-held credential. Runs only a fixed liveness check; no custom commands or output. |
+| `check_hetzner_ssh` | Check SSH access for one owner-enrolled Hetzner Cloud server. Uses the pinned host identity and a Factorize-held credential. Proves fresh key authentication; no SSH channel, commands or remote output. |
 | `create_app` | Register a server-side app. Create client secrets separately in the browser. |
 | `create_event` | Create a durable Event that one or more Triggers can publish. |
 | `create_payload` | Reserve a temporary request body. Open browserUploadUrl to upload an existing file for that connection, or append/finalize generated text in chunks. Pass the finalized handle to request_api bodySource. |

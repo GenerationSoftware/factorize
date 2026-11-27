@@ -40,11 +40,11 @@ export function HetznerSsh({ servers }: { servers: Array<{ id: number; name: str
     } else {
       const { data, error } = await api.POST("/api/v1/hetzner/ssh/{serverId}/check", { params });
       if (!data || error) throw new Error(messageOf(error));
-      return data.reusedConnection;
+      return data.authenticated;
     }
-  }, onSuccess: async (reused, { remove }) => {
+  }, onSuccess: async (_, { remove }) => {
     setConfirm(null);
-    setNotice(remove ? "SSH enrollment deleted." : reused ? "SSH check passed on the existing connection." : "SSH check passed on a new connection.");
+    setNotice(remove ? "SSH enrollment deleted." : "SSH authentication passed. The connection is closed.");
     if (remove) await cache.invalidateQueries({ queryKey: key });
   } });
   const pending = install.isPending || action.isPending;

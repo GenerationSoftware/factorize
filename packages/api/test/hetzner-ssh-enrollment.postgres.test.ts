@@ -9,7 +9,7 @@ it.skipIf(!url)("enrolls only a verified project server, hides its private key a
   const f = await loadingFixture(url!);
   const selected = crypto.randomUUID(), other = crypto.randomUUID();
   const repository = new HetznerConnectionRepository(f.db, f.tenantId, f.env.CREDENTIAL_ENCRYPTION_KEY);
-  const auth = (client: string) => ({ ...f.auth, authMethod: "oauth" as const, oauthInstallationId: client, oauthGrantId: "test-" + client });
+  const auth = (client: string) => ({ ...f.auth, authMethod: "oauth" as const, oauthInstallationId: client, oauthGrantId: "test-" + client, oauthExpiresAt: Date.now()/1000 + 60 });
   const providerGet = vi.fn(async (input: RequestInfo | URL) => {
     expect(String(input)).toBe("https://api.hetzner.cloud/v1/servers/41");
     return Response.json({ server: { id: 41, public_net: { ipv4: {ip:"8.8.4.4"} } } });
@@ -26,7 +26,7 @@ it.skipIf(!url)("enrolls only a verified project server, hides its private key a
     const probe = vi.fn(async (_url: string, init: RequestInit) => {
       expect(init.method).toBe("POST");
       const body = JSON.parse(String(init.body));
-      expect(body).toEqual({ tenantId:f.tenantId, ownerId:f.userId, principal:selected, serverId:41, version:expect.any(String) });
+      expect(body).toEqual({ tenantId:f.tenantId, ownerId:f.userId, authority:{ type:"oauth", installationId:selected, grantId:"test-" + selected, expiresAt:expect.any(Number) }, sessionVersion:f.auth.sessionVersion, serverId:41, version:expect.any(String) });
       return Response.json({ serverId:41, authenticated:true, reusedConnection:false });
     });
     f.env.HETZNER_SSH = { idFromName: vi.fn(value => value), get: () => ({ fetch: probe }) } as unknown as DurableObjectNamespace;
@@ -45,7 +45,7 @@ it.skipIf(!url)("enrolls only a verified project server, hides its private key a
 
     const approved = new HetznerSshService(f.env, auth(selected), authorize, authorize);
     expect(await approved.checkAsClient(41)).toEqual({serverId:41,authenticated:true,reusedConnection:false});
-    expect(providerGet).toHaveBeenCalledOnce(); // Follow-up checks do not need the Hetzner API token on the wire.
+    expect(providerGet).toHaveBeenCalledOnce(); // The internal broker, not the browser/MCP caller, performs the preflight lookup.
     await f.db.pool.query("UPDATE app.oauth_installations SET revoked_at=now() WHERE tenant_id=$1 AND id=$2", [f.tenantId,selected]);
     await expect(approved.checkAsClient(41)).rejects.toMatchObject({status:403});
     expect(probe).toHaveBeenCalledOnce();

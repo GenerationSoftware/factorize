@@ -14,7 +14,7 @@ export const hetznerSshRoutes = [
     summary: "Enroll a Hetzner server for SSH health checks", responses: ok("Enrollment and public key", hetznerSshTarget),
   }, (service, { body }) => service.hetznerSsh.enroll(body), { ownerSession: true, body: hetznerSshEnrollment, maxBodyBytes: 4096 }),
   route("POST", "/api/v1/hetzner/ssh/{serverId}/check", "integrations:read", {
-    summary: "Check an enrolled Hetzner server over SSH", responses: ok("Result of the fixed SSH liveness check", hetznerSshResult),
+    summary: "Check an enrolled Hetzner server over SSH", responses: ok("Result of a fresh SSH authentication check", hetznerSshResult),
   }, (service, { params }) => service.hetznerSsh.checkAsOwner(Number(params.serverId)), { ownerSession: true, parameters }),
   route("DELETE", "/api/v1/hetzner/ssh/{serverId}", "integrations:write", {
     summary: "Delete a Factorize Hetzner SSH enrollment", responses: ok("Local credential deletion result", z.object({ deleted: z.boolean() })),

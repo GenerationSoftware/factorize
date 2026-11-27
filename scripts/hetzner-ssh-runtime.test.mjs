@@ -29,7 +29,7 @@ function ready(child) {
   });
 }
 
-test("workerd authenticates, reuses and closes the fixed SSH diagnostic transport", { timeout: 55_000 }, async () => {
+test("workerd uses fresh SSH authentication and closes without a command channel", { timeout: 55_000 }, async () => {
   const fixture = await mkdtemp(join(tmpdir(), "factorize-ssh-test-"));
   const peers = new Set();
   let worker, server;
@@ -62,44 +62,37 @@ test("workerd authenticates, reuses and closes the fixed SSH diagnostic transpor
     const hostKey = ssh2.utils.parseKey(host.public);
     assert.ok(!(clientKey instanceof Error) && !(hostKey instanceof Error));
     const fingerprint = "SHA256:" + createHash("sha256").update(hostKey.getPublicSSH()).digest("base64").replace(/=+$/, "");
-    let sessions = 0, checks = 0, signed = 0;
+    let sessions = 0, channels = 0, signed = 0, allowedKey = true;
     server = new ssh2.Server({ hostKeys: [host.private], algorithms: { cipher: ["aes128-gcm@openssh.com"] } }, connection => {
       peers.add(connection); sessions++;
       connection.on("error", () => {});
       connection.on("close", () => peers.delete(connection));
       connection.on("authentication", ctx => {
-        if (ctx.method !== "publickey" || ctx.username !== "fixture-check" || !ctx.key.data.equals(clientKey.getPublicSSH())) return ctx.reject();
+        if (!allowedKey || ctx.method !== "publickey" || ctx.username !== "fixture-check" || !ctx.key.data.equals(clientKey.getPublicSSH())) return ctx.reject();
         if (ctx.signature) {
           if (clientKey.verify(ctx.blob, ctx.signature) !== true) return ctx.reject();
           signed++;
         }
         ctx.accept();
       });
-      connection.on("ready", () => connection.on("session", accept => {
-        accept().on("exec", (accept, reject, info) => {
-          if (info.command !== "/bin/true") return reject();
-          checks++;
-          const channel = accept();
-          channel.exit(0);
-          channel.end();
-        });
-      }));
+      connection.on("ready", () => connection.on("session", (_accept, reject) => { channels++; reject(); }));
     });
     server.listen(0, "127.0.0.1");
     await once(server, "listening");
     const probe = fingerprint => fetch(url + "/probe", { method: "POST", body: JSON.stringify({ port: server.address().port, fingerprint }) });
     const first = await probe(fingerprint);
     assert.equal(first.status, 200, await first.clone().text());
-    assert.deepEqual(await first.json(), { reusedConnection: false });
-    assert.deepEqual(await (await probe(fingerprint)).json(), { reusedConnection: true });
-    assert.equal(sessions, 1);
-    assert.equal(signed, 1);
-    await pause(1200);
-    assert.deepEqual(await (await probe(fingerprint)).json(), { reusedConnection: false });
+    assert.deepEqual(await first.json(), { authenticated: true });
+    assert.deepEqual(await (await probe(fingerprint)).json(), { authenticated: true });
     assert.equal(sessions, 2);
-    assert.equal(checks, 3);
+    assert.equal(signed, 2);
+    for (let n = 0; n < 30 && peers.size; n++) await pause(20);
+    assert.equal(peers.size, 0);
+    allowedKey = false;
+    assert.equal((await probe(fingerprint)).status, 502);
+    assert.equal(signed, 2);
     assert.equal((await probe("SHA256:" + "A".repeat(43))).status, 502);
-    assert.equal(checks, 3);
+    assert.equal(channels, 0);
   } finally {
     if (worker && worker.exitCode === null) { const exited = once(worker, "exit"); worker.kill(); await exited.catch(() => {}); }
     for (const peer of peers) peer.end();

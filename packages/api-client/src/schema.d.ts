@@ -5670,7 +5670,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Result of the fixed SSH liveness check */
+            /** @description Result of a fresh SSH authentication check */
             200: {
                 headers: {
                     [name: string]: unknown;

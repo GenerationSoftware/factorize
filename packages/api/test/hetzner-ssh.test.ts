@@ -1,6 +1,6 @@
 import { expect, it, vi } from "vitest";
 import { hetznerSshEnrollment, hetznerSshToolInput } from "../src/integrations/api/hetzner-ssh-contracts";
-import { HetznerSshPool } from "../src/integrations/application/hetzner-ssh-pool";
+import { freshHetznerProbe } from "../src/integrations/application/hetzner-ssh-probe";
 import { generateHetznerSshKey } from "../src/integrations/providers/hetzner-ssh-transport";
 
 it("keeps user-supplied commands, hostnames, ports and extra fields out of the MCP tool", () => {
@@ -20,40 +20,34 @@ it("generates an independent private key and only a corresponding SSH public key
   expect(next.publicKey).not.toBe(first.publicKey);
 });
 
-it("reuses for 30 seconds after a check and never replays a failed check", async () => {
-  vi.useFakeTimers();
-  const pool = new HetznerSshPool();
-  try {
-    const connection = { close: vi.fn(), check: vi.fn(async () => {}) };
-    const dial = vi.fn(async () => connection);
-    expect(await pool.check("host-a", dial)).toEqual({ reusedConnection: false });
-    await vi.advanceTimersByTimeAsync(29_999);
-    expect(await pool.check("host-a", dial)).toEqual({ reusedConnection: true });
-    expect(dial).toHaveBeenCalledTimes(1);
-    await vi.advanceTimersByTimeAsync(30_000);
-    expect(connection.close).toHaveBeenCalledTimes(1);
-    expect(await pool.check("host-a", dial)).toEqual({ reusedConnection: false });
-    connection.check.mockRejectedValueOnce(new Error("disconnected"));
-    await expect(pool.check("host-a", dial)).rejects.toThrow("disconnected");
-    expect(dial).toHaveBeenCalledTimes(2);
-    expect(connection.close).toHaveBeenCalledTimes(2);
-  } finally {
-    pool.close();
-    vi.useRealTimers();
-  }
+it("revalidates provider ownership and the exact address for every check; never dials on drift", async () => {
+  const lookup = vi.fn(async () => ({ ipv4: "8.8.4.4" }));
+  const authenticate = vi.fn(async () => {});
+  const input = { enrolledAddress: "8.8.4.4", lookup, active: async () => true, authenticate };
+  expect(await freshHetznerProbe(input)).toBe(true);
+  expect(await freshHetznerProbe(input)).toBe(true);
+  expect(lookup).toHaveBeenCalledTimes(2);
+  lookup.mockResolvedValueOnce({ ipv4: "8.8.8.8" }).mockRejectedValueOnce(new Error("provider authorization lost"));
+  expect(await freshHetznerProbe(input)).toBe(false);
+  await expect(freshHetznerProbe(input)).rejects.toThrow("provider authorization lost");
+  expect(authenticate).toHaveBeenCalledTimes(2);
 });
 
-it("closes a warm transport when the enrollment changes and bounds concurrent checks", async () => {
-  const pool = new HetznerSshPool();
+it("aborts a pending handshake after local key or grant revocation", async () => {
+  vi.useFakeTimers();
   try {
-    const first = { check: vi.fn(async () => {}), close: vi.fn() };
-    await pool.check("old key", async () => first);
-    let unblock!: () => void;
-    const second = { check: () => new Promise<void>(r => { unblock = r; }), close: vi.fn() };
-    const checking = pool.check("rotated key", async () => second);
-    expect(await pool.check("rotated key", async () => second)).toEqual({ busy: true });
-    unblock();
-    expect(await checking).toEqual({ reusedConnection: false });
-    expect(first.close).toHaveBeenCalledOnce();
-  } finally { pool.close(); }
+    let allowed = true, begin!: () => void;
+    const started = new Promise<void>(resolve => { begin = resolve; });
+    const pending = freshHetznerProbe({
+      enrolledAddress: "8.8.4.4", lookup: async () => ({ ipv4: "8.8.4.4" }), active: async () => allowed,
+      authenticate: signal => new Promise((_resolve, reject) => {
+        signal.addEventListener("abort", () => reject(new Error("check closed")), { once: true }); begin();
+      }),
+    });
+    const closed = expect(pending).rejects.toThrow("check closed");
+    await started;
+    allowed = false;
+    await vi.advanceTimersByTimeAsync(1000);
+    await closed;
+  } finally { vi.useRealTimers(); }
 });

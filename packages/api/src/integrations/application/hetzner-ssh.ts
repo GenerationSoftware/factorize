@@ -12,8 +12,13 @@ import { generateHetznerSshKey } from "../providers/hetzner-ssh-transport";
 import { lockIntegrationTopology } from "../storage/integration-removal-topology";
 import { HetznerInventoryService } from "./hetzner-inventory";
 
+const authority = z.discriminatedUnion("type", [
+  z.strictObject({ type: z.literal("owner") }),
+  z.strictObject({ type: z.literal("oauth"), installationId: z.uuid(), grantId: z.string().min(1), expiresAt: z.number().finite() }),
+]);
+
 export const hetznerProbeRequest = z.strictObject({
-  tenantId: z.uuid(), ownerId: z.uuid(), principal: z.union([z.literal("owner"), z.uuid()]),
+  tenantId: z.uuid(), ownerId: z.uuid(), authority, sessionVersion: z.number().int().positive(),
   serverId: hetznerServerId, version: z.uuid(),
 });
 
@@ -78,37 +83,37 @@ export class HetznerSshService {
 
   async checkAsOwner(serverId: number) {
     await this.owner("integrations:read");
-    return this.check(serverId, "owner");
+    return this.check(serverId, { type: "owner" });
   }
 
   async checkAsClient(serverId: number) {
     await this.read();
-    const { authMethod, oauthInstallationId, oauthGrantId, tenantId, userId } = this.auth;
-    if (authMethod !== "oauth" || !oauthInstallationId || !oauthGrantId) {
+    const { authMethod, oauthInstallationId, oauthGrantId, oauthExpiresAt, tenantId, userId } = this.auth;
+    if (authMethod !== "oauth" || !oauthInstallationId || !oauthGrantId || !oauthExpiresAt) {
       throw new ServiceError(403, "ssh_client_not_authorized", "An explicitly enrolled OAuth client is required.");
     }
     const client = await getOAuthInstallation(this.database().pool, tenantId, userId, oauthInstallationId);
     if (!client || client.revoked_at || client.active_grant_id !== oauthGrantId || !client.active_scopes.includes("integrations:read")) {
       throw new ServiceError(403, "ssh_client_not_authorized", "This client is no longer authorized.");
     }
-    return this.check(serverId, oauthInstallationId);
+    return this.check(serverId, { type: "oauth", installationId: oauthInstallationId, grantId: oauthGrantId, expiresAt: oauthExpiresAt });
   }
 
-  private async check(serverId: number, principal: string) {
+  private async check(serverId: number, principal: z.infer<typeof authority>) {
     const { tenantId, userId } = this.auth;
     const host = await this.repository.get(serverId);
-    if (!host || host.ownerId !== userId || (principal !== "owner" && host.clientInstallationId !== principal)) {
+    if (!host || host.ownerId !== userId || (principal.type === "oauth" && host.clientInstallationId !== principal.installationId)) {
       throw new ServiceError(404, "ssh_target_not_found", "No SSH enrollment is available to this caller.");
     }
     const broker = this.env.HETZNER_SSH;
     if (!broker) throw new ServiceError(503, "ssh_unavailable", "SSH checks are unavailable.");
-    const stub = broker.get(broker.idFromName(`${tenantId}:${userId}:${serverId}:${host.version}:${principal}`));
+    const stub = broker.get(broker.idFromName(`${tenantId}:${userId}:${serverId}:${host.version}`));
     const response = await stub.fetch("https://hetzner-ssh.internal/check", { method: "POST", body: JSON.stringify({
-      tenantId, ownerId: userId, principal, serverId, version: host.version,
+      tenantId, ownerId: userId, authority: principal, sessionVersion: this.auth.sessionVersion, serverId, version: host.version,
     }) });
     if (!response.ok) {
       if (response.status === 409) throw new ServiceError(409, "ssh_busy", "An SSH check is already running.");
-      throw new ServiceError(502, "ssh_check_failed", "SSH check failed. Verify the enrolled host fingerprint, account and public key.");
+      throw new ServiceError(502, "ssh_check_failed", "SSH check failed. Verify the server still belongs to the connected project and that its address, fingerprint, account and key have not changed.");
     }
     return hetznerSshResult.parse(await response.json());
   }

@@ -2,13 +2,19 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import ssh2 from "ssh2";
 
 export function generateHetznerSshKey() {
-  const { private: privateKey, public: publicKey } = ssh2.utils.generateKeyPairSync("ed25519");
-  return { privateKey, publicKey };
+  // Reject malformed generated pairs before persisting either half.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const { private: privateKey, public: publicKey } = ssh2.utils.generateKeyPairSync("ed25519");
+    const parsedPrivate = ssh2.utils.parseKey(privateKey), parsedPublic = ssh2.utils.parseKey(publicKey);
+    if (!(parsedPrivate instanceof Error) && !(parsedPublic instanceof Error)
+        && !Array.isArray(parsedPrivate) && !Array.isArray(parsedPublic)
+        && parsedPrivate.getPublicSSH().equals(parsedPublic.getPublicSSH())) return { privateKey, publicKey };
+  }
+  throw new Error("Could not generate a valid SSH key pair");
 }
 
 type Target = { address: string; username: string; hostFingerprint: string; privateKey: string };
-export type ProbableSshConnection = { check: () => Promise<void>; close: () => void };
-const socketFailure = () => new Error("SSH check did not complete");
+const socketFailure = () => new Error("SSH authentication did not complete");
 
 function hostKeyMatches(key: Buffer, fingerprint: string) {
   const expected = Buffer.from(fingerprint.slice("SHA256:".length), "base64");
@@ -16,50 +22,32 @@ function hostKeyMatches(key: Buffer, fingerprint: string) {
   return expected.length === actual.length && timingSafeEqual(expected, actual);
 }
 
-export function connectHetznerSsh(target: Target, onClosed: () => void, port = 22): Promise<ProbableSshConnection> {
+/** Prove fresh authentication only. Never open a channel or retain a transport. */
+export function authenticateHetznerSsh(target: Target, signal?: AbortSignal, port = 22): Promise<void> {
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) { reject(socketFailure()); return; }
     const client = new ssh2.Client();
-    let closed = false;
-    const close = () => {
-      if (closed) return;
-      closed = true;
-      client.end();
+    let settled = false;
+    const finish = (ok: boolean) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(deadline);
+      signal?.removeEventListener("abort", fail);
       client.destroy();
-      onClosed();
+      if (ok) resolve(); else reject(socketFailure());
     };
-    const fail = () => { reject(socketFailure()); close(); };
+    const fail = () => finish(false);
+    const deadline = setTimeout(fail, 5000);
+    signal?.addEventListener("abort", fail, { once: true });
     client.once("close", fail);
     client.on("error", fail);
-    client.once("ready", () => resolve({
-      close,
-      check: () => new Promise<void>((done, failed) => {
-        if (closed) { failed(socketFailure()); return; }
-        const failCheck = () => { clearTimeout(timer); failed(socketFailure()); close(); };
-        const timer = setTimeout(failCheck, 4000);
-        // The only allowed remote operation is a fixed, no-output liveness check.
-        // Never expose shell, input, argument, forwarding, or file-transfer APIs.
-        client.exec("/bin/true", { pty: false }, (error, channel) => {
-          if (error || closed) { failCheck(); return; }
-          let outputBytes = 0;
-          const consume = (chunk: Buffer) => { outputBytes += chunk.length; if (outputBytes > 4096) failCheck(); };
-          channel.on("data", consume);
-          channel.stderr.on("data", consume);
-          channel.once("error", failCheck);
-          channel.once("close", (code: number | undefined) => {
-            clearTimeout(timer);
-            if (code === 0 && !closed) done();
-            else failCheck();
-          });
-        });
-      }),
-    }));
+    client.once("ready", () => finish(true));
     try {
       client.connect({ host: target.address, port, username: target.username, privateKey: target.privateKey,
         authHandler: ["publickey"], agentForward: false, readyTimeout: 5000,
         hostVerifier: (key: Buffer) => hostKeyMatches(key, target.hostFingerprint),
         algorithms: {
-          kex: ["curve25519-sha256", "ecdh-sha2-nistp256"],
-          serverHostKey: ["ssh-ed25519"],
+          kex: ["curve25519-sha256", "ecdh-sha2-nistp256"], serverHostKey: ["ssh-ed25519"],
           cipher: ["aes128-gcm@openssh.com", "aes256-gcm@openssh.com"],
         },
       });

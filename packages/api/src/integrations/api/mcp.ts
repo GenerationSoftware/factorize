@@ -17,6 +17,6 @@ export const tailTools = [
 
 
 export const hetznerTools = [
-  mcpTool("integrations:read", "check_hetzner_ssh", "Check SSH access for one owner-enrolled Hetzner Cloud server. Uses the pinned host identity and a Factorize-held credential. Runs only a fixed liveness check; no custom commands or output.", hetznerSshToolInput, service =>
+  mcpTool("integrations:read", "check_hetzner_ssh", "Check SSH access for one owner-enrolled Hetzner Cloud server. Uses the pinned host identity and a Factorize-held credential. Proves fresh key authentication; no SSH channel, commands or remote output.", hetznerSshToolInput, service =>
     (input: {serverId: number}) => service.hetznerSsh.checkAsClient(input.serverId)),
 ];

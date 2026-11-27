@@ -5371,7 +5371,7 @@ paths:
       summary: Check an enrolled Hetzner server over SSH
       responses:
         "200":
-          description: Result of the fixed SSH liveness check
+          description: Result of a fresh SSH authentication check
           content:
             application/json:
               schema:

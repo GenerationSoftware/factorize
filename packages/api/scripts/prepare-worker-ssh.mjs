@@ -43,3 +43,12 @@ await prepare("lib/agent.js", [[
   /const EXEPATH = resolve\(__dirname, '\.\.', 'util\/pagent\.exe'\);/,
   'const EXEPATH = "/unavailable-pagent.exe";',
 ]]);
+
+// The Worker never opens an SSH channel. Remove client-side channel payload
+// handling entirely so the deployed authentication-only transport does not
+// retain the affected receive-window path (upstream ssh2 #1505).
+await prepare("lib/client.js", [[
+  "factorize: authentication-only client rejects channel payloads",
+  /^        CHANNEL_DATA: \(p, recipient, data\) => \{[\s\S]*?^        CHANNEL_EXTENDED_DATA: \(p, recipient, data, type\) => \{[\s\S]*?^        \},(?=\n        CHANNEL_WINDOW_ADJUST:)/m,
+  "        CHANNEL_DATA: () => this.destroy(),\n        CHANNEL_EXTENDED_DATA: () => this.destroy(),",
+]]);
