@@ -1,3 +1,5 @@
+import { HetznerConnectionRepository } from "../../credentials/storage/hetzner-connection-repository";
+import { HetznerInventoryService } from "./hetzner-inventory";
 import { exeConnection } from "../api/connection-contracts";
 import { appConfig, signingConfig } from "../../config/runtime";
 import { IntegrationRemoval } from "./integration-removal";
@@ -61,6 +63,16 @@ export class IntegrationsService {
     try { parsed = new URL(origin); } catch { throw new ServiceError(400, "invalid_request", "Integration origin must be an HTTPS origin."); }
     if (parsed.protocol !== "https:" || parsed.origin !== origin || parsed.username || parsed.password) throw new ServiceError(400, "invalid_request", "Integration origin must be an HTTPS origin without credentials, path, query, or fragment.");
   }
+
+  private hetzner() { return new HetznerInventoryService(new HetznerConnectionRepository(databaseFor(this.env), this.auth.tenantId, signingConfig(this.env).credentialKey)); }
+
+  async getHetznerConnection() { await this.authorizeOwnerSession("integrations:read"); return this.hetzner().connection(); }
+
+  async saveHetznerConnection(input: unknown) { await this.authorizeOwnerSession("integrations:write"); return this.hetzner().save(input); }
+
+  async deleteHetznerConnection() { await this.authorizeOwnerSession("integrations:write"); return this.hetzner().delete(); }
+
+  async listHetznerServers() { await this.authorizeOwnerSession("integrations:read"); return this.hetzner().inventory(); }
 
   async getFlyConnection() { await this.authorizeOwnerSession("integrations:read"); return { connection: await this.flyConnections().get() }; }
 

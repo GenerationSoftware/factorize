@@ -6,6 +6,7 @@
     { "pattern": "git.factorize.sh", "custom_domain": true }
   ],
   "main": "src/cloudflare-entry.ts",
+  "build": { "command": "node scripts/prepare-worker-ssh.mjs" },
   "compatibility_date": "2026-09-10",
   "compatibility_flags": ["global_fetch_strictly_public", "nodejs_compat"],
   "assets": { "directory": "../app/dist", "binding": "ASSETS", "run_worker_first": true, "not_found_handling": "none" },
@@ -17,7 +18,7 @@
   "ratelimits": [{ "name": "GOOGLE_SIGN_IN_START_LIMIT", "namespace_id": "10430", "simple": { "limit": 15, "period": 60 } }],
   "r2_buckets": [{ "binding": "PROXY_ARTIFACTS", "bucket_name": "factorize-run-artifacts" }],
   "durable_objects": {
-    "bindings": [{ "name": "SCHEDULER", "class_name": "AlarmCoordinator" }]
+    "bindings": [{ "name": "SCHEDULER", "class_name": "AlarmCoordinator" }, { "name": "HETZNER_SSH", "class_name": "HetznerSshBroker" }]
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["Tenant"] },
@@ -25,7 +26,8 @@
     { "tag": "v3-fresh-durable-objects", "new_sqlite_classes": ["TenantV2", "GitHubInstallationRegistryV2"] },
     { "tag": "v4-auth-store", "new_sqlite_classes": ["AuthStore"] },
     { "tag": "v5-postgres-alarm-coordinator", "new_sqlite_classes": ["AlarmCoordinator"] },
-    { "tag": "v6-postgres-cutover", "deleted_classes": ["Tenant", "GitHubInstallationRegistry", "TenantV2", "GitHubInstallationRegistryV2", "AuthStore"] }
+    { "tag": "v6-postgres-cutover", "deleted_classes": ["Tenant", "GitHubInstallationRegistry", "TenantV2", "GitHubInstallationRegistryV2", "AuthStore"] },
+    { "tag": "v7-hetzner-ssh-broker", "new_sqlite_classes": ["HetznerSshBroker"] }
   ],
   "vars": {
     "APP_ORIGIN": "https://app.factorize.sh",

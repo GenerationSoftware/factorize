@@ -18,7 +18,7 @@ export function ProviderTile({kind, name, description, count, onAdd, href}: {kin
   </li>;
 }
 export type IntegrationAction = MenuAction;
-export function IntegrationRow({kind, credentialId, name, detail, actionName, status, actions, children}: {kind: string; credentialId: string; name: string; detail?: string; actionName?: string; status?: string; actions: IntegrationAction[]; children?: ReactNode}) {
+export function IntegrationRow({kind, credentialId, name, detail, actionName, status, actions, children, ownerOnly}: {kind: string; credentialId: string; name: string; detail?: string; actionName?: string; status?: string; actions: IntegrationAction[]; children?: ReactNode; ownerOnly?: boolean}) {
   const instance = actionName ?? (detail ? `${name} · ${detail}` : name);
   return <tr className={tableRowClasses}>
     <th scope="row" className={`${tableCellClasses} text-left font-normal`}>
@@ -33,6 +33,6 @@ export function IntegrationRow({kind, credentialId, name, detail, actionName, st
         </div>
       </div>
     </th>
-    <td className={defaultColumn}><IntegrationPolicy kind={kind} credentialId={credentialId} name={instance} /></td>
+    <td className={defaultColumn}>{ownerOnly ? "Owner only" : <IntegrationPolicy kind={kind} credentialId={credentialId} name={instance} />}</td>
   </tr>;
 }
