@@ -127,7 +127,7 @@ test("reconnect separates granted, requested, blocked and optional permissions w
 });
 
 
-test("explicitly chooses the existing compatible connection rather than inferring it", async () => {
+test("defaults to the only compatible reconnect on a callback handoff and waits for approval", async () => {
   const { context, page } = await setup();
   try {
     const requests = [];
@@ -148,9 +148,14 @@ test("explicitly chooses the existing compatible connection rather than inferrin
       return route.fulfill({json:{redirectTo:origin+"/completed?code=issued"}});
     });
     await page.goto(origin+"/authorize?client_id=client&connection=fixture");
-    await page.getByRole("radio", {name:"Create a separate connection"}).waitFor();
+    await page.getByRole("heading", {name:"Reconnect External CLI"}).waitFor();
+    assert.equal(await page.getByRole("radio", {name:"Reconnect",exact:true}).isChecked(), true);
+    assert.equal(await page.getByLabel("Connection to reconnect").inputValue(), "installation:existing-1");
+    assert.equal(approval, undefined);
+    await page.getByRole("radio", {name:"Create a separate connection"}).check();
+    await page.getByRole("heading", {name:"Authorize External CLI"}).waitFor();
     assert.equal(await page.getByRole("radio", {name:"Create a separate connection"}).isChecked(), true);
-    await page.getByRole("radio", {name:/Reconnect Laptop client/}).check();
+    await page.getByRole("radio", {name:"Reconnect",exact:true}).check();
     await page.getByRole("heading", {name:"Reconnect External CLI"}).waitFor();
     await page.getByRole("heading", {name:"Additional permissions you saved for this connection"}).waitFor();
     assert.equal(await page.getByLabel("triggers:write").isChecked(), true);
@@ -160,5 +165,37 @@ test("explicitly chooses the existing compatible connection rather than inferrin
     assert.equal(requests[0].target, undefined);
     assert.deepEqual(requests[1].target, target);
     assert.deepEqual(approval, {request:"reconnect-request",signature:"signed",decision:"allow",scopes:["team:read"]});
+  } finally { await context.close(); }
+});
+
+
+test("leaves a new request alone and requires a target when reconnect offers multiple installations", async () => {
+  const { context, page } = await setup();
+  try {
+    const requests = [];
+    await page.route("**/api/v1/oauth/consent/preview", route => {
+      const body = route.request().postDataJSON();
+      requests.push(body);
+      const one = {kind:"installation", id:"existing-1", name:"Laptop", createdAt:"2026-10-09T12:00:00Z"};
+      const targets = body.authorizationQuery.includes("connection=") ? [one,{...one,id:"existing-2",name:"Desktop"}] : [one];
+      return route.fulfill({json:{clientName:"External CLI", reconnect:!!body.target, targets, scopes:[], selectedScopes:[],
+        request:"signed-request", signature:"signature", expiresAt:"2026-10-09T12:00:00Z"}});
+    });
+    await page.goto(origin+"/authorize?client_id=client");
+    await page.getByRole("button", {name:"Allow",exact:true}).waitFor();
+    assert.equal(await page.getByRole("radio", {name:"Reconnect",exact:true}).count(), 0);
+    assert.equal(await page.getByRole("button", {name:"Allow",exact:true}).isEnabled(), true);
+    await page.goto(origin+"/authorize?client_id=client&connection=fixture");
+    const reconnect = page.getByRole("radio", {name:"Reconnect",exact:true});
+    await reconnect.waitFor();
+    assert.equal(await reconnect.isChecked(), true);
+    assert.equal(await page.getByLabel("Connection to reconnect").inputValue(), "");
+    assert.equal(await page.getByRole("button", {name:"Allow",exact:true}).isEnabled(), false);
+    assert.equal(requests.length, 2);
+    assert.ok(requests.every(request => request.target === undefined));
+    await page.getByLabel("Connection to reconnect").selectOption("installation:existing-2");
+    await page.getByRole("heading", {name:"Reconnect External CLI"}).waitFor();
+    assert.deepEqual(requests[2].target, {kind:"installation", id:"existing-2"});
+    assert.equal(await page.getByRole("button", {name:"Allow",exact:true}).isEnabled(), true);
   } finally { await context.close(); }
 });
