@@ -16,6 +16,8 @@ const scopes = new Map(tools.map(tool => [tool.name, tool.scope]));
 if (scopes.size !== tools.length) throw new Error("Duplicate MCP tool declaration.");
 export const requiredMcpToolScope = (name: string) => scopes.get(name) ?? undefined;
 
+export const listMcpToolMetadata = () => tools.map(({ name, description, scope }) => ({ name, description, scope }));
+
 export function createMcpServer(service: ApiService, subscriptions = true, signal?: AbortSignal): McpServer {
   const server = new McpServer({ name: "factorize", version: "1.0.0" }, {capabilities:{resources:{subscribe:subscriptions},extensions:{[SKILLS_EXTENSION]:{}}}});
   subscriptionsProtocol(server, service);

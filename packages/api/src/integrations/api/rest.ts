@@ -52,7 +52,7 @@ const xConnectionTest = z.object({ status: z.enum(["connected", "failed", "recon
 const xConnectionCredentialReplacement = z.object({ clientId: z.string().trim().min(1).max(256), clientSecret: z.string().min(1).max(4096).regex(/^[^\r\n]+$/).meta({ writeOnly: true }) }).strict();
 const bearerIntegrationWriteResult = z.object({ revision: z.number().int().nonnegative(), duplicate: z.boolean() });
 const bearerIntegrationDeleteResult = z.object({ id: z.uuid(), deleted: z.literal(true), revision: z.number().int().nonnegative(), duplicate: z.boolean() });
-export const connectionAdminRoutes = [
+export const integrationRoutes = [
   route("POST", "/api/v1/integrations/removal/preview", "integrations:write", {
     summary: "Preview what removing one installed integration affects",
     responses: { "200": { description: "Exact references and an impact fingerprint", content: { "application/json": { schema: jsonSchema(integrationRemovalPreview, "output") } } } },
@@ -130,9 +130,6 @@ export const connectionAdminRoutes = [
     description: "Requires an interactive owner browser session and the current collection revision.",
     responses: { "200": { description: "Deleted integration", content: { "application/json": { schema: jsonSchema(bearerIntegrationDeleteResult, "output") } } } },
   }, (service, { params, body }) => service.integrations.deleteBearerIntegration(params.integrationId, body), { body: bearerIntegrationDelete, maxBodyBytes: 4096, ownerSession: true }),
-] satisfies RouteContract[];
-
-export const installationRoutes = [
   route(
     "GET",
     "/api/v1/exe-connections",
@@ -171,9 +168,6 @@ export const installationRoutes = [
     },
     (service) => service.integrations.listGitHubInstallations(),
   ),
-] satisfies RouteContract[];
-
-export const providerSettingsRoutes = [
   route(
     "GET",
     "/api/v1/integrations/cloudflare-tail",
@@ -325,9 +319,6 @@ export const providerSettingsRoutes = [
     },
     (service) => service.integrations.listGitHubInstallations(),
   ),
-] satisfies RouteContract[];
-
-export const providerMaintenanceRoutes = [
   route(
     "DELETE",
     "/api/v1/integrations/exe/{connectionId}",

@@ -4,10 +4,10 @@ import { triggerInputSchema, fireTriggerInputSchema, triggerConditionsTestSchema
 
 import document from "./api-document.json";
 
-import { connectionAdminRoutes, installationRoutes, providerSettingsRoutes, providerMaintenanceRoutes } from "./integrations/api/rest";
+import { integrationRoutes } from "./integrations/api/rest";
 import { authRoutes } from "./auth/api/rest";
-import { eventContextRoutes, triggerEditorRoutes, triggerActionRoutes, triggerHistoryRoutes } from "./triggers/api/rest";
-import { authorizationRoutes, permissionRoutes, teamRoutes } from "./access-control/api/rest";
+import { triggerRoutes } from "./triggers/api/rest";
+import { accessRoutes } from "./access-control/api/rest";
 import { vmGrantRoutes } from "./vm-grants/api/rest";
 import { subscriptionRoutes } from "./subscriptions/api/rest";
 import { eventRoutes } from "./events/api/rest";
@@ -16,33 +16,27 @@ import { appRoutes } from "./apps/api/rest";
 import { jsonSchema, type RouteContract } from "./transport/rest/route-contract";
 export type { RouteContract } from "./transport/rest/route-contract";
 
-// Keep legacy matcher and generated document order. Add operations within the owning capability.
+// Each capability contributes one catalog. New operations belong in that module.
 export const API_ROUTES: RouteContract[] = [
-  ...connectionAdminRoutes,
   ...authRoutes,
-  ...eventContextRoutes,
-  ...installationRoutes,
-  ...triggerEditorRoutes,
-  ...providerSettingsRoutes,
-  ...authorizationRoutes,
-  ...vmGrantRoutes,
-  ...permissionRoutes,
-  ...providerMaintenanceRoutes,
-  ...teamRoutes,
-  ...subscriptionRoutes,
-  ...eventRoutes,
-  ...triggerActionRoutes,
-  ...proxyRoutes,
-  ...triggerHistoryRoutes,
+  ...accessRoutes,
   ...appRoutes,
+  ...eventRoutes,
+  ...integrationRoutes,
+  ...proxyRoutes,
+  ...subscriptionRoutes,
+  ...triggerRoutes,
+  ...vmGrantRoutes,
 ];
 
 export const API_OPERATIONS = API_ROUTES.map(
   (route) => [route.method, route.path] as const,
 );
 
-const matchers = API_ROUTES.map((route) => ({
+const exactRoutes = new Map(API_ROUTES.filter(route => !route.path.includes("{")).map(route => [`${route.method} ${route.path}`, route]));
+const matchers = API_ROUTES.filter(route => route.path.includes("{")).map((route) => ({
   route,
+  specificity: route.path.split("/").map(segment => segment.startsWith("{") ? "0" : "1").join(""),
   keys: [...route.path.matchAll(/\{([^}]+)\}/g)].map((match) => match[1]),
   pattern: new RegExp(
     `^${route.path
@@ -54,9 +48,12 @@ const matchers = API_ROUTES.map((route) => ({
       )
       .join("")}$`,
   ),
-}));
+})).sort((left, right) => right.specificity.localeCompare(left.specificity));
 
 export function matchApiOperation(method: string, path: string) {
+  // Literal paths win independently of capability declaration order.
+  const exact = exactRoutes.get(`${method} ${path}`);
+  if (exact) return { route: exact, params: {} };
   for (const { route, keys, pattern } of matchers) {
     if (route.method !== method) continue;
     const match = pattern.exec(path);

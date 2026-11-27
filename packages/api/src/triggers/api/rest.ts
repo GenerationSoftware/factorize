@@ -28,14 +28,11 @@ const scheduleBody = z
     timezone: z.string().trim().min(1),
   })
   .strict();
-export const eventContextRoutes = [
+export const triggerRoutes = [
   route("GET", "/api/v1/event-contexts", "triggers:read", {
     summary: "Get template autocomplete metadata",
     responses: { "200": { description: "Paths by event kind/provider", content: { "application/json": { schema: jsonSchema(z.record(z.string(), z.array(z.object({ path: z.string(), type: z.enum(["string", "number", "boolean", "object", "array", "unknown"]), description: z.string(), example: z.unknown().optional() }))), "output") } } } },
   }, service => service.triggers.eventContextMetadata()),
-] satisfies RouteContract[];
-
-export const triggerEditorRoutes = [
   route(
     "GET",
     "/api/v1/trigger-event-availability",
@@ -72,9 +69,6 @@ export const triggerEditorRoutes = [
     (service, { body }) => service.triggers.previewSchedule(body),
     { body: scheduleBody },
   ),
-] satisfies RouteContract[];
-
-export const triggerActionRoutes = [
   route(
     "GET",
     "/api/v1/triggers",
@@ -115,9 +109,6 @@ export const triggerActionRoutes = [
     (service, { body }) => service.triggers.testTriggerConditions(body),
     { body: triggerConditionsTestSchema, maxBodyBytes: 300_000 },
   ),
-] satisfies RouteContract[];
-
-export const triggerHistoryRoutes = [
   route(
     "GET",
     "/api/v1/triggers/{triggerId}/events",

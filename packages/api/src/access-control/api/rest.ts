@@ -11,7 +11,7 @@ const accessTokenBody = z.object({
   scopes: z.array(scopeSchema).min(1),
   expiryDays: z.union([z.literal(7), z.literal(30), z.literal(90)]),
 });
-export const authorizationRoutes = [
+export const accessRoutes = [
   route(
     "GET",
     "/api/v1/access/authorized-clients",
@@ -84,9 +84,6 @@ export const authorizationRoutes = [
     description: "The authenticated owner sets the connection policy. Removals take effect immediately; additions need a fresh authorization for this same connection. This never enlarges an existing bearer or refresh credential.",
     responses: {"200": {description: "Permissions saved", content: {"application/json": {schema: jsonSchema(okResult, "output")}}}},
   }, (service, {params, body}) => service.access.updateClientPermissions(params.grantId, body), {ownerSession: true, body: clientPermissionsUpdate}),
-] satisfies RouteContract[];
-
-export const permissionRoutes = [
   route("GET", "/api/v1/team-permissions", "team:read", {
     summary: "List workspace consent defaults", responses: { "200": { description: "Team permission defaults", content: { "application/json": { schema: jsonSchema(teamPermissionList, "output") } } } },
   }, service => service.access.listTeamPermissions(), { ownerSession: true }),
@@ -106,9 +103,6 @@ export const permissionRoutes = [
     (service, { params }) => service.access.revokeAuthorizedClient(params.clientId),
     { ownerSession: true },
   ),
-] satisfies RouteContract[];
-
-export const teamRoutes = [
   route("GET", "/api/v1/team", "team:read", {
     summary: "Get the current team",
     responses: { "200": { description: "Team", content: { "application/json": { schema: jsonSchema(teamResponse, "output") } } } },

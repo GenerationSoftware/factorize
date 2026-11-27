@@ -22,7 +22,16 @@ export const proxyTools = [
   mcpTool("proxy:use", "create_payload", "Reserve a temporary request body. Open browserUploadUrl to upload an existing file for that connection, or append/finalize generated text in chunks. Pass the finalized handle to request_api bodySource.", createPayloadInput, service => input=>service.proxy.createProxyPayload(input)),
   mcpTool("proxy:use", "append_payload_chunk", "Append a small generated UTF8/base64 chunk at the returned payload byte size. Identical retries are safe.", appendPayloadInput, service => input=>service.proxy.appendProxyPayload(input)),
   mcpTool("proxy:use", "finalize_payload", "Finalize an immutable request payload; optional SHA256 verifies exact bytes.", finalizePayloadInput, service => input=>service.proxy.finalizeProxyPayload(input)),
-  { name: "import_attachment", scope: "proxy:use", register: (server, service) => { server.registerTool("import_attachment",{description:"Import a user-attached ChatGPT file directly into temporary artifact storage. Returns a payload handle for request_api. Missing native download URLs require create_payload and its browserUploadUrl.",inputSchema:attachmentInput,_meta:{"openai/fileParams":["file"]}},async input => structured(await service.proxy.importProxyAttachment(input))); } } satisfies McpTool,
+  {
+    name: "import_attachment",
+    scope: "proxy:use",
+    description: "Import a user-attached ChatGPT file directly into temporary artifact storage. Returns a payload handle for request_api. Missing native download URLs require create_payload and its browserUploadUrl.",
+    register(server, service) {
+      server.registerTool(this.name, {
+        description: this.description, inputSchema: attachmentInput, _meta: { "openai/fileParams": ["file"] },
+      }, async input => structured(await service.proxy.importProxyAttachment(input)));
+    },
+  } satisfies McpTool,
   mcpTool("proxy:use", "fetch_payload", "Import unchanged file bytes from an authorized integration into a temporary request payload.", z.object({integration:z.uuid(),path:z.string().min(1).max(8192),name:z.string().optional(),mediaType:z.string().optional()}), service => (input:any)=>service.proxy.fetchProxyPayload(input)),
   mcpTool("proxy:use", "get_api_operation", "Poll a durable HTTP operation. Does not repeat the upstream request.", operationRef, service => input=>service.proxy.getApiOperation(input)),
   mcpTool("proxy:use", "read_api_operation", "Read bounded incremental response bytes, including partial bytes after failure. Poll get_api_operation for status.", operationRead, service => input=>service.proxy.readApiOperation(input)),
