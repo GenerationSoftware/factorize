@@ -26,14 +26,20 @@ kept. Reconnecting does not restore removed configuration or grants.
 Add a Hetzner Cloud project with a read-only project token to view its server
 inventory. Under **View servers**, enroll an existing server for SSH checks.
 Use a dedicated non-root account, copy the server's Ed25519 host fingerprint
-from a trusted console, and select the authorized MCP client. Install the
+from a trusted console. Install the
 complete restricted public-key line shown by Factorize in that account's
 authorized keys. Factorize generates and stores the private key, and does not
 return it to the browser or the client.
 
-An enrolled client with integration read access can call `check_hetzner_ssh`
-with the server ID. The tool verifies SSH authentication and executes only a
-fresh SSH authentication check after verifying that the connected project still owns the server and its enrolled IPv4 address has not changed. Each handshake has a five-second limit and closes immediately after authentication. Factorize never opens a command channel or returns remote output. After key removal, the next check must authenticate again.
+The owner can check **Hetzner Cloud (inventory and SSH checks)** in a client’s
+permissions. The change takes effect on the current OAuth connection without
+reconnecting it. An unchecked client cannot read Hetzner inventory or check SSH.
+A checked client can call `list_hetzner_servers` or `check_hetzner_ssh` for any
+owner-enrolled server. There is no separate per-server client selection.
+
+Each SSH check revalidates the server’s project and enrolled public IPv4,
+then authenticates using the pinned host key and stored credential. It closes
+immediately, never opens a command channel, and returns no remote output.
 The server needs a reachable public IPv4 address and SSH on port 22. If a
 connection drops, repeat the check explicitly.
 

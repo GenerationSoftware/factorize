@@ -56,12 +56,12 @@ export function useHetznerIntegration() {
   return {
     count: owner && connection ? 1 : 0,
     pending: Boolean(owner && query.isPending),
-    rows: owner && connection ? <IntegrationRow kind="hetzner" credentialId="hetzner" name="Hetzner Cloud" detail={connection.name} ownerOnly actions={[
+    rows: owner && connection ? <IntegrationRow kind="hetzner" credentialId="hetzner" name="Hetzner Cloud" detail={connection.name} actions={[
       { label: "View servers", onClick: () => open("inventory") },
       { label: "Replace connection", onClick: () => open("edit") },
       { label: "Delete", destructive: true, onClick: () => open("delete") },
     ]} /> : null,
-    tile: owner && <ProviderTile kind="hetzner" name="Hetzner Cloud" description="Read server inventory for one project. Owner only." count={connection ? 1 : 0}
+    tile: owner && <ProviderTile kind="hetzner" name="Hetzner Cloud" description="Read project inventory and check enrolled SSH servers." count={connection ? 1 : 0}
       onAdd={() => open("edit")} />,
     feedback: owner && <>{query.error && <p role="alert">{query.error.message}</p>}{notice && <p role="status">{notice}</p>}</>,
     dialog: owner && <>

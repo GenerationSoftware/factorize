@@ -47,7 +47,7 @@ export class ApiService {
     return new IntegrationsService(this.env, this.auth, scope => this.authorize(scope), scope => this.authorizeOwnerSession(scope));
   }
   get hetznerSsh() {
-    return new HetznerSshService(this.env, this.auth, () => this.authorize("integrations:read"), scope => this.authorizeOwnerSession(scope));
+    return new HetznerSshService(this.env, this.auth, scope => this.authorizeOwnerSession(scope));
   }
   get apps() {
     return new AppsService(this.env, this.auth, scope => this.authorize(scope), scope => this.authorizeOwnerSession(scope));

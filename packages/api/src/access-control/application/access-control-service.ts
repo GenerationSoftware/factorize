@@ -139,12 +139,14 @@ export class AccessControlService {
     const clientIds = [...new Set(rows.map(row => row.client_id))];
     const byId = new Map(await Promise.all(clientIds.map(async clientId => [clientId, await this.env.OAUTH_PROVIDER!.lookupClient(clientId)] as const)));
     const globallyAvailable = [...AGENT_SCOPES, ...integrations.filter(row => row.available && row.policy !== "disabled").map(row => row.requiredScope)];
-    const scopeLabels = Object.fromEntries(integrations.map(row => [row.requiredScope, `${row.name} integration access`]));
+    const liveScopes = new Set(integrations.filter(row => row.kind === "hetzner" && row.available && row.policy !== "disabled").map(row => row.requiredScope));
+    const scopeLabels = Object.fromEntries(integrations.map(row => [row.requiredScope,
+      row.kind === "hetzner" ? "Hetzner Cloud (inventory and SSH checks)" : `${row.name} integration access`]));
     return publicValue(z.array(authorizedClient), rows.map(row => {
       const appName = byId.get(row.client_id)?.clientName ?? row.client_id;
       const inactive = (row.active_expires_at !== null && row.active_expires_at.getTime() <= Date.now()) || row.active_session_version !== this.auth.sessionVersion;
       const credentialScopes = inactive ? [] : installationScopes(row).filter(scope => !integrationForScope(scope) || globallyAvailable.includes(scope));
-      const pendingScopes = row.selected_scopes.filter(scope => !credentialScopes.includes(scope));
+      const pendingScopes = row.selected_scopes.filter(scope => !credentialScopes.includes(scope) && !liveScopes.has(scope));
       return { grantId: row.id, clientId: row.client_id, clientName: row.display_name ?? appName, appName,
         availableScopes: [...new Set([...globallyAvailable, ...row.selected_scopes])], scopeLabels, scopes: row.selected_scopes,
         credentialScopes, pendingScopes, revision: row.policy_revision, integrationOverrides: {}, ownerUsername: owner.rows[0]?.username,
