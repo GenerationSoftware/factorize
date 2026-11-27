@@ -41,7 +41,7 @@ export function useAwsIntegration() {
   const clients = useQuery({ queryKey: ["settings", "aws", "clients"], enabled: !!setup?.connection.roleArn, queryFn: async ({ signal }) => {
     const response = await api.GET("/api/v1/access/authorized-clients", { signal });
     if (!response.data || response.error) throw new Error(messageOf(response.error));
-    return response.data.filter(client => client.credentialScopes?.includes("integrations:read"));
+    return response.data.filter(client => client.credentialScopes?.includes("integrations:write"));
   } });
   const fail = (reason: Error) => setError(reason.message);
   const clear = () => { setOpen(false); setSetup(null); setName(""); setRoleArn(""); setInstallation(""); setError(""); setNotice(""); };
@@ -62,9 +62,9 @@ export function useAwsIntegration() {
     const response = await api.POST("/api/v1/integrations/aws/{connectionId}/verify", { params: byId(id), body: { roleArn: roleArn.trim() } });
     if (!response.data || response.error) throw new Error(messageOf(response.error));
     return response.data;
-  }, onSuccess: async ({ connection, inventory }) => {
+  }, onSuccess: async ({ connection }) => {
     setSetup(value => value && { ...value, connection });
-    setNotice(`AWS MCP verified. Lambda returned ${inventory.identifiers.length} function names${inventory.truncated ? " on the first page" : ""}.`);
+    setNotice("AWS MCP Code Mode verified.");
     await refresh();
   }, onError: fail });
   const allow = useMutation({ retry: false, mutationFn: async (id: string) => {
@@ -73,7 +73,7 @@ export function useAwsIntegration() {
     return response.data;
   }, onSuccess: async connection => {
     setSetup(value => value && { ...value, connection });
-    setNotice(connection.oauthInstallationId ? "Read-only access saved for the selected OAuth connection." : "Agent access removed.");
+    setNotice(connection.oauthInstallationId ? "Code Mode access saved for the selected OAuth connection." : "Agent access removed.");
     await refresh();
   }, onError: fail });
   const deleting = useMutation({ retry: false, mutationFn: async (id: string) => {
@@ -85,9 +85,9 @@ export function useAwsIntegration() {
   const connections = list.data?.connections ?? [];
   return {
     count: connections.length, pending: list.isPending,
-    tile: <ProviderTile kind="aws" name="AWS" description="Read Lambda, EC2 and CloudFront inventory through AWS MCP." count={connections.length} onAdd={() => { clear(); setOpen(true); }} />,
+    tile: <ProviderTile kind="aws" name="AWS" description="Run scripts through AWS-hosted MCP using a scoped IAM role." count={connections.length} onAdd={() => { clear(); setOpen(true); }} />,
     rows: connections.map(connection => <IntegrationRow key={connection.id} kind="aws" credentialId={connection.id} name="AWS" detail={connection.name + " · " + connection.region}
-      status={!connection.roleArn ? "Setup incomplete" : connection.oauthInstallationId ? "Read-only agent access" : "Owner only"}
+      status={!connection.roleArn ? "Setup incomplete" : connection.oauthInstallationId ? "Code Mode access" : "Owner only"}
       actions={[
         { label: connection.roleArn ? "Manage AWS connection" : "Finish AWS setup", disabled: busy, onClick: () => { clear(); edit.mutate(connection.id); } },
         { label: "Delete", destructive: true, disabled: busy, onClick: () => { clear(); setRemove(connection); } },
@@ -104,6 +104,7 @@ export function useAwsIntegration() {
               </select></label>
               <Button type="submit" disabled={busy || !name.trim()}>Prepare AWS setup</Button>
             </form> : <>
+              <p>Use a separate named connection for each AWS role. IAM controls which AWS actions the selected agent can perform.</p>
               <p>Connection ID: <code className="break-all">{setup.connection.id}</code></p>
               <p>Upload the template in AWS CloudFormation, then copy the <strong>RoleArn</strong> from its Outputs. If this AWS account already trusts this Factorize issuer, set <strong>CreateProvider</strong> to false.</p>
               <Button type="button" onClick={() => downloadTemplate(setup.template)}>Download CloudFormation template</Button>
@@ -112,13 +113,13 @@ export function useAwsIntegration() {
                 <Button type="submit" disabled={busy || !roleArn.trim()}>{verify.isPending ? "Verifying AWS role…" : "Verify AWS role"}</Button>
               </form>
               {setup.connection.roleArn && <form className="space-y-2" onSubmit={event => { event.preventDefault(); setError(""); setNotice(""); allow.mutate(setup.connection.id); }}>
-                <label className="block">Read-only agent access<select className={field} value={installation} onChange={event => setInstallation(event.target.value)}>
+                <label className="block">Code Mode access<select className={field} value={installation} onChange={event => setInstallation(event.target.value)}>
                   <option value="">No agent access</option>
                   {installation && !clients.data?.some(client => client.grantId === installation) && <option value={installation}>Currently selected (not available)</option>}
                   {clients.data?.map(client => <option key={client.grantId} value={client.grantId}>{client.clientName} · {client.grantId.slice(0, 8)}</option>)}
                 </select></label>
                 {clients.isError && <p role="alert">{clients.error.message}</p>}
-                <Button type="submit" disabled={busy || (installation !== "" && !clients.data?.some(client => client.grantId === installation))}>Save read-only access</Button>
+                <Button type="submit" disabled={busy || (installation !== "" && !clients.data?.some(client => client.grantId === installation))}>Save Code Mode access</Button>
               </form>}
             </>}
         </div>

@@ -5,30 +5,38 @@ const awsMcpPrincipal = "aws-mcp.amazonaws.com";
 export const awsRegions = ["us-east-1", "us-west-2", "ap-southeast-1", "ap-southeast-2", "ap-northeast-1", "eu-central-1", "eu-west-1", "eu-west-2"] as const;
 export type AwsRegion = typeof awsRegions[number];
 
-export const awsOperations = {
-  lambda: { permission: "lambda:ListFunctions", operation: "ListFunctions", params: '{"MaxItems":25}', collection: "Functions", identifier: "FunctionName", truncated: "NextMarker" },
-  ec2: { permission: "ec2:DescribeInstances", operation: "DescribeInstances", params: '{"MaxResults":25}', collection: "Reservations", identifier: "InstanceId", truncated: "NextToken" },
-  cloudfront: { permission: "cloudfront:ListDistributions", operation: "ListDistributions", params: '{"MaxItems":"25"}', collection: "DistributionList", identifier: "Id", truncated: "IsTruncated" },
-} as const;
-export const awsServices = ["lambda", "ec2", "cloudfront"] as const;
-export type AwsService = typeof awsServices[number];
-export type AwsInventory = { service: AwsService; region: AwsRegion; identifiers: string[]; truncated: boolean };
-
 export const awsSubject = (id: string) => "factorize-aws:" + id;
-export const awsInventoryPolicy = {
+const calledViaMcp = { StringEquals: { "aws:CalledViaAWSMCP": awsMcpPrincipal } };
+const starterPolicy = {
   Version: "2012-10-17",
   Statement: [{
-    Effect: "Allow", Action: Object.values(awsOperations).map(op => op.permission), Resource: "*",
-    Condition: { StringEquals: { "aws:CalledViaAWSMCP": awsMcpPrincipal } },
+    Effect: "Allow", Action: ["lambda:ListFunctions", "ec2:DescribeInstances", "cloudfront:ListDistributions"],
+    Resource: "*", Condition: calledViaMcp,
   }],
 };
+
+// STS intersects these permissions with the role set by the AWS account owner.
+// Do not hard-code a product catalog of actions; keep direct credential use,
+// IAM changes, credential chaining and interactive host access out of Code Mode.
+export const awsMcpSessionPolicy = {
+  Version: "2012-10-17",
+  Statement: [
+    { Effect: "Allow", Action: "*", Resource: "*", Condition: calledViaMcp },
+    { Effect: "Deny", Action: [
+      "iam:*", "organizations:*", "sts:Assume*", "sts:Get*Token", "sts:GetFederationToken",
+      "ssm:SendCommand", "ssm:StartSession", "ssm:ResumeSession", "ec2-instance-connect:*", "ecs:ExecuteCommand",
+    ], Resource: "*" },
+  ],
+};
+export const awsVerificationMarker = "factorize-aws-connection-verified";
+export const awsVerificationScript = JSON.stringify(awsVerificationMarker);
 
 export function awsRoleTemplate(issuer: string, connectionId: string) {
   const issuerKey = new URL(issuer).host + awsIssuerPath;
   const provider = { "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:oidc-provider/" + issuerKey };
   return {
     AWSTemplateFormatVersion: "2010-09-09",
-    Description: "Allow one Factorize connection to list Lambda functions, EC2 instances and CloudFront distributions through AWS MCP.",
+    Description: "Trust one Factorize connection for AWS MCP Code Mode. The initial role policy grants three read-only inventory operations.",
     Parameters: {
       CreateProvider: { Type: "String", Default: "true", AllowedValues: ["true", "false"], Description: "Choose false if this AWS account already trusts this Factorize OIDC issuer." },
     },
@@ -48,7 +56,7 @@ export function awsRoleTemplate(issuer: string, connectionId: string) {
               Condition: { StringEquals: { [issuerKey + ":aud"]: awsAudience, [issuerKey + ":sub"]: awsSubject(connectionId) } },
             }],
           },
-          Policies: [{ PolicyName: "FactorizeReadOnlyInventory", PolicyDocument: awsInventoryPolicy }],
+          Policies: [{ PolicyName: "FactorizeCodeModeStarter", PolicyDocument: starterPolicy }],
         },
       },
     },

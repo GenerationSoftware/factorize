@@ -5499,10 +5499,10 @@ paths:
             pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
   /api/v1/integrations/aws/{connectionId}/verify:
     post:
-      summary: Verify an AWS role with a read-only Lambda inventory call through AWS MCP
+      summary: Verify an AWS role with a harmless AWS MCP Code Mode script
       responses:
         "200":
-          description: Verified AWS connection and bounded Lambda names
+          description: Verified AWS Code Mode connection
           content:
             application/json:
               schema:
@@ -5550,41 +5550,12 @@ paths:
                       - oauthInstallationId
                       - revision
                     additionalProperties: false
-                  inventory:
-                    type: object
-                    properties:
-                      service:
-                        type: string
-                        enum:
-                          - lambda
-                          - ec2
-                          - cloudfront
-                      region:
-                        type: string
-                        enum:
-                          - us-east-1
-                          - us-west-2
-                          - ap-southeast-1
-                          - ap-southeast-2
-                          - ap-northeast-1
-                          - eu-central-1
-                          - eu-west-1
-                          - eu-west-2
-                      identifiers:
-                        type: array
-                        items:
-                          type: string
-                      truncated:
-                        type: boolean
-                    required:
-                      - service
-                      - region
-                      - identifiers
-                      - truncated
-                    additionalProperties: false
+                  verified:
+                    type: boolean
+                    const: true
                 required:
                   - connection
-                  - inventory
+                  - verified
                 additionalProperties: false
         "400":
           $ref: "#/components/responses/Error400"
@@ -5639,7 +5610,7 @@ paths:
               additionalProperties: false
   /api/v1/integrations/aws/{connectionId}/access:
     put:
-      summary: Allow one OAuth installation to read inventory through this AWS connection
+      summary: Allow one OAuth installation to run Code Mode through this AWS connection
       responses:
         "200":
           description: AWS connection with its explicit access binding

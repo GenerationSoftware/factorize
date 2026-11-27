@@ -21,7 +21,7 @@ test("AWS owner can prepare, download, verify, assign one client, and delete a c
     if (path === "/api/v1/integrations") return route.fulfill({ json: { exeConnections: [], ampConnections: [], cloudflareTail: { installations: [] }, linear: null, clickup: null } });
     if (path === "/api/v1/integrations/bearer") return route.fulfill({ json: { integrations: [], revision: 0 } });
     if (path === "/api/v1/x/connections" || path === "/api/v1/integrations/cloudflare") return route.fulfill({ json: { connections: [] } });
-    if (path === "/api/v1/access/authorized-clients") return route.fulfill({ json: [{ grantId: client, clientName: "Test agent", credentialScopes: ["integrations:read"] }] });
+    if (path === "/api/v1/access/authorized-clients") return route.fulfill({ json: [{ grantId: client, clientName: "Test agent", credentialScopes: ["integrations:write"] }] });
     if (path === base && request.method() === "GET") return route.fulfill({ json: { available: true, connections: saved ? [saved] : [] } });
     if (path === base && request.method() === "POST") {
       assert.deepEqual(request.postDataJSON(), { name: "Sandbox inventory", region: "us-west-2" });
@@ -31,7 +31,7 @@ test("AWS owner can prepare, download, verify, assign one client, and delete a c
     if (path === `${base}/${id}/verify`) {
       assert.deepEqual(request.postDataJSON(), { roleArn: arn });
       saved = { ...saved, roleArn: arn, revision: 1 };
-      return route.fulfill({ json: { connection: saved, inventory: { region: saved.region, service: "lambda", identifiers: [], truncated: false } } });
+      return route.fulfill({ json: { connection: saved, verified: true } });
     }
     if (path === `${base}/${id}/access`) {
       assert.deepEqual(request.postDataJSON(), { oauthInstallationId: client });
@@ -55,10 +55,10 @@ test("AWS owner can prepare, download, verify, assign one client, and delete a c
     assert.equal((await download).suggestedFilename(), "factorize-aws-role.json");
     await page.getByLabel("AWS role ARN", { exact: true }).fill(arn);
     await page.getByRole("button", { name: "Verify AWS role" }).click();
-    await page.getByText("AWS MCP verified. Lambda returned 0 function names.", { exact: true }).waitFor();
-    await page.getByRole("combobox", { name: "Read-only agent access", exact: true }).selectOption(client);
-    await page.getByRole("button", { name: "Save read-only access" }).click();
-    await page.getByText("Read-only access saved for the selected OAuth connection.", { exact: true }).waitFor();
+    await page.getByText("AWS MCP Code Mode verified.", { exact: true }).waitFor();
+    await page.getByRole("combobox", { name: "Code Mode access", exact: true }).selectOption(client);
+    await page.getByRole("button", { name: "Save Code Mode access" }).click();
+    await page.getByText("Code Mode access saved for the selected OAuth connection.", { exact: true }).waitFor();
     await page.getByRole("button", { name: /Close AWS connection/i }).click();
     await page.getByLabel("Actions for AWS · Sandbox inventory · us-west-2", { exact: true }).click();
     await page.getByRole("menuitem", { name: "Delete", exact: true }).click();

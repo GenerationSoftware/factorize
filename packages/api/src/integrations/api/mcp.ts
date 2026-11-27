@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { mcpTool } from "../../transport/mcp/tool";
-import { awsInventoryInput } from "./aws-contracts";
+import { awsCodeInput } from "./aws-contracts";
 
 export const exeTools = [
   mcpTool("integrations:read", "list_exe_connections", "List safe metadata for saved exe.dev connections. API tokens are never returned.", z.object({}), service => () => service.integrations.listExeConnections()),
@@ -16,7 +16,7 @@ export const tailTools = [
 ];
 
 export const awsTools = [
-  mcpTool<z.infer<typeof awsInventoryInput>>("integrations:read", "list_aws_inventory",
-    "List up to 25 Lambda function names, EC2 instance IDs or CloudFront distribution IDs through a verified AWS integration explicitly assigned to this OAuth connection.",
-    awsInventoryInput, service => ({ connectionId, service: resource }, signal) => service.aws.inventory(connectionId, resource, signal), false, true),
+  mcpTool<z.infer<typeof awsCodeInput>>("integrations:write", "run_aws_script",
+    "Run Python in the AWS-hosted MCP sandbox through an explicitly assigned AWS connection. The customer role controls AWS API permissions; permitted writes can change resources and incur charges. Never assume a retry after timeout is safe.",
+    awsCodeInput, service => ({ connectionId, code }, signal) => service.aws.codeMode(connectionId, code, signal)),
 ];

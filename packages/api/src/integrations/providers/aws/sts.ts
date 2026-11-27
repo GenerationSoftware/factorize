@@ -1,6 +1,6 @@
 import { XMLParser } from "fast-xml-parser";
 import { z } from "zod";
-import { awsInventoryPolicy, type AwsRegion } from "./policy";
+import { awsMcpSessionPolicy, type AwsRegion } from "./policy";
 import { awsResponseText, AwsUpstreamError } from "./wire";
 
 const credentialsSchema = z.object({
@@ -17,7 +17,7 @@ export async function exchangeAwsWorkload(region: AwsRegion, roleArn: string, jw
     body: new URLSearchParams({
       Action: "AssumeRoleWithWebIdentity", Version: "2011-06-15", RoleArn: roleArn,
       RoleSessionName: "factorize-" + connectionId, WebIdentityToken: jwt, DurationSeconds: "900",
-      Policy: JSON.stringify(awsInventoryPolicy),
+      Policy: JSON.stringify(awsMcpSessionPolicy),
     }),
   });
   const xml = await awsResponseText(response, 32_768);

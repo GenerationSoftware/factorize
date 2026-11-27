@@ -10,10 +10,15 @@ vi.mock("cloudflare:workers", () => ({ WorkerEntrypoint: class {}, WorkflowEntry
 vi.mock("@cloudflare/workers-oauth-provider", () => ({ OAuthProvider: class {}, AuthorizationError: class extends Error {}, getOAuthApi: vi.fn() }));
 
 const url = process.env.AUTH_TEST_DATABASE_URL;
-const arn = "arn:aws:iam::123456789012:role/factorize/fake";
+const arn = "arn:aws:iam::123456789012:role/factorize/first";
+const secondArn = "arn:aws:iam::210987654321:role/factorize/second";
 const accessKey = "ASIA" + "A".repeat(16), secret = "z".repeat(40), sessionToken = "A".repeat(40) + "=";
 const ctx = { waitUntil() {} } as unknown as ExecutionContext;
-const scope = "integrations:read";
+const scope = "integrations:write";
+const probe = '"factorize-aws-connection-verified"';
+const firstCode = "label = 'first'\n{'items': [label.upper(), 2 + 3]}";
+const secondCode = "label = 'second'\n{'items': [label.upper(), 7 * 2]}";
+const deniedCode = "result = await call_boto3(service_name='cloudfront', operation_name='ListDistributions', params={})\nresult";
 const sig = (key: string | Buffer, text: string) => createHmac("sha256", key).update(text).digest();
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 function checkSignature(request: Request, body: string) {
@@ -25,14 +30,15 @@ function checkSignature(request: Request, body: string) {
   expect(request.headers.get("x-amz-security-token")).toBe(sessionToken);
 }
 
-it.skipIf(!url)("verifies exact OIDC trust and scoped SigV4 over Worker REST and MCP, including denied, isolated and revoked access", async () => {
+it.skipIf(!url)("verifies exact OIDC trust and scoped SigV4 over Worker REST and MCP, including exact Code Mode forwarding, two roles, denial and revocation", async () => {
   const f = await loadingFixture(url!);
   const pair = await crypto.subtle.generateKey({ name: "RSASSA-PKCS1-v1_5", hash: "SHA-256", modulusLength: 2048, publicExponent: new Uint8Array([1,0,1]) }, true, ["sign","verify"]);
   const key = await crypto.subtle.exportKey("jwk", pair.privateKey);
   const api = (suffix = "", method = "GET", input?: object, cookie = f.cookie) => worker.fetch(new Request(f.env.APP_ORIGIN + "/api/v1/integrations/aws" + suffix, {
     method, headers: { Cookie: cookie, Origin: f.env.APP_ORIGIN, "Content-Type": "application/json" }, body: input ? JSON.stringify(input) : undefined,
   }), f.env, ctx);
-  let connectionId = "", issuer = "", calls = 0, exchanges = 0, rejectTrust = false, loseGrant = false, closed = 0;
+  let connectionId = "", secondId = "", issuer = "", calls = 0, exchanges = 0, rejectTrust = false, loseGrant = false, closed = 0;
+  const assumedRoles: string[] = [];
   const install = crypto.randomUUID(), otherInstall = crypto.randomUUID(), grant = crypto.randomUUID(), otherGrant = crypto.randomUUID();
   try {
     expect(await (await api()).json()).toEqual({ available: false, connections: [] });
@@ -44,7 +50,9 @@ it.skipIf(!url)("verifies exact OIDC trust and scoped SigV4 over Worker REST and
     const pending = await setup.json() as any;
     connectionId = pending.connection.id;
     expect(pending.connection).toMatchObject({ name: "Dev", roleArn: null, oauthInstallationId: null });
-    const trust = JSON.parse(pending.template).Resources.FactorizeRole.Properties.AssumeRolePolicyDocument.Statement[0].Condition.StringEquals;
+    const role = JSON.parse(pending.template).Resources.FactorizeRole.Properties;
+    expect(role.Policies[0].PolicyDocument.Statement[0].Action).toEqual(["lambda:ListFunctions","ec2:DescribeInstances","cloudfront:ListDistributions"]);
+    const trust = role.AssumeRolePolicyDocument.Statement[0].Condition.StringEquals;
     issuer = f.env.APP_ORIGIN + "/oauth/aws";
     expect(trust).toEqual({ "factorize.test/oauth/aws:aud": "sts.amazonaws.com", "factorize.test/oauth/aws:sub": "factorize-aws:" + connectionId });
     const discovery = await (await worker.fetch(new Request(issuer + "/.well-known/openid-configuration"), f.env, ctx)).json() as any;
@@ -61,17 +69,21 @@ it.skipIf(!url)("verifies exact OIDC trust and scoped SigV4 over Worker REST and
       if (request.url === "https://sts.us-east-1.amazonaws.com/") {
         exchanges++;
         const data = new URLSearchParams(await request.text());
-        expect(data.get("RoleArn")).toBe(arn);
+        const selectedArn = data.get("RoleArn");
+        expect([arn, secondArn]).toContain(selectedArn);
+        assumedRoles.push(selectedArn!);
         expect(data.get("Action")).toBe("AssumeRoleWithWebIdentity");
         expect(data.get("DurationSeconds")).toBe("900");
-        expect(JSON.parse(data.get("Policy")!).Statement[0]).toMatchObject({
-          Action: ["lambda:ListFunctions","ec2:DescribeInstances","cloudfront:ListDistributions"],
+        const policy = JSON.parse(data.get("Policy")!);
+        expect(policy.Statement[0]).toMatchObject({
+          Action: "*",
           Condition: { StringEquals: { "aws:CalledViaAWSMCP": "aws-mcp.amazonaws.com" } },
         });
+        expect(policy.Statement[1]).toMatchObject({ Effect: "Deny", Action: expect.arrayContaining(["iam:*","ssm:SendCommand"]) });
         const [header, claims, signature] = data.get("WebIdentityToken")!.split(".");
         expect(await crypto.subtle.verify("RSASSA-PKCS1-v1_5", verifier, Buffer.from(signature, "base64url"), Buffer.from(header + "." + claims))).toBe(true);
         const token = JSON.parse(Buffer.from(claims, "base64url").toString());
-        expect(token).toMatchObject({ iss: issuer, aud: trust["factorize.test/oauth/aws:aud"], sub: trust["factorize.test/oauth/aws:sub"] });
+        expect(token).toMatchObject({ iss: issuer, aud: trust["factorize.test/oauth/aws:aud"], sub: "factorize-aws:" + (selectedArn === arn ? connectionId : secondId) });
         expect(token.exp - token.iat).toBe(120);
         if (rejectTrust) return new Response("fixture: confidential upstream trust error", { status: 403 });
         if (loseGrant) await f.db.pool.query("UPDATE app.oauth_installations SET revoked_at=now() WHERE tenant_id=$1 AND id=$2", [f.tenantId,install]);
@@ -91,10 +103,10 @@ it.skipIf(!url)("verifies exact OIDC trust and scoped SigV4 over Worker REST and
       expect(rpc.params.name).toBe("aws___run_script");
       const code = rpc.params.arguments.code;
       expect(Object.keys(rpc.params.arguments)).toEqual(["code"]);
-      if (code.includes("ListDistributions")) return Response.json({ jsonrpc: "2.0", id: 2, result: { content: [{ type: "text", text: JSON.stringify({ status: "error", stderr: "AccessDenied: secret details" }) }] } });
-      const payload = code.includes("DescribeInstances") ? { Reservations: [{ Instances: [{ InstanceId: "i-fixed", PrivateIpAddress: "redacted" }] }], NextToken: "not-returned" } :
-        { Functions: [{ FunctionName: "hello-world", Environment: { Variables: { PRIVATE: "redacted" } } }] };
-      const message = JSON.stringify({ jsonrpc: "2.0", id: 2, result: { content: [{ type: "text", text: JSON.stringify({ status: "success", return_value: payload }) }] } });
+      expect([probe, firstCode, secondCode, deniedCode]).toContain(code);
+      if (code === deniedCode) return Response.json({ jsonrpc: "2.0", id: 2, result: { content: [{ type: "text", text: JSON.stringify({ status: "error", stderr: "AccessDenied: secret details" }) }] } });
+      const payload = code === probe ? JSON.parse(probe) : code === firstCode ? { items: ["FIRST",5], noLeak: sessionToken } : { items: ["SECOND",14] };
+      const message = JSON.stringify({ jsonrpc: "2.0", id: 2, result: { content: [{ type: "text", text: JSON.stringify({ status: "success", return_value: payload, stdout: code === probe ? "" : secret, stderr: "not-returned" }) }] } });
       const encoder = new TextEncoder();
       return new Response(new ReadableStream({ start(controller) {
         controller.enqueue(encoder.encode(": comment\r\n\r\ndata: " + message.slice(0, 30)));
@@ -111,7 +123,13 @@ it.skipIf(!url)("verifies exact OIDC trust and scoped SigV4 over Worker REST and
     rejectTrust = false;
     const verified = await api("/" + connectionId + "/verify", "POST", { roleArn: arn });
     expect(verified.status).toBe(200);
-    expect(await verified.json()).toMatchObject({ connection: { roleArn: arn, oauthInstallationId: null }, inventory: { identifiers: ["hello-world"], truncated: false } });
+    expect(await verified.json()).toMatchObject({ connection: { roleArn: arn, oauthInstallationId: null }, verified: true });
+    expect((await api("/" + connectionId + "/verify", "POST", { roleArn: secondArn })).status).toBe(409);
+    const second = await api("", "POST", { name: "Separate account", region: "us-east-1" });
+    expect(second.status).toBe(201);
+    secondId = (await second.json() as any).connection.id;
+    expect(secondId).not.toBe(connectionId);
+    expect((await api("/" + secondId + "/verify", "POST", { roleArn: secondArn })).status).toBe(200);
 
     for (const [installation, providerGrant] of [[install, grant], [otherInstall, otherGrant]]) {
       await f.db.pool.query(`INSERT INTO app.oauth_installations
@@ -122,30 +140,40 @@ it.skipIf(!url)("verifies exact OIDC trust and scoped SigV4 over Worker REST and
     const agent = (installation = install, providerGrant = grant): OAuthProps => ({
       ...f.auth, scopes: [scope], authMethod: "oauth", oauthInstallationId: installation, oauthGrantId: providerGrant, oauthClientId: "same-client", oauthExpiresAt: Date.now()/1000+60,
     });
-    const mcp = async (auth: OAuthProps, service: string, extra = {}) => {
+    const mcp = async (auth: OAuthProps, id: string, code: string, extra = {}) => {
       const request = new Request(f.env.APP_ORIGIN + "/mcp", { method: "POST", headers: {
         Host: new URL(f.env.APP_ORIGIN).host, "Mcp-Protocol-Version": "2025-11-25", "Content-Type": "application/json", Accept: "application/json, text/event-stream",
-      }, body: JSON.stringify({ jsonrpc: "2.0", id: 10, method: "tools/call", params: { name: "list_aws_inventory", arguments: { connectionId, service, ...extra } } }) });
+      }, body: JSON.stringify({ jsonrpc: "2.0", id: 10, method: "tools/call", params: { name: "run_aws_script", arguments: { connectionId: id, code, ...extra } } }) });
       return (await protectedApiFetch(request, f.env, auth, ctx)).text();
     };
-    expect(await mcp(agent(), "lambda")).toContain("AWS connection not found");
-    const access = await api("/" + connectionId + "/access", "PUT", { oauthInstallationId: install });
-    expect(access.status).toBe(200);
-    const inventory = await mcp(agent(), "ec2");
-    expect(inventory).toContain("i-fixed");
-    expect(inventory).not.toMatch(/redacted|not-returned|SessionToken/);
-    expect(await mcp(agent(), "cloudfront")).toContain("aws_permission_denied");
-    expect(await mcp(agent(), "lambda", { code: "not accepted" })).not.toContain("hello-world");
-    expect(await mcp(agent(otherInstall, otherGrant), "lambda")).toContain("AWS connection not found");
-    expect(await mcp({ ...f.auth, authMethod: "access_token" }, "lambda")).toContain("explicitly authorized");
-    expect(calls).toBe(3);
-    expect(closed).toBe(3);
+    expect(await mcp(agent(), connectionId, firstCode)).toContain("AWS connection not found");
+    expect((await api("/" + connectionId + "/access", "PUT", { oauthInstallationId: install })).status).toBe(200);
+    expect((await api("/" + secondId + "/access", "PUT", { oauthInstallationId: otherInstall })).status).toBe(200);
+    const first = await mcp(agent(), connectionId, firstCode);
+    expect(first).toContain("FIRST");
+    expect(first).toContain("[redacted]");
+    expect(first).not.toContain(secret);
+    expect(first).not.toContain(sessionToken);
+    expect(first).not.toContain(accessKey);
+    expect(first).not.toMatch(/upstream-123|not-returned/);
+    const other = await mcp(agent(otherInstall, otherGrant), secondId, secondCode);
+    expect(other).toContain("SECOND");
+    expect(assumedRoles).toEqual([arn, arn, secondArn, arn, secondArn]);
+    const denied = await mcp(agent(), connectionId, deniedCode);
+    expect(denied).toContain("aws_permission_denied");
+    expect(denied).not.toContain("secret details");
+    expect(await mcp(agent(), connectionId, firstCode, { roleArn: secondArn })).not.toContain("FIRST");
+    expect(await mcp(agent(), secondId, secondCode)).toContain("AWS connection not found");
+    expect(await mcp(agent(otherInstall, otherGrant), connectionId, firstCode)).toContain("AWS connection not found");
+    expect(await mcp({ ...f.auth, authMethod: "access_token" }, connectionId, firstCode)).toContain("explicitly authorized");
+    expect(calls).toBe(5);
+    expect(closed).toBe(5);
     loseGrant = true;
-    expect(await mcp(agent(), "lambda")).toContain("AWS connection not found");
-    expect(exchanges).toBe(5);
-    expect(calls).toBe(3);
+    expect(await mcp(agent(), connectionId, firstCode)).toContain("AWS connection not found");
+    expect(exchanges).toBe(7);
+    expect(calls).toBe(5);
     const removed = await api("/" + connectionId, "DELETE");
     expect(removed.status).toBe(200);
-    expect((await (await api()).json() as any).connections).toEqual([]);
+    expect((await (await api()).json() as any).connections).toMatchObject([{ id: secondId, roleArn: secondArn }]);
   } finally { vi.unstubAllGlobals(); await f.cleanup(); }
 });

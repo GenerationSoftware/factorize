@@ -1,24 +1,24 @@
 ---
 title: AWS
-description: Read AWS inventory through the AWS-hosted MCP server without giving Factorize an AWS access key.
+description: Run AWS Code Mode through a dedicated IAM role without giving Factorize an AWS access key.
 ---
 
-Use an AWS connection to list Lambda function names, EC2 instance IDs, or CloudFront distribution IDs. Factorize calls the AWS-managed MCP endpoint from its existing Worker. You do not deploy an MCP server or run an AWS CLI proxy.
+AWS Code Mode runs Python on the AWS-hosted MCP server. Factorize authenticates and forwards the request; it does not run the code or keep an AWS action catalog. Make a separate, named Factorize connection for each AWS role or account. The caller selects a connection, not a role ARN.
 
 ## Connect an AWS account
 
-1. Open **Settings → Integrations → Add AWS integration**. Name the connection and choose the Region for its AWS MCP endpoint and regional inventory.
-2. Download the CloudFormation template. Upload it as a new stack in the target AWS account and acknowledge that it creates IAM resources. If the account already has an OIDC provider for this Factorize issuer, set `CreateProvider` to `false`.
-3. Copy the stack's **RoleArn** output to Factorize and click **Verify AWS role**. Verification uses the same signed hosted MCP path as the agent, listing one bounded page of Lambda names. An empty list is a successful read.
-4. Optionally select one existing Factorize OAuth connection with `integrations:read` and save. You can select **No agent access** to revoke this assignment. AWS connections do not appear in workspace defaults or VM grants.
+1. Open **Settings → Integrations → Add AWS integration**. Name the connection and choose the Region for its AWS MCP endpoint.
+2. Download the CloudFormation template. Upload it as a new stack in the target AWS account and acknowledge that it creates IAM resources. If that account already has an OIDC provider for this Factorize issuer, set `CreateProvider` to `false`.
+3. Copy the stack's **RoleArn** output to Factorize and click **Verify AWS role**. The Worker assumes the role and signs a harmless Code Mode probe. This verifies the connection, not the full set of API permissions.
+4. Optionally select one existing Factorize OAuth connection with `integrations:write` and save. Select **No agent access** to revoke this assignment. AWS connections do not appear in workspace defaults or VM grants.
 
-The agent can call `list_aws_inventory` with the AWS connection ID and service `lambda`, `ec2`, or `cloudfront`. It receives up to 25 identifiers and a flag indicating more results exist. It cannot submit scripts, write operations, credentials, or a custom endpoint. A new AWS role requires a new Factorize connection.
+The agent calls `run_aws_script` with `connectionId` and `code`. It receives the script result and standard output, not authentication material or upstream session headers. The initial tool is request-scoped; Factorize does not poll background AWS tasks or replay timed-out requests. A timeout does not mean a script made no changes. Check AWS before retrying a modifying script.
 
 ## Trust and permissions
 
-The CloudFormation role trusts a Factorize workload issuer, the STS audience, and this exact connection's subject. The Worker exchanges a two-minute JWT for a 15-minute AWS STS session as needed and signs each upstream request with SigV4. Neither the browser nor the agent receives those credentials. The role and the STS session policy restrict the underlying inventory calls to AWS MCP. AWS still applies IAM and organization policies.
+The starter role allows three inventory reads. Change the IAM permissions for that role in AWS if a workflow needs more; there is no Factorize operation list to maintain. Prefer a different role and Factorize connection for workflows that can write. The Worker gets a 15-minute STS session and signs requests to the AWS MCP endpoint with SigV4. It does not pass credentials to the script. The session narrows the role to the AWS-hosted MCP path and excludes IAM administration, credential chaining, and interactive host access. AWS applies the customer's role, resource and organization policies to the actual calls.
 
-Deleting the connection stops Factorize from using it. Remove the role or its trust in AWS as well. The template retains the account-wide OIDC provider so it does not break other Factorize roles. Remove that provider separately when no roles use it.
+Deleting the connection stops new requests from Factorize. Remove the role or its trust in AWS as well. The template retains the account-wide OIDC provider so it does not break other Factorize roles. Remove that provider separately when no roles use it.
 
 ## Deploying the issuer
 

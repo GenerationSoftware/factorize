@@ -1188,7 +1188,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Verify an AWS role with a read-only Lambda inventory call through AWS MCP
+         * Verify an AWS role with a harmless AWS MCP Code Mode script
          * @description Requires the integrations:write scope.
          *
          *     An interactive owner session is required; bearer tokens cannot call this operation.
@@ -1209,7 +1209,7 @@ export interface paths {
         };
         get?: never;
         /**
-         * Allow one OAuth installation to read inventory through this AWS connection
+         * Allow one OAuth installation to run Code Mode through this AWS connection
          * @description Requires the integrations:write scope.
          *
          *     An interactive owner session is required; bearer tokens cannot call this operation.
@@ -5706,7 +5706,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Verified AWS connection and bounded Lambda names */
+            /** @description Verified AWS Code Mode connection */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -5723,14 +5723,8 @@ export interface operations {
                             oauthInstallationId: string | null;
                             revision: number;
                         };
-                        inventory: {
-                            /** @enum {string} */
-                            service: "lambda" | "ec2" | "cloudfront";
-                            /** @enum {string} */
-                            region: "us-east-1" | "us-west-2" | "ap-southeast-1" | "ap-southeast-2" | "ap-northeast-1" | "eu-central-1" | "eu-west-1" | "eu-west-2";
-                            identifiers: string[];
-                            truncated: boolean;
-                        };
+                        /** @constant */
+                        verified: true;
                     };
                 };
             };
