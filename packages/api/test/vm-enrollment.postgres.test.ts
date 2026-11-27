@@ -6,7 +6,6 @@ import { FlyConnectionRepository } from "../src/postgres/fly-connection-reposito
 import { VmGrantRepository } from "../src/postgres/vm-grant-repository";
 import { provisionVmGrant } from "../src/vm-enrollment";
 import { requireVmGrantProvider } from "../src/vm-grant-provider";
-import type { Env } from "../src/types";
 import { loadingFixture } from "./helpers/loading-fixture";
 import worker from "../src/worker";
 import { vmGrantAudience } from "../src/vm-grant-provider";
@@ -42,11 +41,10 @@ function requestProof(grant: string, token: string, method: string, target: stri
   }).toString("base64url");
 }
 
-describe("VM provider release gates", () => {
-  it("requires a Fly release flag and keeps exe.dev disabled even when the flag is set", () => {
-    expect(() => requireVmGrantProvider({} as Env, "fly")).toThrow("unavailable");
-    expect(() => requireVmGrantProvider({ FLY_VM_GRANTS_ENABLED: "true" } as Env, "exe")).toThrow("unavailable");
-    expect(() => requireVmGrantProvider({ FLY_VM_GRANTS_ENABLED: "true" } as Env, "fly")).not.toThrow();
+describe("VM grant provider support", () => {
+  it("supports Fly.io without deployment configuration and keeps exe.dev disabled", () => {
+    expect(() => requireVmGrantProvider("fly")).not.toThrow();
+    expect(() => requireVmGrantProvider("exe")).toThrow("unavailable");
   });
 });
 
@@ -60,7 +58,7 @@ describe.skipIf(!url)("Fly permission enrollment", () => {
       const providerId = (await f.db.pool.query<{ id: string }>(
         "SELECT id FROM app.agent_integrations WHERE tenant_id=$1 AND kind='fly'", [f.tenantId],
       )).rows[0]!.id;
-      const env = { ...f.env, FLY_VM_GRANTS_ENABLED: "true" };
+      const env = f.env;
       const auth = { ...f.auth, scopes: ["vms:edit", "vms:read", "team:read", "triggers:read"] };
       const recipe = await example("vm-access", "grant_vm_permissions");
       const { kind: _fixtureKind, ...fixtureTarget } = recipe.target;
@@ -123,11 +121,6 @@ describe.skipIf(!url)("Fly permission enrollment", () => {
           body: isMcp ? JSON.stringify({ jsonrpc: "2.0", id: 1, method, params: tool ?? {} }) : undefined,
         }), env, { waitUntil() {} } as unknown as ExecutionContext);
       };
-      env.FLY_VM_GRANTS_ENABLED = "false";
-      const gatedProof = requestProof(active.id, token, "GET", f.env.APP_ORIGIN + "/api/v1/team");
-      expect((await invoke("/api/v1/team", gatedProof)).status).toBe(401);
-      env.FLY_VM_GRANTS_ENABLED = "true";
-      expect((await invoke("/api/v1/team", gatedProof)).status).toBe(200);
       for (const [path, method] of [["/api/v1/team", "GET"], ["/mcp", "POST"]]) {
         const proofFor = (target = path!, bearer = token) => requestProof(active.id, bearer, method!, f.env.APP_ORIGIN + target);
         expect((await invoke(path!)).status).toBe(401);

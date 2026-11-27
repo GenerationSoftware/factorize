@@ -17,14 +17,12 @@ Use an explicitly authorized test team and dedicated disposable VMs. Run
 against a test Worker with the grant migration applied. Keep real provider
 tokens, signing proofs, and private keys out of logs and verification records.
 
-1. Before enabling the provider on the test Worker, try to enroll its dedicated
-   target with `grant_vm_permissions`. Confirm the Worker rejects enrollment and
-   the VM does not appear in `list_vms`.
-2. For Fly.io, set `FLY_VM_GRANTS_ENABLED=true` only in the isolated test
-   Worker. Create a test grant for the target Machine and confirm the list
-   reports the exact app and Machine ID. Use the guest key and provider token
-   to exercise an allowed REST operation and MCP tool, following the
-   [workload authentication reference](../packages/docs/mcp/tools.mdx).
+1. Try to enroll an exe.dev target with `grant_vm_permissions`. Confirm the
+   Worker rejects enrollment and the VM does not appear in `list_vms`.
+2. On the isolated test Worker, create a Fly.io grant for the target Machine
+   and confirm the list reports the exact app and Machine ID. Use the guest
+   key and provider token to exercise an allowed REST operation and MCP tool,
+   following the [workload authentication reference](../packages/docs/mcp/tools.mdx).
 3. From another Machine in the same app, request its own token for the
    original grant audience. Assert both REST and MCP deny it even when the
    test transport has access to the original proof key. Repeat for a clone and
@@ -43,14 +41,14 @@ tokens, signing proofs, and private keys out of logs and verification records.
    key. A same-name replacement or copied key must never make the new guest
    eligible. Verify provider failure prevents admission.
 6. Record the tested build, provider and test resource identifiers, expected
-   and observed outcomes, and whether the release gate can open. Record
+   and observed outcomes, and whether the provider checks passed. Record
    unavailable checks as pending. Apply the normal
    [release and rollback procedure](package-migration.md) after the provider
    passes.
 
-## Provider gate record
+## Provider validation record
 
 | Provider | Live evidence | Production setting |
 | --- | --- | --- |
-| Fly.io | Pending dedicated test Worker and Machines | Leave `FLY_VM_GRANTS_ENABLED` absent until the live checks pass |
+| Fly.io | Pending dedicated test Worker and Machines | No deployment flag required |
 | exe.dev | Pending a documented VM-continuity signal and dedicated test VMs | Enrollment and authentication are disabled in code |

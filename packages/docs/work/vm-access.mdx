@@ -5,9 +5,8 @@ description: Grant and revoke isolated Factorize access for an existing workload
 
 Human setup: follow [Give a VM access](/quickstart#give-a-vm-access).
 Use a disposable running Fly.io Machine, not a shared workload, and confirm
-its team and exact identity. Factorize VM enrollment currently requires a
-deployment with Fly.io VM grants enabled. Exe.dev provider-native integration
-bindings are separate, not Factorize VM grants.
+its team and exact identity. Factorize supports VM grants for Fly.io Machines.
+Exe.dev provider-native integration bindings are separate, not Factorize VM grants.
 
 1. The authorizing client needs `vms:edit` to grant or revoke and `vms:read`
    to check its grants. It must also have the scopes it delegates. Some tools

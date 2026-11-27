@@ -23,7 +23,7 @@ describe.skipIf(!url)("VM grant persistence and delegation", () => {
       const id = grant!.id;
       await repo.activate(id, { machine_key: "machine", issuer: "issuer", subject: "subject", public_key: { kty: "EC" } });
       const auth = { ...f.auth, userId: id, authMethod: "vm" as const, vmGrantId: id, vmTokenExpiresAt: Date.now() / 1000 + 300, scopes };
-      const env = { ...f.env, FLY_VM_GRANTS_ENABLED: "true", PROXY_ARTIFACTS: {}, SCHEDULER: {
+      const env = { ...f.env, PROXY_ARTIFACTS: {}, SCHEDULER: {
         idFromName: (name: string) => name, get: () => ({ fetch: async () => Response.json({ ok: true }) }),
       } } as unknown as Env;
       const operations = new ProxyOperations(env, auth);

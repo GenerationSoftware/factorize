@@ -16,10 +16,10 @@ export function vmGrantAudience(id: string) {
   return `factorize://vm-grants/${id}`;
 }
 
-export function requireVmGrantProvider(env: Env, provider: VmProvider) {
+export function requireVmGrantProvider(provider: VmProvider) {
   // exe.dev has yet to expose documented evidence of continuity across a
   // same-name replacement. A WIF subject or attachment must never bypass this.
-  if (provider !== "fly" || env.FLY_VM_GRANTS_ENABLED !== "true") throw disabled();
+  if (provider !== "fly") throw disabled();
 }
 
 const flyApp = z.object({ name: z.string(), organization: z.object({ slug: z.string() }) });
@@ -48,7 +48,7 @@ printf %s "$response" | openssl base64 -A
 `;
 
 export async function flyVmGrantProvider(env: Env, grant: Pick<VmGrant, "id" | "tenant_id" | "provider_kind" | "vm" | "vm_app">) {
-  requireVmGrantProvider(env, grant.provider_kind);
+  requireVmGrantProvider(grant.provider_kind);
   const repo = new FlyConnectionRepository(databaseFor(env), grant.tenant_id, env.CREDENTIAL_ENCRYPTION_KEY);
   const [connection, token] = await Promise.all([repo.get(), repo.token()]);
   if (!connection || !token) throw unavailable();
