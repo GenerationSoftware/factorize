@@ -37,7 +37,7 @@ export async function provisionVmGrant(env: Env, auth: OAuthProps, input: VmEnro
     if ((provider.kind === "fly") !== Boolean(input.app)) {
       throw new AgentApiError(400, "invalid_request", "Fly grants require an app and Machine ID. exe.dev grants require a VM name.");
     }
-    requireVmGrantProvider(env, provider.kind);
+    requireVmGrantProvider(provider.kind);
     const repo = new VmGrantRepository(db, auth.tenantId);
     const { grant } = await repo.reserve({
       provider_id: input.providerId, provider_kind: provider.kind, provider_epoch: provider.epoch,

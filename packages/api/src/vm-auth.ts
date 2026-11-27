@@ -60,7 +60,7 @@ export async function activeVmAuthorization(env: Env, auth: OAuthProps): Promise
   const db = databaseFor(env);
   const grant = await activeGrant(db.pool, auth.vmGrantId, auth.tenantId);
   if (!grant) return null;
-  try { requireVmGrantProvider(env, grant.provider_kind); }
+  try { requireVmGrantProvider(grant.provider_kind); }
   catch { return null; }
   return currentVmScopes(db.pool, auth.tenantId, grant.scopes.filter(scope => auth.scopes.includes(scope)));
 }
@@ -74,7 +74,7 @@ export async function authenticateVmRequest(env: Env, request: Request): Promise
     const db = databaseFor(env);
     const initial = await activeGrant(db.pool, id.data);
     if (!initial) return null;
-    requireVmGrantProvider(env, initial.provider_kind);
+    requireVmGrantProvider(initial.provider_kind);
     const claims = await verifyProof(request, token, proof, initial, Math.floor(Date.now() / 1000));
     const provider = await flyVmGrantProvider(env, initial);
     const identity = await provider.authenticate(token, initial);

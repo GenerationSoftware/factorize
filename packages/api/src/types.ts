@@ -1,7 +1,6 @@
 export type FilterType = "owner" | "creator" | "status" | "label" | "assignee";
 export interface MatchRule { type: FilterType; targetId: string; }
 export interface Env {
-  FLY_VM_GRANTS_ENABLED?: string;
   SCHEDULER?: DurableObjectNamespace;
   ASSETS: Fetcher;
   APP_ORIGIN: string;
