@@ -1,17 +1,15 @@
+import { SubscriptionsService } from "./subscriptions/application/subscriptions-service";
 import { TriggersService } from "./triggers/application/triggers-service";
 import { EventsService } from "./events/application/events-service";
 import { IntegrationRemoval } from "./postgres/integration-removal";
 import { lockIntegrationTopology } from "./postgres/integration-removal-topology";
 import { integrationRemovalConfirmation, integrationRemovalTarget } from "./integration-removal-contracts";
 
-import { readOccurrenceSummaries } from "./events/storage/occurrence-summary-repository";
-import { subscriptionOccurrenceSummaryPage, parseOccurrenceSummaryCursor } from "./events/api/event-contracts";
 import { cloudflareState, startCloudflare } from "./cloudflare-oauth";
 import { integrationForScope, lockOAuthPolicy } from "./oauth-reconnect";
 import { installationScopes, listLegacyOAuthGrants, listOAuthInstallations, materializeLegacyOAuthInstallation } from "./oauth-installations";
-import { deleteMcpGrantSubscriptions, lockMcpEventGrant } from "./postgres/mcp-event-outbox";
-import { eventPayloadSchema, occurrenceEventName, occurrenceInputSchema, type subscribeEventInput, type unsubscribeEventInput, type setProcessingAcknowledgmentsInput, type acknowledgeEventsInput } from "./mcp-event-contracts";
-import { subscribeMcpEvent, unsubscribeMcpEvent, getProcessingAcknowledgments, setProcessingAcknowledgments, acknowledgeEvents, replayUnacknowledgedEvents } from "./mcp-event-subscriptions";
+import { deleteMcpGrantSubscriptions, lockMcpEventGrant } from "./subscriptions/storage/mcp-event-outbox";
+
 import { vmGrantInput, vmGrantList, vmGrantResult, vmRevokeResult } from "./vm-grant-contracts";
 import { VmGrantRepository, vmGrantActor, type VmGrant } from "./postgres/vm-grant-repository";
 import { provisionVmGrant } from "./vm-enrollment";
@@ -53,9 +51,6 @@ import { IntegrationService } from "./postgres/integration-service";
 import { ProviderCatalog } from "./postgres/provider-catalog";
 import { ACCESS_SCOPES, AGENT_SCOPES, accessTokenDigest, issueAccessToken, normalizeScopes } from "./access-tokens";
 
-import { EventDefinitionRepository } from "./events/storage/event-definition-repository";
-import { readEventSubscriptions } from "./postgres/event-subscription-repository";
-import { eventSubscription, eventSubscriptionList } from "./events/api/event-contracts";
 import { createFlyAccountClient, FlyAccountError, flyConnectionInput } from "./fly-account-client";
 import { FlyConnectionRepository } from "./postgres/fly-connection-repository";
 
@@ -70,6 +65,9 @@ export class ApiService {
   }
   private get triggers_service() {
     return new TriggersService(this.env, this.auth, scope => this.authorize(scope));
+  }
+  private get subscriptions_service() {
+    return new SubscriptionsService(this.env, this.auth, scope => this.authorize(scope), scope => this.authorizeOwnerSession(scope));
   }
   authorizationDuration = 0;
   constructor(private env: Env, private auth: OAuthProps, private ctx?: ExecutionContext) {}
@@ -183,73 +181,24 @@ export class ApiService {
   async listTailIntegrations() { await this.authorize("integrations:read"); return publicValue(z.array(tailIntegration), await new IntegrationService(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY).tails()); }
   eventContextMetadata(...args: Parameters<TriggersService["eventContextMetadata"]>) { return this.triggers_service.eventContextMetadata(...args); }
   listEvents(...args: Parameters<EventsService["listEvents"]>) { return this.events_service.listEvents(...args); }
-  async listDashboardEventSubscriptions() {
-    await this.authorizeOwnerSession("triggers:read");
-    return publicValue(eventSubscriptionList, await readEventSubscriptions(databaseFor(this.env), this.auth.tenantId, this.auth.userId));
-  }
-  async getDashboardEventSubscription(id: string) {
-    await this.authorizeOwnerSession("triggers:read");
-    const [result] = await readEventSubscriptions(databaseFor(this.env), this.auth.tenantId, this.auth.userId, id);
-    if (!result) throw new ServiceError(404, "not_found", "Event subscription not found");
-    return publicValue(eventSubscription, result);
-  }
+  listDashboardEventSubscriptions(...args: Parameters<SubscriptionsService["listDashboardEventSubscriptions"]>) { return this.subscriptions_service.listDashboardEventSubscriptions(...args); }
+  getDashboardEventSubscription(...args: Parameters<SubscriptionsService["getDashboardEventSubscription"]>) { return this.subscriptions_service.getDashboardEventSubscription(...args); }
   getEvent(...args: Parameters<EventsService["getEvent"]>) { return this.events_service.getEvent(...args); }
   createEvent(...args: Parameters<EventsService["createEvent"]>) { return this.events_service.createEvent(...args); }
   updateEvent(...args: Parameters<EventsService["updateEvent"]>) { return this.events_service.updateEvent(...args); }
   listEnrichmentRuns(...args: Parameters<EventsService["listEnrichmentRuns"]>) { return this.events_service.listEnrichmentRuns(...args); }
   deleteEvent(...args: Parameters<EventsService["deleteEvent"]>) { return this.events_service.deleteEvent(...args); }
-  private occurrenceSummaryBoundary(id: string, cursor?: string) {
-    if (cursor === undefined) return undefined;
-    const boundary = parseOccurrenceSummaryCursor(cursor, id);
-    if (!boundary) throw new ServiceError(400, "invalid_request", "Cursor does not match this occurrence history.");
-    return boundary;
-  }
+  
   listEventOccurrenceSummaries(...args: Parameters<EventsService["listEventOccurrenceSummaries"]>) { return this.events_service.listEventOccurrenceSummaries(...args); }
-  async listSubscriptionOccurrences(id: string, limit: number, cursor?: string) {
-    await this.authorizeOwnerSession("triggers:read");
-    const result = await readOccurrenceSummaries(databaseFor(this.env), this.auth.tenantId,
-      { kind: "subscription", id, userId: this.auth.userId }, limit, this.occurrenceSummaryBoundary(id, cursor));
-    if (!result) throw new ServiceError(404, "not_found", "Event subscription not found");
-    return publicValue(subscriptionOccurrenceSummaryPage, result);
-  }
+  listSubscriptionOccurrences(...args: Parameters<SubscriptionsService["listSubscriptionOccurrences"]>) { return this.subscriptions_service.listSubscriptionOccurrences(...args); }
   listEventOccurrences(...args: Parameters<EventsService["listEventOccurrences"]>) { return this.events_service.listEventOccurrences(...args); }
-  async mcpEventCatalog() {
-    await this.authorize("triggers:read");
-    return {
-      events: [{
-        name: occurrenceEventName,
-        title: "Factorize occurrence",
-        description: "A wake for the selected Factorize Event UUID. HTTP 2xx confirms callback acceptance, not processing. Optional subscription acknowledgments use exact original data.occurrenceId, never UUID ordering; recovery wakes may have a fresh eventId.",
-        delivery: ["webhook"],
-        inputSchema: occurrenceInputSchema,
-        payloadSchema: eventPayloadSchema,
-      }],
-    };
-  }
-  async mcpSubscribeEvent(input: z.infer<typeof subscribeEventInput>) {
-    await this.authorize("triggers:read");
-    return subscribeMcpEvent(this.env, this.auth, input);
-  }
-  async mcpUnsubscribeEvent(input: z.infer<typeof unsubscribeEventInput>) {
-    await this.authorize("triggers:read");
-    return unsubscribeMcpEvent(this.env, this.auth, input);
-  }
-  async getEventProcessing(subscriptionId: string) {
-    await this.authorize("triggers:read");
-    return getProcessingAcknowledgments(this.env, this.auth, subscriptionId);
-  }
-  async setEventProcessing(input: z.infer<typeof setProcessingAcknowledgmentsInput>) {
-    await this.authorize("triggers:read");
-    return setProcessingAcknowledgments(this.env, this.auth, input);
-  }
-  async acknowledgeEventProcessing(input: z.infer<typeof acknowledgeEventsInput>) {
-    await this.authorize("triggers:read");
-    return acknowledgeEvents(this.env, this.auth, input);
-  }
-  async replayEventProcessing(subscriptionId: string, ids: string[]) {
-    await this.authorize("triggers:read");
-    return replayUnacknowledgedEvents(this.env, this.auth, subscriptionId, ids);
-  }
+  mcpEventCatalog(...args: Parameters<SubscriptionsService["mcpEventCatalog"]>) { return this.subscriptions_service.mcpEventCatalog(...args); }
+  mcpSubscribeEvent(...args: Parameters<SubscriptionsService["mcpSubscribeEvent"]>) { return this.subscriptions_service.mcpSubscribeEvent(...args); }
+  mcpUnsubscribeEvent(...args: Parameters<SubscriptionsService["mcpUnsubscribeEvent"]>) { return this.subscriptions_service.mcpUnsubscribeEvent(...args); }
+  getEventProcessing(...args: Parameters<SubscriptionsService["getEventProcessing"]>) { return this.subscriptions_service.getEventProcessing(...args); }
+  setEventProcessing(...args: Parameters<SubscriptionsService["setEventProcessing"]>) { return this.subscriptions_service.setEventProcessing(...args); }
+  acknowledgeEventProcessing(...args: Parameters<SubscriptionsService["acknowledgeEventProcessing"]>) { return this.subscriptions_service.acknowledgeEventProcessing(...args); }
+  replayEventProcessing(...args: Parameters<SubscriptionsService["replayEventProcessing"]>) { return this.subscriptions_service.replayEventProcessing(...args); }
   readEventOccurrences(...args: Parameters<EventsService["readEventOccurrences"]>) { return this.events_service.readEventOccurrences(...args); }
   readEventDeliveryDiagnostics(...args: Parameters<EventsService["readEventDeliveryDiagnostics"]>) { return this.events_service.readEventDeliveryDiagnostics(...args); }
   mcpReadEvent(...args: Parameters<EventsService["mcpReadEvent"]>) { return this.events_service.mcpReadEvent(...args); }

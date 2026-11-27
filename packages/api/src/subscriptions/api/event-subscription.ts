@@ -1,6 +1,6 @@
 import { createMcpHandler, type McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import { ApiService } from "./api-service";
+import { ApiService } from "../../api-service";
 
 const prefix = "factorize://events/";
 function eventIdFromUri(uri: string) {

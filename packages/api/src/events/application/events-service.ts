@@ -6,7 +6,7 @@ import { enrichmentRun } from "../api/event-enrichment-contracts";
 import { readOccurrenceSummaries } from "../storage/occurrence-summary-repository";
 import { eventOccurrenceSummaryPage, parseOccurrenceSummaryCursor } from "../api/event-contracts";
 
-import { type ReadEventOccurrencesInput } from "../../mcp-event-contracts";
+import { type ReadEventOccurrencesInput } from "../../subscriptions/api/mcp-event-contracts";
 
 import { z } from "zod";
 

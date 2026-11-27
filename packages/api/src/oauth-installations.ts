@@ -7,7 +7,7 @@ import { applyConnectionScopes, type ConnectionScopePolicy } from "./oauth-conne
 import { initialIntegrationOverrides, lockOAuthPolicy } from "./oauth-reconnect";
 import type { Env } from "./types";
 import type { Session } from "./session";
-import { lockMcpEventGrant } from "./postgres/mcp-event-outbox";
+import { lockMcpEventGrant } from "./subscriptions/storage/mcp-event-outbox";
 
 export type OAuthInstallation = {
   tenant_id: string; user_id: string; id: string; client_id: string; redirect_uri: string; display_name: string | null;

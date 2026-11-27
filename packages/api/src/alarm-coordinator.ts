@@ -5,7 +5,7 @@ import { databaseFor } from "./postgres/database";
 import { cleanupAgentResponses } from "./agent-api";
 import { maintainProxyOperations } from "./proxy-operations";
 import type { Env } from "./types";
-import { dispatchMcpEvents, mcpEventDispatchBatchSize, nextMcpDeliveryDelay } from "./mcp-event-subscriptions";
+import { dispatchMcpEvents, mcpEventDispatchBatchSize, nextMcpDeliveryDelay } from "./subscriptions/application/mcp-event-subscriptions";
 
 /** Wakes provider and schedule Triggers and maintains bounded proxy records. */
 export class AlarmCoordinator extends DurableObject<Env> {

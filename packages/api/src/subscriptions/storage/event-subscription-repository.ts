@@ -1,4 +1,4 @@
-import type { Database } from "./database";
+import type { Database } from "../../postgres/database";
 
 type SubscriptionRow = {
   id: string;

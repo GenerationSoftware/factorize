@@ -3,7 +3,7 @@ import { adoptLegacyCredential } from "./oauth-installations";
 import { mcpOAuthChallenge, oauthResourceAuthorization, scopesForOAuthCredential } from "./mcp-oauth-auth";
 import { mcpMissingScopes } from "./mcp-oauth-scopes";
 import { initialIntegrationOverrides } from "./oauth-reconnect";
-import { listEventsInput, getProcessingAcknowledgmentsInput, setProcessingAcknowledgmentsInput, acknowledgeEventsInput, replayUnacknowledgedEventsInput, readEventDeliveryDiagnosticsInput, readEventOccurrencesInput, subscribeEventInput, unsubscribeEventInput } from "./mcp-event-contracts";
+import { listEventsInput, getProcessingAcknowledgmentsInput, setProcessingAcknowledgmentsInput, acknowledgeEventsInput, replayUnacknowledgedEventsInput, readEventDeliveryDiagnosticsInput, readEventOccurrencesInput, subscribeEventInput, unsubscribeEventInput } from "./subscriptions/api/mcp-event-contracts";
 import { appRegistrationInput, appRegistrationUpdate } from "./apps-contracts";
 import {createPayloadInput,appendPayloadInput,finalizePayloadInput,attachmentInput} from "./proxy-payloads";
 import {operationRef,operationRead} from "./proxy-operations";
@@ -27,7 +27,7 @@ import { executeAuth, validBrowserOrigin } from "./auth-api";
 import { matchApiOperation } from "./api-contract";
 import { normalizeScopes } from "./access-tokens";
 import { eventDefinitionInput, eventDefinitionUpdate, eventOccurrenceQuery } from "./events/api/event-contracts";
-import { listenForEvents } from "./event-subscription";
+import { listenForEvents } from "./subscriptions/api/event-subscription";
 import { activeVmAuthorization } from "./vm-auth";
 import { vmGrantInput, vmGrantRef } from "./vm-grant-contracts";
 

@@ -7,7 +7,8 @@ import type { Env } from "../../types";
 import { adaptWebhook, type WebhookProvider, type WebhookEventConfig } from "../domain/webhook-trigger";
 import { ConnectionRepository } from "../../postgres/connection-repository";
 import type { Database } from "../../postgres/database";
-import { EventMatchRepository, wakeMcpDeliveries } from "../../events/storage/event-match-repository";
+import { EventMatchRepository } from "../../events/storage/event-match-repository";
+import { wakeMcpDeliveries } from "../../subscriptions/application/wake-delivery";
 
 export class WebhookService {
   private enrichmentBudget = new EnrichmentBudget();

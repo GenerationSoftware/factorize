@@ -20,7 +20,8 @@ import { OperationsRepository } from "../../postgres/operations-repository";
 import { installedEventAvailability } from "../domain/trigger-availability";
 import { evaluateWebhookConditions } from "../domain/webhook-conditions";
 
-import { EventMatchRepository, wakeMcpDeliveries } from "../../events/storage/event-match-repository";
+import { EventMatchRepository } from "../../events/storage/event-match-repository";
+import { wakeMcpDeliveries } from "../../subscriptions/application/wake-delivery";
 import { EventDefinitionRepository } from "../../events/storage/event-definition-repository";
 
 import { ServiceError, publicValue } from "../../service-contract";

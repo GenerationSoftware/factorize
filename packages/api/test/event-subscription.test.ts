@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { listenForEvents } from "../src/event-subscription";
+import { listenForEvents } from "../src/subscriptions/api/event-subscription";
 import { createMcpHandler } from "@modelcontextprotocol/server";
 
 vi.mock("@modelcontextprotocol/server", () => ({

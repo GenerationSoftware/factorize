@@ -1,4 +1,4 @@
-import type { Database, DatabaseClient } from "./database";
+import type { Database, DatabaseClient } from "../../postgres/database";
 
 // The definition row is already locked FOR SHARE by both writers. This lock
 // orders subscription activation against occurrence insertion through commit.

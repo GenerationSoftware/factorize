@@ -15,7 +15,7 @@ are part of validation.
   explicit use-case homes. Preserve revision checks, idempotency, and the
   atomic occurrence/outbox write. Acceptance: characterization plus Event,
   Trigger, enrichment, and transaction tests pass.
-- [ ] **Subscriptions.** Colocate transport, subscription lifecycle,
+- [x] **Subscriptions.** Colocate transport, subscription lifecycle,
   acknowledgement/replay, delivery, and their DB adapters. Preserve
   authorization, lock order, leasing, retry, and acknowledgement semantics.
   Acceptance: subscription, PostgreSQL MCP delivery, and runtime tests pass.

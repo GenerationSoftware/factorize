@@ -4,7 +4,7 @@ import { normalizeScopes } from "./access-tokens";
 import { applyConnectionScopes, type ConnectionScopePolicy } from "./oauth-connection-settings";
 import { databaseFor, type DatabaseClient } from "./postgres/database";
 import { lockOAuthPolicy } from "./oauth-reconnect";
-import { lockMcpEventGrant } from "./postgres/mcp-event-outbox";
+import { lockMcpEventGrant } from "./subscriptions/storage/mcp-event-outbox";
 import { getOAuthInstallation, installationScopes, type OAuthInstallation } from "./oauth-installations";
 import type { Env, OAuthProps } from "./types";
 

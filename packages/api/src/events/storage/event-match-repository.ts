@@ -3,15 +3,7 @@ import type { Env } from "../../types";
 import { applyGitHubSignal, validAgainstSchema, type MatchInput, type MatchResult } from "../domain/event-match";
 export type { MatchInput, MatchResult, MatchDecision } from "../domain/event-match";
 import type { Database, DatabaseClient } from "../../postgres/database";
-import { enqueueMcpDeliveries, lockEventOutbox } from "../../postgres/mcp-event-outbox";
-
-export async function wakeMcpDeliveries(env: Pick<import("../../types").Env, "SCHEDULER">) {
-  if (!env.SCHEDULER) return;
-  const alarm = env.SCHEDULER.get(env.SCHEDULER.idFromName("global"));
-  const response = await alarm.fetch("https://scheduler/mcp-events", { method: "POST" });
-  if (!response.ok) throw new Error("MCP event alarm wake failed");
-  await response.body?.cancel();
-}
+import { enqueueMcpDeliveries, lockEventOutbox } from "../../subscriptions/storage/mcp-event-outbox";
 
 /**
  * The canonical internal match operation. Match state and any resulting
