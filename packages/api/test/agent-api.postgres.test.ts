@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { loadingFixture } from "./helpers/loading-fixture";
 import { CredentialRepository } from "../src/credentials/storage/credential-repository";
 import { AgentApiService, cleanupAgentResponses, integrationConsentLabels } from "../src/proxy/application/agent-api";
-import { normalizeScopes } from "../src/access-tokens";
+import { normalizeScopes } from "../src/access-control/domain/scopes";
 import { requestApiInput } from "../src/proxy/api/agent-api-contracts";
 vi.mock("cloudflare:workers",()=>({WorkerEntrypoint:class {},DurableObject:class {}}));
 vi.mock("@cloudflare/workers-oauth-provider",()=>({OAuthProvider:class {},AuthorizationError:class extends Error {},getOAuthApi:vi.fn()}));

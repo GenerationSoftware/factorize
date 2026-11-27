@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { EventMatchRepository } from "../src/events/storage/event-match-repository";
 import { loadingFixture } from "./helpers/loading-fixture";
 import { ApiService } from "../src/api-service";
-import { inspectOAuthGrant, scopesForOAuthCredential } from "../src/mcp-oauth-auth";
+import { inspectOAuthGrant, scopesForOAuthCredential } from "../src/transport/mcp/mcp-oauth-auth";
 
 vi.mock("cloudflare:workers", () => ({ WorkerEntrypoint: class {}, WorkflowEntrypoint: class {}, DurableObject: class {} }));
 vi.mock("@cloudflare/workers-oauth-provider", () => ({ OAuthProvider: class {}, AuthorizationError: class extends Error {}, getOAuthApi: vi.fn() }));

@@ -1,7 +1,7 @@
-import { normalizeScopes } from "../../access-tokens";
+import { normalizeScopes } from "../../access-control/domain/scopes";
 
-import { getOAuthInstallation, installationScopes } from "../../oauth-installations";
-import { applyConnectionScopes, type ConnectionScopePolicy } from "../../oauth-connection-settings";
+import { getOAuthInstallation, installationScopes } from "../../access-control/application/oauth-installations";
+import { applyConnectionScopes, type ConnectionScopePolicy } from "../../access-control/application/oauth-connection-settings";
 import { type DatabaseClient } from "../../postgres/database";
 
 import type { Env } from "../../types";

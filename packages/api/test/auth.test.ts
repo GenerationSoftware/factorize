@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hashPassword, verifyPassword } from "../src/auth";
+import { hashPassword, verifyPassword } from "../src/auth/application/auth";
 
 describe("credential password hashing", () => {
   it("uses the Workers-supported PBKDF2 limit and verifies only the original password", async () => {

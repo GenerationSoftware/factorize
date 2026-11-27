@@ -1,4 +1,4 @@
-import { queryOf } from "../../query-params";
+import { queryOf } from "./query-params";
 
 import { eventAvailabilityResponse } from "../../integrations/api/editor-contracts";
 import { triggerResponse, triggerUpdateInput } from "../../triggers/api/trigger-contracts";

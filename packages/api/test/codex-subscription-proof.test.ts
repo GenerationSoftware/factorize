@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
-import { createCodexSubscriptionProof } from "../src/codex-subscription-proof.js";
+import { createCodexSubscriptionProof } from "./helpers/codex-subscription-proof.js";
 
 function jwt(accountId: string): string {
   const payload = Buffer.from(JSON.stringify({

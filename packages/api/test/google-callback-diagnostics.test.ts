@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { googleSignInCallback } from "../src/auth-api";
+import { googleSignInCallback } from "../src/auth/api/auth-api";
 import type { Env } from "../src/types";
 
 vi.mock("cloudflare:workers", () => ({ WorkerEntrypoint: class {}, DurableObject: class {} }));

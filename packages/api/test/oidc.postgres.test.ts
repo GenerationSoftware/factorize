@@ -2,9 +2,9 @@ import { createServer } from "node:http";
 import { Buffer } from "node:buffer";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { loadingFixture } from "./helpers/loading-fixture";
-import { accessTokenDigest } from "../src/access-tokens";
+import { accessTokenDigest } from "../src/access-control/application/access-tokens";
 import { ApiService } from "../src/api-service";
-import { signSession } from "../src/session";
+import { signSession } from "../src/auth/application/session";
 import worker from "../src/worker";
 
 vi.mock("cloudflare:workers", () => ({ WorkerEntrypoint: class {}, DurableObject: class {} }));

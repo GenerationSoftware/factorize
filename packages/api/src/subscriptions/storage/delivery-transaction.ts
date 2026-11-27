@@ -1,4 +1,4 @@
-import { getOAuthInstallation } from "../../oauth-installations";
+import { getOAuthInstallation } from "../../access-control/application/oauth-installations";
 import type { Database } from "../../postgres/database";
 import { authorized, type Principal } from "../application/subscription-access";
 import type { ProcessingSubscription } from "../application/subscription-processing";

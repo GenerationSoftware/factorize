@@ -1,4 +1,4 @@
-import type { AGENT_SCOPES } from "../access-tokens";
+import type { AGENT_SCOPES } from "../access-control/domain/scopes";
 import { databaseFor } from "../postgres/database";
 import type { Env, OAuthProps } from "../types";
 import { authorizeEnrichment } from "./application/event-enrichment";

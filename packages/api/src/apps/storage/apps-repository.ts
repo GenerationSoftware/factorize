@@ -1,6 +1,6 @@
 import type { z } from "zod";
 import { randomBytes } from "node:crypto";
-import { accessTokenDigest } from "../../access-tokens";
+import { accessTokenDigest } from "../../access-control/application/access-tokens";
 import type { appRegistrationInput, appRegistrationUpdate, registeredApp } from "../api/apps-contracts";
 import type { Database } from "../../postgres/database";
 

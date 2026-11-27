@@ -1,12 +1,12 @@
 import { lockIntegrationTopology } from "../../integrations/storage/integration-removal-topology";
-import { getOAuthInstallation, installationScopes } from "../../oauth-installations";
-import { AGENT_SCOPES } from "../../access-tokens";
+import { getOAuthInstallation, installationScopes } from "../../access-control/application/oauth-installations";
+import { AGENT_SCOPES } from "../../access-control/domain/scopes";
 import { connectionAccess, requiredIntegrationScope, type AgentIntegration } from "../../proxy/application/agent-integration-access";
-import { integrationScopePattern } from "../../proxy/api/agent-api-contracts";
+import { integrationScopePattern } from "../../access-control/domain/scopes";
 import { AgentApiError } from "../../proxy/api/agent-api-error";
 import type { Database, DatabaseClient } from "../../postgres/database";
 import type { OAuthProps } from "../../types";
-import { initialIntegrationOverrides } from "../../oauth-reconnect";
+import { initialIntegrationOverrides } from "../../access-control/application/oauth-reconnect";
 import { z } from "zod";
 
 export const vmPermissionSource = z.strictObject({ scopes: z.array(z.string().min(1).max(200)).max(100) });

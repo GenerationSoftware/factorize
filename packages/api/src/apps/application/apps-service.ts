@@ -1,4 +1,4 @@
-import { decideOidcConsent, inspectOidcConsent, oidcConsentInput, oidcConsentPreview } from "../../oidc-provider";
+import { decideOidcConsent, inspectOidcConsent, oidcConsentInput, oidcConsentPreview } from "../../auth/transport/oidc-provider";
 import { AppsRepository } from "../storage/apps-repository";
 import { appRegistrationInput, appRegistrationUpdate, appSecret, connectedApp, registeredApp } from "../api/apps-contracts";
 
@@ -7,7 +7,7 @@ import { z } from "zod";
 import type { Env, OAuthProps } from "../../types";
 import { databaseFor } from "../../postgres/database";
 
-import { AGENT_SCOPES } from "../../access-tokens";
+import { AGENT_SCOPES } from "../../access-control/domain/scopes";
 import { ServiceError, publicValue } from "../../service-contract";
 
 export class AppsService {

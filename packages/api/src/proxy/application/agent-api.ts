@@ -1,8 +1,8 @@
 import { proxyLimits } from "../../config/limits";
 import { appConfig } from "../../config/runtime";
 import { CredentialBackedEgress } from "../transport/credential-backed-egress";
-import { getOAuthInstallation, installationScopes } from "../../oauth-installations";
-import { initialIntegrationOverrides } from "../../oauth-reconnect";
+import { getOAuthInstallation, installationScopes } from "../../access-control/application/oauth-installations";
+import { initialIntegrationOverrides } from "../../access-control/application/oauth-reconnect";
 import { activeVmAuthorization } from "../../vm-grants/application/vm-auth";
 import { connectionAccess, requiredIntegrationScope, type AgentIntegration, type ConnectionPolicy } from "./agent-integration-access";
 export { connectionAccess, requiredIntegrationScope, type AgentIntegration } from "./agent-integration-access";
@@ -16,9 +16,10 @@ import { Buffer } from "node:buffer";
 
 import type { Env, OAuthProps } from "../../types";
 import { databaseFor } from "../../postgres/database";
-import { IdentityRepository } from "../../postgres/identity-repository";
-import { normalizeScopes } from "../../access-tokens";
-import { integrationScopePattern, requestApiInput, readApiResponseInput } from "../api/agent-api-contracts";
+import { IdentityRepository } from "../../auth/storage/identity-repository";
+import { normalizeScopes } from "../../access-control/domain/scopes";
+import { requestApiInput, readApiResponseInput } from "../api/agent-api-contracts";
+import { integrationScopePattern } from "../../access-control/domain/scopes";
 
 import type { z } from "zod";
 

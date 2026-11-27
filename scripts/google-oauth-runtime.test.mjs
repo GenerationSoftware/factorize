@@ -34,8 +34,8 @@ test("Google authorization code POST succeeds in workerd and rejects upstream re
   try {
     const fixtureEndpoint = "http://127.0.0.1:" + upstream.address().port + "/token";
     const result = await build({ stdin: { resolveDir: process.cwd(), contents: [
-      "import { requestGoogleIdToken } from './packages/api/src/google-token.ts';",
-      "import { GoogleCallbackFailure } from './packages/api/src/google-callback-diagnostics.ts';",
+      "import { requestGoogleIdToken } from './packages/api/src/auth/transport/google-token.ts';",
+      "import { GoogleCallbackFailure } from './packages/api/src/auth/transport/google-callback-diagnostics.ts';",
       "const workerdFetch = globalThis.fetch.bind(globalThis);",
       // Remap only the fixed Google token endpoint and preserve all fetch options.
       "globalThis.fetch = (url, init) => {",

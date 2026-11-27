@@ -1,7 +1,7 @@
-import { okResult } from "../../settings-contracts";
+import { okResult } from "../../transport/rest/result-contracts";
 
 import { z } from "zod";
-import { oidcConsentInput, oidcConsentPreview } from "../../oidc-provider";
+import { oidcConsentInput, oidcConsentPreview } from "../../auth/transport/oidc-provider";
 import { appRegistrationInput, appRegistrationUpdate, appSecret, connectedApp, registeredApp } from "../../apps/api/apps-contracts";
 
 import { route, jsonSchema, type RouteContract } from "../../transport/rest/route-contract";

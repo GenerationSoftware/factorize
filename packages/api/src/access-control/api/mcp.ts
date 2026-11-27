@@ -1,4 +1,4 @@
-import { clientNameInput } from "../../settings-contracts";
+import { clientNameInput } from "./access-contracts";
 
 import { mcpTool } from "../../transport/mcp/tool";
 

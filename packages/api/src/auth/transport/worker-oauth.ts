@@ -1,22 +1,22 @@
 import { appConfig } from "../../config/runtime";
-import { adoptLegacyCredential } from "../../oauth-installations";
+import { adoptLegacyCredential } from "../../access-control/application/oauth-installations";
 
-import { mcpOAuthChallenge, withRefreshAdmission } from "../../mcp-oauth-auth";
+import { mcpOAuthChallenge, withRefreshAdmission } from "../../transport/mcp/mcp-oauth-auth";
 
 import { wakeMcpDeliveries } from "../../subscriptions/application/wake-delivery";
-import { staticApp } from "../../static-app";
+import { staticApp } from "../../runtime/static-app";
 import { OAuthProvider, AuthorizationError, getOAuthApi, type OAuthProviderOptions } from "@cloudflare/workers-oauth-provider";
 import app from "../../index";
-import { readBrowserSession } from "../../browser-session";
+import { readBrowserSession } from "../application/browser-session";
 
 import { ProtectedApiHandler, protectedApiFetch } from "../../protected-api";
-import { startConnection, connectionFor } from "../../oauth-continuation";
-import { consentDecision } from "../../consent-api";
-import { addDeviceMetadata, DEVICE_GRANT, deviceAuthorization, deviceClientRegistration, deviceToken, deviceVerification } from "../../device-oauth";
+import { startConnection, connectionFor } from "../application/oauth-continuation";
+import { consentDecision } from "../application/consent-api";
+import { addDeviceMetadata, DEVICE_GRANT, deviceAuthorization, deviceClientRegistration, deviceToken, deviceVerification } from "./device-oauth";
 import type { Env, OAuthProps } from "../../types";
-import { AGENT_SCOPES, normalizeScopes } from "../../access-tokens";
+import { AGENT_SCOPES, normalizeScopes } from "../../access-control/domain/scopes";
 import { databaseFor } from "../../postgres/database";
-import { IdentityRepository } from "../../postgres/identity-repository";
+import { IdentityRepository } from "../storage/identity-repository";
 
 const oauthScopes = [...AGENT_SCOPES];
 async function currentOwner(request: Request, env: Env) {

@@ -14,7 +14,7 @@ import { eventSubscription, eventSubscriptionList } from "../../events/api/event
 import { ServiceError, publicValue } from "../../service-contract";
 
 import type { Env, OAuthProps } from "../../types";
-import type { AGENT_SCOPES } from "../../access-tokens";
+import type { AGENT_SCOPES } from "../../access-control/domain/scopes";
 export class SubscriptionsService {
   constructor(private env: Env, private auth: OAuthProps, private authorize: (scope: (typeof AGENT_SCOPES)[number]) => Promise<void>, private authorizeOwnerSession: (scope: (typeof AGENT_SCOPES)[number]) => Promise<void>) {}
 

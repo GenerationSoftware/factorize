@@ -1,8 +1,8 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { loadingFixture } from "./helpers/loading-fixture";
 import { protectedApiFetch } from "../src/protected-api";
-import { deviceAuthorization, deviceToken, DEVICE_GRANT } from "../src/device-oauth";
-import { readSession } from "../src/session";
+import { deviceAuthorization, deviceToken, DEVICE_GRANT } from "../src/auth/transport/device-oauth";
+import { readSession } from "../src/auth/application/session";
 vi.mock("cloudflare:workers", () => ({ WorkerEntrypoint: class {}, DurableObject: class {} }));
 vi.mock("@cloudflare/workers-oauth-provider", () => ({ OAuthProvider: class {}, AuthorizationError: class extends Error {}, getOAuthApi: vi.fn() }));
 const password = "correct horse battery staple";

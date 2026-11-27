@@ -2,7 +2,9 @@ import { integrationRemovalConfirmation, integrationRemovalPreview, integrationR
 
 import { cloudflareStartResult, cloudflareStatus } from "../../integrations/providers/cloudflare-oauth";
 
-import { exeConnection, integrationStatus, accessToken, savedExe, savedAmp, okResult } from "../../settings-contracts";
+import { exeConnection, integrationStatus, savedExe, savedAmp } from "./connection-contracts";
+import { accessToken } from "../../access-control/api/access-contracts";
+import { okResult } from "../../transport/rest/result-contracts";
 import { namedOption, providerOptions, githubInstallation, githubRepository, tailIntegration } from "../../integrations/api/editor-contracts";
 
 import { z } from "zod";
