@@ -24,13 +24,13 @@ describe.skipIf(!url)("durable Event occurrences", () => {
       const service = new ApiService(f.env,f.auth);
       const auth = {...f.auth,authMethod:"oauth" as const,oauthGrantId:grantId};
       const effective = async (credential: string[]) => scopesForOAuthCredential(credential, await inspectOAuthGrant(f.db.pool, auth, grantId));
-      await service.updateClientPermissions(grantId,{scopes:readWrite,expectedRevision:0});
+      await service.access.updateClientPermissions(grantId,{scopes:readWrite,expectedRevision:0});
       expect(await effective(readOnly)).toEqual(readOnly);
       expect(await effective(readWrite)).toEqual(readWrite);
-      await service.updateClientPermissions(grantId,{scopes:readOnly,expectedRevision:1});
+      await service.access.updateClientPermissions(grantId,{scopes:readOnly,expectedRevision:1});
       expect(await effective(readOnly)).toEqual(readOnly);
       expect(await effective(readWrite)).toEqual(readOnly);
-      await service.updateClientPermissions(grantId,{scopes:readWrite,expectedRevision:2});
+      await service.access.updateClientPermissions(grantId,{scopes:readWrite,expectedRevision:2});
       expect(await effective(readWrite)).toEqual(readOnly);
     } finally { await f.cleanup(); }
   });
@@ -43,7 +43,7 @@ describe.skipIf(!url)("durable Event occurrences", () => {
       await f.db.pool.query("INSERT INTO app.schedule_state(tenant_id,event_id,trigger_id,next_run_at) VALUES($1,$2,$3,now())", [f.tenantId,schedule.id,triggerId]);
       await new EventMatchRepository(f.db).match({tenantId:f.tenantId,triggerId,triggerRevision:1,sourceIdentity:"fixture:delete",deduplicationKey:"delete",evidence:{value:1},decision:"matched"});
       const service = new ApiService(f.env,f.auth);
-      await expect(service.deleteEvent(definitionId)).resolves.toEqual({id:definitionId,deleted:true});
+      await expect(service.events.deleteEvent(definitionId)).resolves.toEqual({id:definitionId,deleted:true});
       expect((await f.db.pool.query("SELECT count(*)::int AS count FROM app.triggers WHERE tenant_id=$1 AND id=$2",[f.tenantId,triggerId])).rows[0].count).toBe(0);
       expect((await f.db.pool.query("SELECT count(*)::int AS count FROM app.events WHERE tenant_id=$1 AND trigger_id=$2",[f.tenantId,triggerId])).rows[0].count).toBe(0);
       expect((await f.db.pool.query("SELECT count(*)::int AS count FROM app.schedule_state WHERE tenant_id=$1 AND trigger_id=$2",[f.tenantId,triggerId])).rows[0].count).toBe(0);

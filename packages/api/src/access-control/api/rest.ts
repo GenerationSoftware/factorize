@@ -29,7 +29,7 @@ export const authorizationRoutes = [
         },
       },
     },
-    (service) => service.listAuthorizedClients(),
+    (service) => service.access.listAuthorizedClients(),
     { ownerSession: true },
   ),
   route(
@@ -49,7 +49,7 @@ export const authorizationRoutes = [
         },
       },
     },
-    (service) => service.listAccessTokens(),
+    (service) => service.access.listAccessTokens(),
     { ownerSession: true },
   ),
   route(
@@ -60,7 +60,7 @@ export const authorizationRoutes = [
       summary: "Create an access token",
       responses: { "201": { description: "Created token", content: { "application/json": { schema: jsonSchema(createdAccessToken, "output") } } } },
     },
-    (service, { body }) => service.createAccessToken(body),
+    (service, { body }) => service.access.createAccessToken(body),
     { body: accessTokenBody, ownerSession: true },
   ),
   route(
@@ -71,29 +71,29 @@ export const authorizationRoutes = [
       summary: "Revoke an access token",
       responses: { "200": { description: "Revoked" } },
     },
-    (service, { params }) => service.revokeAccessToken(params.tokenId),
+    (service, { params }) => service.access.revokeAccessToken(params.tokenId),
     { ownerSession: true },
   ),
   route("PUT", "/api/v1/access/authorizations/{grantId}/name", "triggers:write", {
     summary: "Rename an authorized OAuth connection",
     description: "Interactive owner session required. Changes only this connection’s display name, not the registered app name or permissions.",
     responses: { "200": { description: "Connection renamed", content: { "application/json": { schema: jsonSchema(clientNameInput, "output") } } } },
-  }, (service, { params, body }) => service.renameAuthorizedClient(params.grantId, body), { ownerSession: true, body: clientNameInput }),
+  }, (service, { params, body }) => service.access.renameAuthorizedClient(params.grantId, body), { ownerSession: true, body: clientNameInput }),
   route("PUT", "/api/v1/access/authorizations/{grantId}/permissions", "triggers:write", {
     summary: "Save the selected permissions for one OAuth connection",
     description: "The authenticated owner sets the connection policy. Removals take effect immediately; additions need a fresh authorization for this same connection. This never enlarges an existing bearer or refresh credential.",
     responses: {"200": {description: "Permissions saved", content: {"application/json": {schema: jsonSchema(okResult, "output")}}}},
-  }, (service, {params, body}) => service.updateClientPermissions(params.grantId, body), {ownerSession: true, body: clientPermissionsUpdate}),
+  }, (service, {params, body}) => service.access.updateClientPermissions(params.grantId, body), {ownerSession: true, body: clientPermissionsUpdate}),
 ] satisfies RouteContract[];
 
 export const permissionRoutes = [
   route("GET", "/api/v1/team-permissions", "team:read", {
     summary: "List workspace consent defaults", responses: { "200": { description: "Team permission defaults", content: { "application/json": { schema: jsonSchema(teamPermissionList, "output") } } } },
-  }, service => service.listTeamPermissions(), { ownerSession: true }),
+  }, service => service.access.listTeamPermissions(), { ownerSession: true }),
   route("PUT", "/api/v1/team-permissions", "team:write", {
     summary: "Change one workspace consent default", responses: { "200": { description: "Default updated", content: { "application/json": { schema: jsonSchema(okResult, "output") } } } },
-  }, (service, { body }) => service.updateTeamPermission(body), { ownerSession: true, body: teamPermissionUpdate }),
-  route("DELETE", "/api/v1/access/authorizations/{grantId}", "triggers:write", {summary:"Revoke one isolated OAuth connection", description:"Other connections, including copies of the same client, retain their approvals.",responses:{"200":{description:"Authorization revoked",content:{"application/json":{schema:jsonSchema(z.object({revoked:z.number().int()}),"output")}}}}}, (service,{params})=>service.revokeOAuthAuthorization(params.grantId), {ownerSession:true}),
+  }, (service, { body }) => service.access.updateTeamPermission(body), { ownerSession: true, body: teamPermissionUpdate }),
+  route("DELETE", "/api/v1/access/authorizations/{grantId}", "triggers:write", {summary:"Revoke one isolated OAuth connection", description:"Other connections, including copies of the same client, retain their approvals.",responses:{"200":{description:"Authorization revoked",content:{"application/json":{schema:jsonSchema(z.object({revoked:z.number().int()}),"output")}}}}}, (service,{params})=>service.access.revokeOAuthAuthorization(params.grantId), {ownerSession:true}),
   route(
     "DELETE",
     "/api/v1/access/authorized-clients/{clientId}",
@@ -103,7 +103,7 @@ export const permissionRoutes = [
       description: "If this app has several connections, use the exact connection endpoint instead.",
       responses: { "200": { description: "Revoked one OAuth connection" } },
     },
-    (service, { params }) => service.revokeAuthorizedClient(params.clientId),
+    (service, { params }) => service.access.revokeAuthorizedClient(params.clientId),
     { ownerSession: true },
   ),
 ] satisfies RouteContract[];
@@ -112,5 +112,5 @@ export const teamRoutes = [
   route("GET", "/api/v1/team", "team:read", {
     summary: "Get the current team",
     responses: { "200": { description: "Team", content: { "application/json": { schema: jsonSchema(teamResponse, "output") } } } },
-  }, service => service.getTeam()),
+  }, service => service.access.getTeam()),
 ] satisfies RouteContract[];

@@ -1,3 +1,4 @@
+import { exeConnection } from "../../settings-contracts";
 import { appConfig, signingConfig } from "../../config/runtime";
 import { IntegrationRemoval } from "./integration-removal";
 
@@ -106,6 +107,11 @@ export class IntegrationsService {
         "SELECT 1 FROM app.cloudflare_connections WHERE tenant_id=$1 AND id=$2 AND encrypted_credentials IS NULL",[this.auth.tenantId,id])).rowCount) throw error;
     }
     return {ok:true as const};
+  }
+
+  async listExeConnections() {
+    await this.authorize("integrations:read");
+    return publicValue(z.array(exeConnection), (await this.integrations().status()).exeConnections);
   }
 
   async integrationStatus() { await this.authorize("integrations:read"); return publicValue(integrationStatus, await this.integrations().status()); }

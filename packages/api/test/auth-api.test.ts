@@ -8,7 +8,7 @@ import { safeReturnTo } from "../src/auth-api";
 import { signSession } from "../src/session";
 import { AuthRepository } from "../src/postgres/auth-repository";
 import { IdentityRepository } from "../src/postgres/identity-repository";
-import { ApiService } from "../src/api-service";
+import { TriggersService } from "../src/triggers/application/triggers-service";
 import type { Env, OAuthProps } from "../src/types";
 
 vi.mock("cloudflare:workers", () => ({ WorkerEntrypoint: class {}, DurableObject: class {} }));
@@ -204,7 +204,7 @@ describe("public auth API and cookie security", () => {
   });
 
   it("enforces origin for cookie application mutations while preserving bearer clients", async () => {
-    const create = vi.spyOn(ApiService.prototype, "createTrigger").mockResolvedValue({ id: "trigger" } as never);
+    const create = vi.spyOn(TriggersService.prototype, "createTrigger").mockResolvedValue({ id: "trigger" } as never);
     const request = () => new Request(env.APP_ORIGIN + "/api/v1/triggers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "trigger", eventId: "20000000-0000-4000-8000-000000000001" }) });
     expect((await protectedApiFetch(request(), env, auth, ctx)).status).toBe(403);
     expect(create).not.toHaveBeenCalled();

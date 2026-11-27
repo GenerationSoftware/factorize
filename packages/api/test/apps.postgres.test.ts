@@ -17,18 +17,18 @@ describe.skipIf(!url)("Registered apps", () => {
     const oauth = new ApiService(f.env, { ...f.auth, authMethod: "oauth", scopes: ["apps:manage"] });
     const unscoped = new ApiService(f.env, { ...f.auth, authMethod: "oauth", scopes: ["team:write"] });
     const browser = new ApiService(f.env, { ...f.auth, scopes: ["apps:manage", "team:read", "team:write"] });
-    await expect(unscoped.createApp(input)).rejects.toMatchObject({ status: 403 });
-    const app = await oauth.createApp(input);
+    await expect(unscoped.apps.createApp(input)).rejects.toMatchObject({ status: 403 });
+    const app = await oauth.apps.createApp(input);
     expect(app).toMatchObject({ enabled: true, public: false, secretConfigured: false });
-    expect(await oauth.getApp(app.id)).toEqual(app);
-    await expect(oauth.rotateAppSecret(app.id)).rejects.toMatchObject({ status: 403 });
-    const first = await browser.rotateAppSecret(app.id);
-    const second = await browser.rotateAppSecret(app.id);
+    expect(await oauth.apps.getApp(app.id)).toEqual(app);
+    await expect(oauth.apps.rotateAppSecret(app.id)).rejects.toMatchObject({ status: 403 });
+    const first = await browser.apps.rotateAppSecret(app.id);
+    const second = await browser.apps.rotateAppSecret(app.id);
     expect(first.clientSecret).not.toBe(second.clientSecret);
     const stored = await f.db.pool.query("SELECT secret_digest FROM app.oauth_apps WHERE id=$1", [app.id]);
     expect(stored.rows[0].secret_digest).toBe(await accessTokenDigest(second.clientSecret));
-    expect(await oauth.getApp(app.id)).toMatchObject({ secretConfigured: true });
-    expect(await oauth.getApp(app.id)).not.toHaveProperty("clientSecret");
+    expect(await oauth.apps.getApp(app.id)).toMatchObject({ secretConfigured: true });
+    expect(await oauth.apps.getApp(app.id)).not.toHaveProperty("clientSecret");
     const response = await f.request("/api/v1/apps/" + app.id);
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ id: app.id, secretConfigured: true });
@@ -36,12 +36,12 @@ describe.skipIf(!url)("Registered apps", () => {
     await f.db.pool.query("INSERT INTO app.members(tenant_id,user_id,email,role,session_version) VALUES($1,$2,$3,'owner',$4)",
       [f.otherTenant, f.userId, owner.rows[0].email, f.auth.sessionVersion]);
     const other = new ApiService(f.env, { ...f.auth, tenantId: f.otherTenant, authMethod: "oauth", scopes: ["apps:manage"] });
-    await expect(other.getApp(app.id)).rejects.toMatchObject({ status: 404 });
+    await expect(other.apps.getApp(app.id)).rejects.toMatchObject({ status: 404 });
 
     await f.db.pool.query(`INSERT INTO app.oauth_app_connections(app_id,tenant_id,user_id,session_version,scopes)
       VALUES($1,$2,$3,$4,ARRAY['openid'])`, [app.id, f.tenantId, f.userId, f.auth.sessionVersion]);
-    expect(await browser.listConnectedApps()).toMatchObject([{ appId: app.id, name: app.name, scopes: ["openid"] }]);
-    await oauth.updateApp(app.id, { ...input, public: true, enabled: false });
-    expect(await browser.listConnectedApps()).toEqual([]);
+    expect(await browser.apps.listConnectedApps()).toMatchObject([{ appId: app.id, name: app.name, scopes: ["openid"] }]);
+    await oauth.apps.updateApp(app.id, { ...input, public: true, enabled: false });
+    expect(await browser.apps.listConnectedApps()).toEqual([]);
   });
 });

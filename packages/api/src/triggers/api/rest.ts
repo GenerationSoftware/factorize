@@ -32,7 +32,7 @@ export const eventContextRoutes = [
   route("GET", "/api/v1/event-contexts", "triggers:read", {
     summary: "Get template autocomplete metadata",
     responses: { "200": { description: "Paths by event kind/provider", content: { "application/json": { schema: jsonSchema(z.record(z.string(), z.array(z.object({ path: z.string(), type: z.enum(["string", "number", "boolean", "object", "array", "unknown"]), description: z.string(), example: z.unknown().optional() }))), "output") } } } },
-  }, service => service.eventContextMetadata()),
+  }, service => service.triggers.eventContextMetadata()),
 ] satisfies RouteContract[];
 
 export const triggerEditorRoutes = [
@@ -44,7 +44,7 @@ export const triggerEditorRoutes = [
       summary: "List available event kinds",
       responses: { "200": { description: "Availability", content: { "application/json": { schema: jsonSchema(eventAvailabilityResponse, "output") } } } },
     },
-    (service) => service.listTriggerEventAvailability(),
+    (service) => service.triggers.listTriggerEventAvailability(),
   ),
   route(
     "POST",
@@ -69,7 +69,7 @@ export const triggerEditorRoutes = [
         },
       },
     },
-    (service, { body }) => service.previewSchedule(body),
+    (service, { body }) => service.triggers.previewSchedule(body),
     { body: scheduleBody },
   ),
 ] satisfies RouteContract[];
@@ -92,17 +92,17 @@ export const triggerActionRoutes = [
         },
       },
     },
-    (service) => service.listTriggers(),
+    (service) => service.triggers.listTriggers(),
   ),
   route(
     "POST",
     "/api/v1/triggers",
     "triggers:write",
     { summary: "Create trigger", responses: { "201": { description: "Created", content: { "application/json": { schema: jsonSchema(triggerResponse, "output") } } } } },
-    (service, { body }) => service.createTrigger(body),
+    (service, { body }) => service.triggers.createTrigger(body),
     { body: triggerInputSchema },
   ),
-  route("POST", "/api/v1/triggers/{triggerId}/fire", "triggers:write", { summary: "Fire a Trigger and create an Event occurrence", responses: { "200": { description: "Event occurrence receipt", content: { "application/json": { schema: jsonSchema(z.object({ occurrenceId: z.uuid().nullable(), duplicate: z.boolean(), evaluationId: z.uuid().optional() }), "output") } } } } }, (service, { params, body }) => service.fireTrigger(params.triggerId, body), { parameters: z.object({ triggerId: z.uuid() }), body: fireTriggerInputSchema }),
+  route("POST", "/api/v1/triggers/{triggerId}/fire", "triggers:write", { summary: "Fire a Trigger and create an Event occurrence", responses: { "200": { description: "Event occurrence receipt", content: { "application/json": { schema: jsonSchema(z.object({ occurrenceId: z.uuid().nullable(), duplicate: z.boolean(), evaluationId: z.uuid().optional() }), "output") } } } } }, (service, { params, body }) => service.triggers.fireTrigger(params.triggerId, body), { parameters: z.object({ triggerId: z.uuid() }), body: fireTriggerInputSchema }),
   route(
     "POST",
     "/api/v1/trigger-conditions/test",
@@ -112,7 +112,7 @@ export const triggerActionRoutes = [
       description: "Evaluates supplied prepared webhook context only; does not authenticate the example, route events, verify GitHub state, or invoke triggers.",
       responses: { "200": { description: "Decision", content: { "application/json": { schema: jsonSchema(z.object({ decision: z.enum(["match", "no-match", "error"]), error: z.string().optional(), details: z.array(z.record(z.string(), z.unknown())) }), "output") } } } },
     },
-    (service, { body }) => service.testTriggerConditions(body),
+    (service, { body }) => service.triggers.testTriggerConditions(body),
     { body: triggerConditionsTestSchema, maxBodyBytes: 300_000 },
   ),
 ] satisfies RouteContract[];
@@ -136,7 +136,7 @@ export const triggerHistoryRoutes = [
       },
     },
     (service, { params, query }) =>
-      service.listTriggerEvents(params.triggerId, query.limit),
+      service.triggers.listTriggerEvents(params.triggerId, query.limit),
     { query: eventQuery },
   ),
   route(
@@ -144,7 +144,7 @@ export const triggerHistoryRoutes = [
     "/api/v1/triggers/{triggerId}/enable",
     "triggers:write",
     { summary: "Enable trigger", responses: { "200": { description: "Enabled" } } },
-    (service, { params }) => service.setTriggerEnabled(params.triggerId, true),
+    (service, { params }) => service.triggers.setTriggerEnabled(params.triggerId, true),
   ),
   route(
     "POST",
@@ -154,14 +154,14 @@ export const triggerHistoryRoutes = [
       summary: "Disable trigger",
       responses: { "200": { description: "Disabled" } },
     },
-    (service, { params }) => service.setTriggerEnabled(params.triggerId, false),
+    (service, { params }) => service.triggers.setTriggerEnabled(params.triggerId, false),
   ),
   route(
     "GET",
     "/api/v1/triggers/{triggerId}",
     "triggers:read",
     { summary: "Get trigger", responses: { "200": { description: "Trigger", content: { "application/json": { schema: jsonSchema(triggerResponse, "output") } } } } },
-    (service, { params }) => service.getTrigger(params.triggerId),
+    (service, { params }) => service.triggers.getTrigger(params.triggerId),
   ),
   route(
     "PUT",
@@ -172,7 +172,7 @@ export const triggerHistoryRoutes = [
       description: "Supply expectedUpdatedAt from GET for atomic optimistic concurrency. Stale edits return 409 stale_trigger. Omission uses last-writer-wins updates. Retain each source ID to preserve its identity when its kind stays the same.",
       responses: { "200": { description: "Updated", content: { "application/json": { schema: jsonSchema(triggerResponse, "output") } } }, "409": { description: "stale_trigger: reload and reconcile before retrying" } },
     },
-    (service, { params, body }) => service.updateTrigger(params.triggerId, body),
+    (service, { params, body }) => service.triggers.updateTrigger(params.triggerId, body),
     { body: triggerUpdateInput },
   ),
   route(
@@ -180,7 +180,7 @@ export const triggerHistoryRoutes = [
     "/api/v1/triggers/{triggerId}",
     "triggers:write",
     { summary: "Delete trigger", responses: { "200": { description: "Deleted" } } },
-    (service, { params }) => service.deleteTrigger(params.triggerId),
+    (service, { params }) => service.triggers.deleteTrigger(params.triggerId),
   ),
   route(
     "GET",
@@ -192,7 +192,7 @@ export const triggerHistoryRoutes = [
         "200": { description: "Cursor-paginated safe delivery records" },
       },
     },
-    (service, { query }) => service.listWebhookDeliveries(queryOf(query)),
+    (service, { query }) => service.triggers.listWebhookDeliveries(queryOf(query)),
     { query: deliveryQuery },
   ),
   route(
@@ -203,6 +203,6 @@ export const triggerHistoryRoutes = [
       summary: "Get webhook delivery detail and processing timeline",
       responses: { "200": { description: "Safe delivery detail" } },
     },
-    (service, { params }) => service.getWebhookDelivery(params.deliveryId),
+    (service, { params }) => service.triggers.getWebhookDelivery(params.deliveryId),
   ),
 ] satisfies RouteContract[];
