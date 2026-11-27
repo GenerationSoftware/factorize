@@ -25,8 +25,14 @@ export function requireVmGrantProvider(provider: VmProvider) {
 const flyApp = z.object({ name: z.string(), organization: z.object({ slug: z.string() }) });
 const flyMachine = z.object({ id: z.string(), name: z.string().min(1), state: z.string() });
 const flyExec = z.object({ stdout: z.string().max(44_000), exit_code: z.literal(0) });
-const flyOidc = z.object({ token: z.string().min(1).max(16_384) });
 const base64 = /^[A-Za-z0-9+/]+={0,2}$/;
+
+function parseFlyOidcToken(body: string): string {
+  // Fly's guest socket returns a compact JWT, not a JSON object.
+  const token = body.trim();
+  if (token.length > 16_384 || !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(token)) throw unavailable();
+  return token;
+}
 
 const enrollmentScript = `set -efu
 umask 077
@@ -102,7 +108,7 @@ export async function flyVmGrantProvider(env: Env, grant: Pick<VmGrant, "id" | "
         const jwk = publicKey.export({ format: "jwk" });
         if (jwk.kty !== "EC" || jwk.crv !== "P-256"
             || !verify("sha256", Buffer.from(challenge), publicKey, Buffer.from(material[1]!, "base64"))) throw unavailable();
-        const identityToken = flyOidc.parse(JSON.parse(Buffer.from(material[2]!, "base64").toString("utf8"))).token;
+        const identityToken = parseFlyOidcToken(Buffer.from(material[2]!, "base64").toString("utf8"));
         const trust = await discoverVendorIssuerTrust(binding);
         await verifyVendorMachineIdentity({ token: identityToken, binding, resolveKey: trust.resolveKey });
         return { machine_key: binding.machineKey, issuer: binding.issuer, subject: binding.subject, public_key: jwk };
