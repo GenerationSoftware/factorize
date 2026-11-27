@@ -7,6 +7,7 @@ import {
   tableCellClasses, tableHeadClasses, tableRowClasses,
 } from "../../shared/ui";
 import { messageOf, sessionQuery } from "../auth/session";
+import { integrationPoliciesQuery } from "../access-control/queries";
 import { vmGrantsQuery, type WorkloadGrant as Grant } from "./queries";
 
 const vmName = (grant: Grant) => grant.app ? `${grant.app}/${grant.vm}` : grant.vm;
@@ -71,6 +72,10 @@ function VmGrantActions({ grant }: { grant: Grant }) {
   const [editRevision, setEditRevision] = useState<number>();
   const [scopeText, setScopeText] = useState("");
   const [error, setError] = useState("");
+  const registryPolicies = useQuery({...integrationPoliciesQuery, enabled: editRevision !== undefined, retry: false});
+  const registryScopes = registryPolicies.data?.integrations.filter(row => row.kind === "ghcr" && row.available && row.policy !== "disabled") ?? [];
+  const selectedScopes = scopeText.split(/\s+/).filter(Boolean);
+  const toggleRegistry = (scope: string) => setScopeText(selectedScopes.includes(scope) ? selectedScopes.filter(item => item !== scope).join("\n") : [...new Set([...selectedScopes,"proxy:use",scope])].join("\n"));
 
   const refresh = () => cache.invalidateQueries({ queryKey: vmGrantsQuery.queryKey });
   const save = useMutation({
@@ -118,6 +123,13 @@ function VmGrantActions({ grant }: { grant: Grant }) {
     {editRevision !== undefined && <div className="mt-5">
       <form className="grid gap-4" onSubmit={event => { event.preventDefault(); setError(""); save.mutate(editRevision); }}>
         <h2>Edit permissions for {vmName(grant)}</h2>
+        {!!registryScopes.length && <fieldset className="grid gap-2">
+          <legend>GitHub Container Registry</legend>
+          {registryScopes.map(row => <label key={row.id} className="flex items-center gap-2">
+            <input type="checkbox" checked={selectedScopes.includes(row.requiredScope)} onChange={() => toggleRegistry(row.requiredScope)} />
+            {row.name}
+          </label>)}
+        </fieldset>}
         <Label>Permission scopes<Textarea value={scopeText} onChange={event => setScopeText(event.target.value)} /></Label>
         <div className="flex flex-wrap gap-2">
           <Button type="button" disabled={busy} onClick={() => setEditRevision(undefined)}>Cancel</Button>

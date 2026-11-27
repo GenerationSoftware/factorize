@@ -1,3 +1,5 @@
+import { ghcrAccept, ghcrOrigin, ghcrReadPath, ghcrToken } from "../../integrations/providers/ghcr";
+import { GhcrConnections } from "../../integrations/storage/ghcr-connections";
 import { appConfig, signingConfig } from "../../config/runtime";
 import { cloudflareCredential } from "../../integrations/providers/cloudflare-oauth";
 import type { Env } from "../../types";
@@ -11,9 +13,18 @@ import { FlyConnectionRepository } from "../storage/fly-connection-repository";
 import { isPublicHttpsOrigin } from "../../proxy/transport/public-address";
 
 /** Only call after shared identity/grant authorization. No caller origin or secret. */
-export async function resolveAgentCredential(env: Env, tenantId: string, kind: string, credentialId: string, relativePath: string): Promise<OutboundCredential | null> {
+export async function resolveAgentCredential(env: Env, tenantId: string, kind: string, credentialId: string, relativePath: string, method = "GET"): Promise<OutboundCredential | null> {
   if (kind === "cloudflare") return cloudflareCredential(env, tenantId, credentialId, relativePath);
   const database = databaseFor(env);
+  if (kind === "ghcr") {
+    if (credentialId.endsWith(":push")) return null;
+    const record = await new GhcrConnections(database, tenantId, signingConfig(env).credentialKey).credential(credentialId);
+    if (!record) return null;
+    const path = ghcrReadPath(record.image, relativePath, method);
+    return { origin: ghcrOrigin, path, credential: await ghcrToken(record),
+      requestHeaders: [], responseBytes: 2 * 1024 * 1024, responseHeaders: ["content-type","docker-content-digest"],
+      headers: { Accept: path.includes("/manifests/") ? ghcrAccept : "application/json" } };
+  }
   if (kind === "fly") {
     if (credentialId !== "fly") return null;
     const token = await new FlyConnectionRepository(database, tenantId, signingConfig(env).credentialKey).token();

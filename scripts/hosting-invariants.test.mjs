@@ -6,7 +6,7 @@ test("static cutover preserves the existing production Worker and state identiti
   const current = JSON.parse(readFileSync(new URL("../packages/api/wrangler.jsonc", import.meta.url)));
   const { assets: oldAssets, r2_buckets: oldBuckets, ...oldBackend } = baseline;
   const { assets, routes, r2_buckets: buckets, ...backend } = current;
-  assert.deepEqual(routes, [{ pattern: "app.factorize.sh", custom_domain: true }, { pattern: "git.factorize.sh", custom_domain: true }]);
+  assert.deepEqual(routes, [{ pattern: "app.factorize.sh", custom_domain: true }, { pattern: "git.factorize.sh", custom_domain: true }, { pattern: "ghcr.factorize.sh", custom_domain: true }]);
   const { durable_objects: nextObjects, migrations: nextMigrations, build, observability, upload_source_maps, ...nextWorker } = backend;
   const { durable_objects: oldObjects, migrations: oldMigrations, ...oldWorker } = oldBackend;
   assert.deepEqual(nextWorker, oldWorker);

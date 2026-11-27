@@ -1,4 +1,4 @@
-export type AgentIntegration = {id: string; kind: "bearer" | "model" | "github" | "linear" | "fly" | "exe" | "amp" | "clickup" | "x" | "cloudflare" | "hetzner"; credential_id: string; name: string; description: string | null; available: boolean; policy: "baseline" | "requestable" | "disabled"; epoch: number; operation_epoch: number; revision: number};
+export type AgentIntegration = {id: string; kind: "bearer" | "model" | "github" | "linear" | "fly" | "exe" | "amp" | "clickup" | "x" | "cloudflare" | "hetzner" | "ghcr"; credential_id: string; name: string; description: string | null; available: boolean; policy: "baseline" | "requestable" | "disabled"; epoch: number; operation_epoch: number; revision: number};
 export const requiredIntegrationScope = (row: AgentIntegration) => `integration:${row.id}:${row.epoch}`;
 export type ConnectionPolicy = { integration_overrides: Record<string, string | false>; disabled_scopes: string[] };
 export function connectionAccess(row: AgentIntegration, scopes: string[], policy: ConnectionPolicy, explicitIntegrationScopes = false) {

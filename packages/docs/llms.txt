@@ -22,6 +22,7 @@ Factorize publishes Event occurrences; subscribers decide what to do with them.
 ## Account integrations
 
 - [AWS](https://docs.factorize.sh/integrations/aws): Run AWS Code Mode through a dedicated IAM role without giving Factorize an AWS access key.
+- [GitHub Container Registry](https://docs.factorize.sh/integrations/ghcr): Pull and push a GitHub-hosted image from an approved Factorize workload.
 
 ## Event sources
 

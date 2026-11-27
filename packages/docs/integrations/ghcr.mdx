@@ -1,0 +1,26 @@
+---
+title: GitHub Container Registry
+description: Pull and push a GitHub-hosted image from an approved Factorize workload.
+---
+
+Factorize proxies Docker traffic to GitHub at `ghcr.factorize.sh`. Images are still stored at GitHub Container Registry. The GitHub credential never leaves Factorize, and the proxy checks the workload's current grant on every request.
+
+## Connect an image
+
+1. In **Integrations**, add **GitHub Container Registry**. Enter the exact `owner/image`, the GitHub username, and a classic personal access token for that account.
+2. Use `read:packages` for pull only or `write:packages` for pushes. The GitHub account also needs the corresponding access to the package. Do not add `repo` or `delete:packages`; authorize organization SSO when needed.
+3. In **Workloads**, add `proxy:use` and select the image's **Pull** or **Push** permission as needed. Neither is automatically added. A Push grant allows the metadata checks Docker needs to upload, but does not grant layer downloads. Deleting a connection removes both permissions.
+
+## Run Docker on the enrolled VM
+
+Use the [VM OIDC token and request proof](/mcp/tools#authenticate-from-an-enrolled-machine) to send a signed request to `POST /api/v1/agent/registry/ghcr/login` with the exact connected image and the action for this operation:
+
+```json
+{"image":"owner/image","access":"pull"}
+```
+
+The response contains `registry`, `image`, `username`, `password`, and `expiresAt`. The password is only a Factorize login: treat it as a secret and use it on the enrolled workload's Docker client with a trusted daemon. It expires no later than the provider identity or 15 minutes or when its grant is edited or revoked, whichever comes first. Do not write it to logs or pass it on the command line. Store it only in a temporary Docker configuration and remove it after use.
+
+For a pull, after logging in, use `docker pull ghcr.factorize.sh/owner/image:tag`. For a push, request `"access":"push"`, log in with that password, tag the local image as `ghcr.factorize.sh/owner/image:tag`, then run `docker push ghcr.factorize.sh/owner/image:tag`. The Factorize hostname is intentional. Requests to `ghcr.io` directly bypass the grant. Use a fresh login if a long operation expires and retry safely.
+
+The generic Factorize API still supports reading tags and manifests. Only the Docker registry hostname supports layer transfers. Docker can upload a large layer in one request, which is limited by the deployment's HTTP ingress. Package deletion is not supported.

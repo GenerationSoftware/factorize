@@ -1,3 +1,5 @@
+import { ghcrRegistryHost } from "./integrations/application/ghcr-workload";
+import { ghcrRegistryHttp } from "./integrations/api/ghcr-registry-http";
 import { awsIssuerResponse } from "./integrations/providers/aws/issuer";
 import { dispatchOAuth, provider, proxyOAuthResponse, withOAuthProvider } from "./auth/transport/worker-oauth";
 import { runScheduledMaintenance } from "./runtime/scheduled-maintenance";
@@ -31,6 +33,7 @@ export class AlarmCoordinator extends BaseAlarmCoordinator {
   }
 }
 const backend = { async fetch(request: Request, env: Env, ctx: ExecutionContext) {
+  if (new URL(request.url).hostname === ghcrRegistryHost) return ghcrRegistryHttp(request, env);
   if (new URL(request.url).hostname === "git.factorize.sh") return new Response("Not found", { status: 404 });
   if (new URL(request.url).pathname === cloudflareCallback) return cloudflareOAuthCallback(request, env);
   if (new URL(request.url).pathname === googleCallbackPath) return googleSignInCallback(request, env);

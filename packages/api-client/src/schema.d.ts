@@ -1320,6 +1320,60 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/integrations/ghcr": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List GitHub Container Registry connections
+         * @description Requires the integrations:read scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        get: operations["get_api_v1_integrations_ghcr"];
+        put?: never;
+        /**
+         * Connect one GitHub Container Registry image
+         * @description Save a classic GitHub personal access token for one fixed image. Use read:packages for pulls or write:packages to additionally allow pushes. GitHub credentials are never returned.
+         *
+         *     Requires the integrations:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        post: operations["post_api_v1_integrations_ghcr"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integrations/ghcr/{connectionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Replace a GitHub Container Registry credential
+         * @description Rotate the credential without changing the image or its client approvals.
+         *
+         *     Requires the integrations:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        put: operations["put_api_v1_integrations_ghcr_connectionId"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/integrations/removal/preview": {
         parameters: {
             query?: never;
@@ -2121,6 +2175,30 @@ export interface paths {
          *     Accepts a scoped bearer token or interactive owner session.
          */
         delete: operations["delete_api_v1_providers_github_installations_installationId"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agent/registry/ghcr/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Issue a temporary GitHub Container Registry proxy login for a VM
+         * @description Requires an active VM grant and a fresh provider OIDC token and VM request proof. Select Pull or Push explicitly for the connection. The returned credential works only with ghcr.factorize.sh; live permissions are checked on each registry request. GitHub credentials are never returned.
+         *
+         *     Requires the proxy:use scope.
+         *
+         *     Accepts a scoped bearer token or interactive owner session.
+         */
+        post: operations["post_api_v1_agent_registry_ghcr_login"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -6106,6 +6184,128 @@ export interface operations {
             503: components["responses"]["Error503"];
         };
     };
+    get_api_v1_integrations_ghcr: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Secret-free connections */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        image: string;
+                        username: string;
+                        revision: number;
+                    }[];
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_integrations_ghcr: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    image: string;
+                    username: string;
+                    token: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Connection saved */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        image: string;
+                        username: string;
+                        revision: number;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    put_api_v1_integrations_ghcr_connectionId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                connectionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    username: string;
+                    token: string;
+                    expectedRevision: number;
+                };
+            };
+        };
+        responses: {
+            /** @description Credential replaced */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        image: string;
+                        username: string;
+                        revision: number;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
     post_api_v1_integrations_removal_preview: {
         parameters: {
             query?: never;
@@ -6117,7 +6317,7 @@ export interface operations {
             content: {
                 "application/json": {
                     /** @enum {string} */
-                    kind: "linear" | "exe" | "amp" | "github" | "cloudflareTail" | "cloudflare" | "fly" | "bearer";
+                    kind: "linear" | "exe" | "amp" | "github" | "cloudflareTail" | "cloudflare" | "fly" | "bearer" | "ghcr";
                     id: string;
                 };
             };
@@ -6185,7 +6385,7 @@ export interface operations {
             content: {
                 "application/json": {
                     /** @enum {string} */
-                    kind: "linear" | "exe" | "amp" | "github" | "cloudflareTail" | "cloudflare" | "fly" | "bearer";
+                    kind: "linear" | "exe" | "amp" | "github" | "cloudflareTail" | "cloudflare" | "fly" | "bearer" | "ghcr";
                     id: string;
                     fingerprint: string;
                     confirmImpact: boolean;
@@ -7673,6 +7873,52 @@ export interface operations {
             503: components["responses"]["Error503"];
         };
     };
+    post_api_v1_agent_registry_ghcr_login: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    image: string;
+                    /** @enum {string} */
+                    access: "pull" | "push";
+                };
+            };
+        };
+        responses: {
+            /** @description Short-lived Factorize registry login */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        registry: "ghcr.factorize.sh";
+                        image: string;
+                        /** @constant */
+                        username: "factorize";
+                        password: string;
+                        /** Format: date-time */
+                        expiresAt: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
     get_api_v1_agent_reflection: {
         parameters: {
             query?: never;
@@ -7714,7 +7960,7 @@ export interface operations {
                             name: string;
                             description: string | null;
                             /** @enum {string} */
-                            kind: "bearer" | "github" | "linear" | "model" | "fly" | "exe" | "amp" | "clickup" | "x" | "cloudflare" | "hetzner";
+                            kind: "bearer" | "github" | "linear" | "model" | "fly" | "exe" | "amp" | "clickup" | "x" | "cloudflare" | "hetzner" | "ghcr";
                             /** @enum {string} */
                             policy: "baseline" | "requestable" | "disabled";
                             available: boolean;
@@ -8538,7 +8784,7 @@ export interface operations {
                             name: string;
                             description: string | null;
                             /** @enum {string} */
-                            kind: "bearer" | "github" | "linear" | "model" | "fly" | "exe" | "amp" | "clickup" | "x" | "cloudflare" | "hetzner";
+                            kind: "bearer" | "github" | "linear" | "model" | "fly" | "exe" | "amp" | "clickup" | "x" | "cloudflare" | "hetzner" | "ghcr";
                             /** @enum {string} */
                             policy: "baseline" | "requestable" | "disabled";
                             available: boolean;
@@ -8591,7 +8837,7 @@ export interface operations {
                             name: string;
                             description: string | null;
                             /** @enum {string} */
-                            kind: "bearer" | "github" | "linear" | "model" | "fly" | "exe" | "amp" | "clickup" | "x" | "cloudflare" | "hetzner";
+                            kind: "bearer" | "github" | "linear" | "model" | "fly" | "exe" | "amp" | "clickup" | "x" | "cloudflare" | "hetzner" | "ghcr";
                             /** @enum {string} */
                             policy: "baseline" | "requestable" | "disabled";
                             available: boolean;

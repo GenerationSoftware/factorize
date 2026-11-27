@@ -63,6 +63,10 @@ export async function resolveVmPermissions(db: DatabaseClient, auth: OAuthProps,
 
   const scopes = [...new Set(selected)];
   const integrations = await integrationPolicies(db, auth.tenantId, scopes);
+  if (auth.authMethod === "session" && [...integrations.values()].some(row =>
+    row.kind === "ghcr" && row.available && row.policy !== "disabled")) {
+    effective.add("proxy:use");
+  }
   for (const scope of scopes) {
     if (disabled.has(scope)) throw forbidden();
     if (standardScopes.has(scope)) {
@@ -73,7 +77,9 @@ export async function resolveVmPermissions(db: DatabaseClient, auth: OAuthProps,
     if (!integration || !integration.available || integration.policy === "disabled" || !effective.has("proxy:use")) throw forbidden();
     if (auth.authMethod === "oauth") {
       if (connectionAccess(integration, [...effective], policy ?? { disabled_scopes: [], integration_overrides: installation ? {} : initialIntegrationOverrides(auth.initialIntegrationDenials) }, !!installation || auth.explicitIntegrationScopes) !== "granted") throw forbidden();
-    } else if (!effective.has(scope)) {
+    } else if (!effective.has(scope) && !(auth.authMethod === "session" && integration.kind === "ghcr")) {
+      // An authenticated owner browser may assign either listed registry action.
+      // OAuth, VM, and other credential types cannot delegate unheld permissions.
       throw forbidden();
     }
   }

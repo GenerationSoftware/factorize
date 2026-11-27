@@ -1,3 +1,4 @@
+import { ghcrPushCredentialId } from "./ghcr-workload";
 import { z } from "zod";
 import { hmac } from "../../crypto";
 import { AgentApiError } from "../../proxy/api/agent-api-error";
@@ -36,6 +37,9 @@ export class IntegrationRemoval {
     } else if (kind === "fly") {
       if (id !== "fly") throw notFound();
       credential = await first("SELECT xmin::text AS stamp FROM app.fly_connections WHERE tenant_id=$1", [tenant]);
+    } else if (kind === "ghcr") {
+      if (!z.uuid().safeParse(id).success) throw notFound();
+      credential = await first("SELECT xmin::text AS stamp FROM app.ghcr_connections WHERE tenant_id=$1 AND id=$2", [tenant,id]);
     } else if (kind === "cloudflare") {
       if (!z.uuid().safeParse(id).success) throw notFound();
       // Serialize with the Cloudflare authorize/refresh lifecycle before locking the credential.
@@ -50,14 +54,20 @@ export class IntegrationRemoval {
         WHERE tenant_id=$1 AND id=$2 AND kind='bearer' AND deleted_at IS NULL`, [tenant,id]);
     }
     if (!credential) throw notFound();
-    const registration = (await sql.query<Registration>("SELECT id,revision,epoch FROM app.agent_integrations WHERE tenant_id=$1 AND kind=$2 AND credential_id=$3" + rowLock, [tenant,kind,id])).rows[0];
-    const topology = await inspectIntegrationTopology(sql,tenant,{...target,registrationId:registration?.id ?? null});
-    const access = registration ? await inspectIntegrationAccess(sql,tenant,registration.id) : null;
+    const credentialIds = kind === "ghcr" ? [id,ghcrPushCredentialId(id)] : [id];
+    const registrations = (await sql.query<Registration & { credential_id: string }>(
+      "SELECT id,revision,epoch,credential_id FROM app.agent_integrations WHERE tenant_id=$1 AND kind=$2 AND credential_id=ANY($3::text[]) ORDER BY id" + rowLock,
+      [tenant,kind,credentialIds])).rows;
+    const primary = registrations.find(row => row.credential_id === id);
+    const topology = await inspectIntegrationTopology(sql,tenant,{...target,registrationId:primary?.id ?? null});
+    const access = [];
+    for (const registration of registrations) access.push({registration, snapshot:await inspectIntegrationAccess(sql,tenant,registration.id)});
     const {versions,...visibleTopology} = topology;
-    const {evidence,...visibleAccess} = access ?? {clients:[],workloads:[],evidence:null};
-    const summary = { ...visibleTopology, ...visibleAccess, needsConfirmation: Boolean(topology.sources.length || topology.lookups.length || visibleAccess.clients.length || visibleAccess.workloads.length) };
-    const fingerprint = await hmac(JSON.stringify([tenant,this.owner.userId,this.owner.sessionVersion,target,credential.stamp,registration,collectionRevision,versions,evidence,summary]),this.signingSecret);
-    return { preview: integrationRemovalPreview.parse({...summary,fingerprint}), credential, registration, topology, access, collectionRevision };
+    const clients = [...new Map(access.flatMap(a=>a.snapshot.clients).map(client=>[client.id,client])).values()];
+    const workloads = [...new Map(access.flatMap(a=>a.snapshot.workloads).map(workload=>[workload.id,workload])).values()];
+    const summary = { ...visibleTopology, clients, workloads, needsConfirmation: Boolean(topology.sources.length || topology.lookups.length || clients.length || workloads.length) };
+    const fingerprint = await hmac(JSON.stringify([tenant,this.owner.userId,this.owner.sessionVersion,target,credential.stamp,registrations,collectionRevision,versions,access.map(item=>item.snapshot.evidence),summary]),this.signingSecret);
+    return { preview: integrationRemovalPreview.parse({...summary,fingerprint}), credential, registrations, topology, access, collectionRevision };
   }
 
   async preview(target: IntegrationRemovalTarget) {
@@ -79,8 +89,7 @@ export class IntegrationRemoval {
       if (before.preview.fingerprint !== impact.preview.fingerprint) throw stale();
       if ((confirmation && confirmation.fingerprint !== impact.preview.fingerprint) || (impact.preview.needsConfirmation && !confirmation?.confirmImpact)) throw stale();
       await applyIntegrationTopology(sql,tenant,impact.topology);
-      const registry = impact.registration;
-      if (registry && impact.access) await removeIntegrationAccess(sql,tenant,registry.id,impact.access);
+      for (const {registration,snapshot} of impact.access) await removeIntegrationAccess(sql,tenant,registration.id,snapshot);
       const {kind,id} = target;
       let journal: {revision:number;duplicate:boolean} | undefined;
       if (kind === "bearer") {
@@ -98,6 +107,8 @@ export class IntegrationRemoval {
         await sql.query("DELETE FROM app.github_installations WHERE tenant_id=$1 AND installation_id=$2", [tenant,id]);
       } else if (kind === "fly") {
         await sql.query("DELETE FROM app.fly_connections WHERE tenant_id=$1", [tenant]);
+      } else if (kind === "ghcr") {
+        await sql.query("DELETE FROM app.ghcr_connections WHERE tenant_id=$1 AND id=$2", [tenant,id]);
       } else if (kind === "cloudflare") {
         await sql.query("UPDATE app.cloudflare_connections SET encrypted_credentials=NULL WHERE tenant_id=$1 AND id=$2", [tenant,id]);
         // Only the current singleton is replaceable by an in-flight OAuth dialog.
@@ -105,7 +116,7 @@ export class IntegrationRemoval {
       } else {
         await sql.query("DELETE FROM app.connections WHERE tenant_id=$1 AND kind=$2", [tenant,(kind === "cloudflareTail" ? "cloudflare-tail" : kind) + ":" + id]);
       }
-      if (registry) {
+      for (const registry of impact.registrations) {
         await sql.query("DELETE FROM app.team_permission_defaults WHERE tenant_id=$1 AND permission=$2", [tenant,"integration:"+registry.id]);
         // Provider/database synchronization can leave an inactive registry row. Keep only concrete
         // FK anchors for retained receipts/operation history or already-revoked VM grants.

@@ -3,7 +3,8 @@
   "name": "factorize",
   "routes": [
     { "pattern": "app.factorize.sh", "custom_domain": true },
-    { "pattern": "git.factorize.sh", "custom_domain": true }
+    { "pattern": "git.factorize.sh", "custom_domain": true },
+    { "pattern": "ghcr.factorize.sh", "custom_domain": true }
   ],
   "main": "src/cloudflare-entry.ts",
   "upload_source_maps": true,
