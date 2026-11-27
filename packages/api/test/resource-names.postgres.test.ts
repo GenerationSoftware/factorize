@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { resourceName } from "../src/resource-names";
+import { resourceName } from "../src/triggers/api/resource-names";
 import { triggerInputSchema } from "../src/triggers/api/trigger-schemas";
 import { loadingFixture } from "./helpers/loading-fixture";
 

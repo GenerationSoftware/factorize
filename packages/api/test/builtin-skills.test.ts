@@ -2,7 +2,7 @@ import {describe,it,expect} from "vitest";
 import {readFile,mkdtemp,writeFile,rm} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {resolve} from "node:path";
-import {builtinSkillDocuments,builtinSkillsVersion,builtinSkillUri,builtinSkill,builtinSkillEntry,builtinSkillResource} from "../src/builtin-skills";
+import {builtinSkillDocuments,builtinSkillsVersion,builtinSkillUri,builtinSkill,builtinSkillEntry,builtinSkillResource} from "../src/skills/builtin-skills";
 
 describe("build-shipped workflow catalog",()=>{
  it("ships the standalone management documents with exact canonical bytes and manifests",async()=>{

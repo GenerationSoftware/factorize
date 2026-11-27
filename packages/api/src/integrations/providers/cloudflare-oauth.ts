@@ -1,8 +1,8 @@
 import { appConfig, cloudflareOAuthConfig, signingConfig } from "../../config/runtime";
 import { z } from "zod";
-import { readBrowserSession } from "../../browser-session";
-import { requestCookie } from "../../session";
-import { IdentityRepository } from "../../postgres/identity-repository";
+import { readBrowserSession } from "../../auth/application/browser-session";
+import { requestCookie } from "../../auth/application/session";
+import { IdentityRepository } from "../../auth/storage/identity-repository";
 import { databaseFor, type DatabaseClient } from "../../postgres/database";
 import { decrypt, encrypt } from "../../crypto";
 import { AgentApiError } from "../../proxy/api/agent-api-error";

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { loadingFixture } from "./helpers/loading-fixture";
 import { protectedApiFetch } from "../src/protected-api";
-import { deviceAuthorization } from "../src/device-oauth";
+import { deviceAuthorization } from "../src/auth/transport/device-oauth";
 vi.mock("cloudflare:workers", () => ({ WorkerEntrypoint: class {}, DurableObject: class {} }));
 vi.mock("@cloudflare/workers-oauth-provider", () => ({ OAuthProvider: class {}, AuthorizationError: class extends Error {}, getOAuthApi: vi.fn() }));
 const url = process.env.AUTH_TEST_DATABASE_URL;

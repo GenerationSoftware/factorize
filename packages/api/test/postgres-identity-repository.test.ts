@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { IdentityRepository } from "../src/postgres/identity-repository";
+import { IdentityRepository } from "../src/auth/storage/identity-repository";
 
 describe("IdentityRepository", () => {
   it("tenant-qualifies member reads", async () => {

@@ -1,6 +1,6 @@
 import { signingConfig } from "../../config/runtime";
 import type { Env, OAuthProps } from "../../types";
-import type { AGENT_SCOPES } from "../../access-tokens";
+import type { AGENT_SCOPES } from "../../access-control/domain/scopes";
 import { authorizeEnrichment } from "../../events/application/event-enrichment";
 
 import { eventContextCatalog } from "../domain/trigger-context";

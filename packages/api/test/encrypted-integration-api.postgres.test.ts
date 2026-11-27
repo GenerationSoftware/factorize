@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import worker from "../src/worker";
 import { protectedApiFetch } from "../src/protected-api";
-import { IdentityRepository } from "../src/postgres/identity-repository";
+import { IdentityRepository } from "../src/auth/storage/identity-repository";
 import { CredentialRepository } from "../src/credentials/storage/credential-repository";
-import { signSession } from "../src/session";
+import { signSession } from "../src/auth/application/session";
 import { loadingFixture } from "./helpers/loading-fixture";
 
 vi.mock("cloudflare:workers", () => ({ WorkerEntrypoint: class {}, DurableObject: class {} }));

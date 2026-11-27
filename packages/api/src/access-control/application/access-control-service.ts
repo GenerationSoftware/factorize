@@ -1,22 +1,25 @@
+import { teamPermissionPreferences } from "../storage/team-permission-preferences";
 import { lockIntegrationTopology } from "../../integrations/storage/integration-removal-topology";
 
-import { integrationForScope, lockOAuthPolicy } from "../../oauth-reconnect";
-import { installationScopes, listLegacyOAuthGrants, listOAuthInstallations, materializeLegacyOAuthInstallation } from "../../oauth-installations";
+import { lockOAuthPolicy } from "./oauth-reconnect";
+import { integrationForScope } from "../domain/scopes";
+import { installationScopes, listLegacyOAuthGrants, listOAuthInstallations, materializeLegacyOAuthInstallation } from "./oauth-installations";
 import { deleteMcpGrantSubscriptions, lockMcpEventGrant } from "../../subscriptions/storage/mcp-event-outbox";
 
 import { TeamRepository } from "../storage/team-repository";
 import { listAgentPolicies } from "../../proxy/application/agent-api";
 
-import { accessToken, createdAccessToken, clientPermissionsUpdate, clientNameInput, authorizedClient } from "../../settings-contracts";
+import { accessToken, createdAccessToken, clientPermissionsUpdate, clientNameInput, authorizedClient } from "../api/access-contracts";
 import { z } from "zod";
-import { teamPermissionList, teamPermissionUpdate } from "../../settings-contracts";
-import { permissionKey, standardPermissions, teamPermissionPreferences } from "../domain/team-permission-defaults";
+import { teamPermissionList, teamPermissionUpdate } from "../api/access-contracts";
+import { permissionKey, standardPermissions } from "../domain/team-permission-defaults";
 import type { Env, OAuthProps } from "../../types";
 import { databaseFor } from "../../postgres/database";
 
 import { AccessTokenRepository } from "../storage/access-token-repository";
 
-import { ACCESS_SCOPES, AGENT_SCOPES, accessTokenDigest, issueAccessToken, normalizeScopes } from "../../access-tokens";
+import { accessTokenDigest, issueAccessToken } from "./access-tokens";
+import { ACCESS_SCOPES, AGENT_SCOPES, normalizeScopes } from "../domain/scopes";
 import { ServiceError, publicValue } from "../../service-contract";
 
 export class AccessControlService {

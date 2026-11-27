@@ -10,15 +10,15 @@ import { TriggersService } from "./triggers/application/triggers-service";
 import { eventsFor } from "./events/event-module";
 
 import { activeVmAuthorization } from "./vm-grants/application/vm-auth";
-import { BuiltinSkillError, builtinSkillDocuments, builtinSkillEntry, builtinSkill, builtinSkillResource } from "./builtin-skills";
+import { BuiltinSkillError, builtinSkillDocuments, builtinSkillEntry, builtinSkill, builtinSkillResource } from "./skills/builtin-skills";
 
 import type { Env, OAuthProps } from "./types";
 
 import { databaseFor } from "./postgres/database";
-import { IdentityRepository } from "./postgres/identity-repository";
+import { IdentityRepository } from "./auth/storage/identity-repository";
 import { AccessTokenRepository } from "./access-control/storage/access-token-repository";
 
-import { AGENT_SCOPES, normalizeScopes } from "./access-tokens";
+import { AGENT_SCOPES, normalizeScopes } from "./access-control/domain/scopes";
 
 export { ServiceError, publicValue } from "./service-contract";
 import { ServiceError, publicValue } from "./service-contract";

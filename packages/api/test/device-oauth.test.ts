@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { addDeviceMetadata, DEVICE_GRANT, deviceAuthorization, deviceClientRegistration, deviceConsentSignature, inspectDevice, deviceToken, deviceVerification } from "../src/device-oauth";
+import { addDeviceMetadata, DEVICE_GRANT, deviceAuthorization, deviceClientRegistration, deviceConsentSignature, inspectDevice, deviceToken, deviceVerification } from "../src/auth/transport/device-oauth";
 import type { Env } from "../src/types";
 
 class MemoryKv {

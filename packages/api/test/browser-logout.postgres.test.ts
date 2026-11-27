@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import worker from "../src/worker";
-import { hashPassword } from "../src/auth";
+import { hashPassword } from "../src/auth/application/auth";
 import { loadingFixture } from "./helpers/loading-fixture";
 
 vi.mock("cloudflare:workers", () => ({

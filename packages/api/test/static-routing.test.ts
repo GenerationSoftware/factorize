@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { isStaticPage, staticApp, STATIC_CSP } from "../src/static-app";
+import { isStaticPage, staticApp, STATIC_CSP } from "../src/runtime/static-app";
 import type { Env } from "../src/types";
 
 describe("same-origin static ownership", () => {

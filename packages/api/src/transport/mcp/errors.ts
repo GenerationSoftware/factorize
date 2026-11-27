@@ -1,4 +1,4 @@
-import { BuiltinSkillError } from "../../builtin-skills";
+import { BuiltinSkillError } from "../../skills/builtin-skills";
 
 import { ProtocolError, ProtocolErrorCode } from "@modelcontextprotocol/server";
 

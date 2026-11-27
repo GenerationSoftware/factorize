@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Table, tableCellClasses, tableHeadClasses, tableRowClasses } from "../../shared/ui";
-import { clientsQuery } from "../settings/queries";
+import { clientsQuery } from "../access-control/queries";
 import { subscriptionsQuery, type EventSubscription } from "./queries";
 
 export const subscriptionStatus: Record<EventSubscription["status"], string> = {

@@ -4,10 +4,10 @@ import { parse } from "yaml";
 import Ajv2020 from "ajv/dist/2020";
 import worker from "../src/worker";
 import { protectedApiFetch } from "../src/protected-api";
-import { safeReturnTo } from "../src/auth-api";
-import { signSession } from "../src/session";
-import { AuthRepository } from "../src/postgres/auth-repository";
-import { IdentityRepository } from "../src/postgres/identity-repository";
+import { safeReturnTo } from "../src/auth/api/auth-api";
+import { signSession } from "../src/auth/application/session";
+import { AuthRepository } from "../src/auth/storage/auth-repository";
+import { IdentityRepository } from "../src/auth/storage/identity-repository";
 import { TriggersService } from "../src/triggers/application/triggers-service";
 import type { Env, OAuthProps } from "../src/types";
 

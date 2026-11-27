@@ -1,6 +1,6 @@
 import type { readEnrichmentRuns, readOccurrenceStates } from "../storage/event-read-model";
 import type { OAuthProps } from "../../types";
-import type { AGENT_SCOPES } from "../../access-tokens";
+import type { AGENT_SCOPES } from "../../access-control/domain/scopes";
 import type { authorizeEnrichment } from "./event-enrichment";
 import { enrichmentRun } from "../api/event-enrichment-contracts";
 import type { readOccurrenceSummaries } from "../storage/occurrence-summary-repository";

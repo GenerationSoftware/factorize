@@ -1,10 +1,10 @@
-import { profileInput, profileResponse } from "../../usernames";
+import { profileInput, profileResponse } from "./usernames";
 
-import { consentPreviewInput, consentPreviewResponse, consentDecisionInput, consentDecisionResponse } from "../../consent-api";
+import { consentPreviewInput, consentPreviewResponse, consentDecisionInput, consentDecisionResponse } from "../application/consent-api";
 
 import { z } from "zod";
 
-import { authInputs, authSuccess, continuationSuccess, connectionStartInput, connectionStartSuccess, connectionResumeInput, loginSuccess, sessionResponse, googleAvailability, googleStartResult, googlePendingResult, googleUsernameResult, totpStatusResponse, totpSetupResponse, totpEnabledResponse } from "../../auth-api";
+import { authInputs, authSuccess, continuationSuccess, connectionStartInput, connectionStartSuccess, connectionResumeInput, loginSuccess, sessionResponse, googleAvailability, googleStartResult, googlePendingResult, googleUsernameResult, totpStatusResponse, totpSetupResponse, totpEnabledResponse } from "./account-contracts";
 
 import { route, authRoute, jsonSchema, type RouteContract } from "../../transport/rest/route-contract";
 

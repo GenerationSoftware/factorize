@@ -1,8 +1,8 @@
 import { appConfig, signingConfig } from "../../config/runtime";
-import { requestCookie } from "../../session";
-import { readBrowserSession } from "../../browser-session";
+import { requestCookie } from "../../auth/application/session";
+import { readBrowserSession } from "../../auth/application/browser-session";
 import { databaseFor } from "../../postgres/database";
-import { IdentityRepository } from "../../postgres/identity-repository";
+import { IdentityRepository } from "../../auth/storage/identity-repository";
 import { XAccountMismatchError, XConnectionRepository } from "../../credentials/storage/x-connection-repository";
 import { readXOAuthState } from "./x-oauth";
 import type { Env } from "../../types";

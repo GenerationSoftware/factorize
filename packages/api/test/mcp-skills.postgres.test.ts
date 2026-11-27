@@ -1,9 +1,9 @@
 import {beforeAll,afterAll,describe,it,expect,vi} from "vitest";
 import {loadingFixture} from "./helpers/loading-fixture";
 import {mcpRequest} from "./helpers/mcp-request";
-import {SKILLS_EXTENSION} from "../src/mcp-skills";
-import {builtinSkillDocuments,builtinSkillUri} from "../src/builtin-skills";
-import {IdentityRepository} from "../src/postgres/identity-repository";
+import {SKILLS_EXTENSION} from "../src/skills/api/mcp-skills";
+import {builtinSkillDocuments,builtinSkillUri} from "../src/skills/builtin-skills";
+import {IdentityRepository} from "../src/auth/storage/identity-repository";
 import {EventMatchRepository} from "../src/events/storage/event-match-repository";
 import type {OAuthProps} from "../src/types";
 vi.mock("cloudflare:workers",()=>({WorkerEntrypoint:class{},WorkflowEntrypoint:class{},DurableObject:class{}}));

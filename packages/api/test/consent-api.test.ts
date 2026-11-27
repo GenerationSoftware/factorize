@@ -1,15 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
-import { consentPreview, consentDecision } from "../src/consent-api";
-import { decideDevice, deviceAuthorization, inspectDevice } from "../src/device-oauth";
+import { consentPreview, consentDecision } from "../src/auth/application/consent-api";
+import { decideDevice, deviceAuthorization, inspectDevice } from "../src/auth/transport/device-oauth";
 import type { Env } from "../src/types";
-import type { Connection } from "../src/oauth-continuation";
-import { tokenDigest } from "../src/auth";
-import { connectionCookie } from "../src/oauth-continuation";
+import type { Connection } from "../src/auth/application/oauth-continuation";
+import { tokenDigest } from "../src/auth/application/auth";
+import { connectionCookie } from "../src/auth/application/oauth-continuation";
 const installation = vi.hoisted(() => ({
   getLegacyOAuthChoices: vi.fn(), getOAuthInstallation: vi.fn(), listOAuthInstallations: vi.fn(),
   materializeLegacyOAuthInstallation: vi.fn(), prepareOAuthIssuance: vi.fn(),
 }));
-vi.mock("../src/oauth-installations", () => installation);
+vi.mock("../src/access-control/application/oauth-installations", () => installation);
 
 const session = { tenantId: "tenant", userId: "owner", email: "owner@example.test", sessionVersion: 2, exp: Math.floor(Date.now() / 1000) + 3600 };
 const parsed = { responseType: "code", clientId: "client", redirectUri: "https://client.test/callback", scope: ["team:read", "triggers:read", "integrations:read", "triggers:read", "triggers:write", "triggers:write", "triggers:write"], state: "state", codeChallenge: "challenge", codeChallengeMethod: "S256", resource: "https://factorize.test/mcp", issuer: "https://factorize.test" };

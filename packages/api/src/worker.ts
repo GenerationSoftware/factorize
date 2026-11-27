@@ -3,20 +3,21 @@ import { runScheduledMaintenance } from "./runtime/scheduled-maintenance";
 
 import { cloudflareCallback, cloudflareOAuthCallback } from "./integrations/providers/cloudflare-oauth";
 
-import { googleSignInCallback } from "./auth-api";
-import { googleCallbackPath } from "./google-sign-in";
-import { AlarmCoordinator as BaseAlarmCoordinator } from "./alarm-coordinator";
+import { googleSignInCallback } from "./auth/api/auth-api";
+import { googleCallbackPath } from "./auth/application/google-sign-in";
+import { AlarmCoordinator as BaseAlarmCoordinator } from "./runtime/alarm-coordinator";
 
-import { staticApp, securityHeaders } from "./static-app";
+import { staticApp, securityHeaders } from "./runtime/static-app";
 
-import { readBrowserSession } from "./browser-session";
+import { readBrowserSession } from "./auth/application/browser-session";
 import { isBrowserAuthOperation } from "./api-contract";
 import { protectedApiFetch } from "./protected-api";
 
 import type { Env } from "./types";
-import { ACCESS_SCOPES, authenticateAccessToken } from "./access-tokens";
+import { authenticateAccessToken } from "./access-control/application/access-tokens";
+import { ACCESS_SCOPES } from "./access-control/domain/scopes";
 
-import { oidcApiAuth, oidcRequest } from "./oidc-provider";
+import { oidcApiAuth, oidcRequest } from "./auth/transport/oidc-provider";
 import { xOAuthCallback } from "./integrations/providers/x-oauth-callback";
 import { authenticateVmRequest, VM_GRANT_HEADER, VM_PROOF_HEADER } from "./vm-grants/application/vm-auth";
 

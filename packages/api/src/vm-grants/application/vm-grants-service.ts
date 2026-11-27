@@ -7,7 +7,7 @@ import { writeVmPermissionSnapshot } from "./vm-permissions";
 import type { Env, OAuthProps } from "../../types";
 import { databaseFor } from "../../postgres/database";
 
-import { AGENT_SCOPES } from "../../access-tokens";
+import { AGENT_SCOPES } from "../../access-control/domain/scopes";
 
 import { ServiceError, publicValue } from "../../service-contract";
 

@@ -27,7 +27,7 @@ Source references: [`device_code_auth.rs`](https://github.com/openai/codex/blob/
 
 ## Proof boundary
 
-`packages/api/src/codex-subscription-proof.ts` owns the synthetic account tokens
+`packages/api/test/helpers/codex-subscription-proof.ts` owns the synthetic account tokens
 and translates device login, refresh, model discovery, and streaming requests.
 The local client authenticates with a separate proxy key; neither account token
 nor account identity is present in responses returned to that client. This

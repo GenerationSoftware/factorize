@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { loadingFixture } from "./helpers/loading-fixture";
 import { ApiService } from "../src/api-service";
-import { accessTokenDigest } from "../src/access-tokens";
+import { accessTokenDigest } from "../src/access-control/application/access-tokens";
 
 vi.mock("cloudflare:workers", () => ({ WorkerEntrypoint: class {}, DurableObject: class {} }));
 vi.mock("@cloudflare/workers-oauth-provider", () => ({ OAuthProvider: class {}, AuthorizationError: class extends Error {}, getOAuthApi: vi.fn() }));

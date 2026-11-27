@@ -4,7 +4,7 @@ import {Buffer} from "node:buffer";
 import {createHash} from "node:crypto";
 import {z} from "zod";
 import {databaseFor} from "../../postgres/database";
-import {IdentityRepository} from "../../postgres/identity-repository";
+import {IdentityRepository} from "../../auth/storage/identity-repository";
 import {AgentApiService} from "./agent-api";
 import {AgentApiError} from "../api/agent-api-error";
 import {isPublicHttpsOrigin} from "../transport/public-address";

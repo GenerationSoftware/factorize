@@ -9,7 +9,7 @@ import { appTools } from "../../apps/api/mcp";
 import { triggerTools } from "../../triggers/api/mcp";
 import { McpServer } from "@modelcontextprotocol/server";
 import type { ApiService } from "../../api-service";
-import { SKILLS_EXTENSION } from "../../mcp-skills";
+import { SKILLS_EXTENSION } from "../../skills/api/mcp-skills";
 
 const tools = [...clientTools, ...proxyTools, ...exeTools, ...vmTools, ...appTools, ...githubTools, ...definitionTools, ...processingTools, ...occurrenceTools, ...triggerTools, ...tailTools];
 const scopes = new Map(tools.map(tool => [tool.name, tool.scope]));

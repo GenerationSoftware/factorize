@@ -1,8 +1,8 @@
 import { inputMapping } from "../../events/api/event-enrichment-contracts";
 import Mustache from "mustache";
 import { z } from "zod";
-import { ACCESS_SCOPES } from "../../access-tokens";
-import { resourceName } from "../../resource-names";
+import { ACCESS_SCOPES } from "../../access-control/domain/scopes";
+import { resourceName } from "./resource-names";
 import { conditionsSchema, preparedWebhookSchema } from "../domain/webhook-conditions";
 
 export const scopeSchema = z.enum(ACCESS_SCOPES);
