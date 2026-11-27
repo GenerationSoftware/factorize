@@ -72,9 +72,9 @@ export function HetznerSsh({ servers }: { servers: Array<{ id: number; name: str
         <option value="">Select a server</option>{available.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
       </select></Label>
       <Label>SSH user<Input value={username} required maxLength={32} onChange={event => setUsername(event.target.value)} disabled={pending} /></Label>
-      <p className="text-sm">For a server created here, enter <code>factorize-agent</code> and leave the client on automatic selection.</p>
+      <p className="text-sm">For a server created by the retired Factorize server tool, enter <code>factorize-agent</code> and leave the client on automatic selection.</p>
       <Label>Authorized client<select value={client} onChange={event => setClient(event.target.value)} disabled={pending}>
-        <option value="">Automatic on new servers; owner only on existing servers</option>
+        <option value="">Automatic for former Factorize-created servers; otherwise owner only</option>
         {clients.data?.filter(c => !c.expiresAt || Date.parse(c.expiresAt) > Date.now()).map(c => <option key={c.grantId} value={c.grantId}>{c.clientName} · {c.grantId.slice(0,8)}</option>)}
       </select></Label>
       {clients.error && <p role="alert">Could not list authorized clients.</p>}

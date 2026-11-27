@@ -213,7 +213,7 @@ export const integrationRoutes = [
   }, service => service.integrations.getHetznerConnection(), { ownerSession: true }),
   route("PUT", "/api/v1/hetzner/connection", "integrations:write", {
     summary: "Save a Hetzner Cloud project connection",
-    description: "Owner browser session only. Supply a project API token with Read permission, or Read & Write only when enabling server provisioning. Factorize verifies that it can list servers and stores it encrypted; saving does not change provider resources.",
+    description: "Owner browser session only. Supply a project API token with Read permission, or Read & Write only when explicitly enabling native API writes through the proxy. Factorize verifies that it can list servers and stores it encrypted; saving does not change provider resources.",
     responses: { "200": { description: "Saved connection metadata", content: { "application/json": { schema: jsonSchema(z.object({ connection: hetznerConnectionMetadata }), "output") } } } },
   }, (service, { body }) => service.integrations.saveHetznerConnection(body), { body: hetznerConnectionInput, ownerSession: true, maxBodyBytes: 4096 }),
   route("DELETE", "/api/v1/hetzner/connection", "integrations:write", {

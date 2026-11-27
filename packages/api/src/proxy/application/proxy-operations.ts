@@ -30,6 +30,7 @@ export class ProxyOperations {
   const parsed=requestApiInput.parse(input),api=this.api();
   if(this.auth.authMethod==="oauth"&&!this.auth.scopes.includes("proxy:use"))throw new AgentApiError(403,"insufficient_scope","Renew consent with proxy:use before requesting integrations.","proxy:use");
   const {identity,integration}=await api.authorize(parsed.integration);
+  await api.assertRequest(integration, parsed.path, parsed.method);
   if(!this.env.PROXY_ARTIFACTS || !this.env.SCHEDULER)throw new AgentApiError(503,"proxy_unavailable","Durable proxy storage/scheduling is unavailable.");
   const size=parsed.body===undefined?0:Buffer.byteLength(parsed.body,parsed.encoding==="base64"?"base64":"utf8");
   if(size>proxyLimits.requestBytes)throw new AgentApiError(413,"request_too_large","Request exceeds the fixed 32 MiB limit.");

@@ -46,13 +46,11 @@ it.skipIf(!url)("enrolls only a verified project server, hides its private key a
     await expect(owner.checkAsClient(41)).rejects.toMatchObject({status:403});
     const unapproved = new HetznerSshService(f.env, auth(other, ["integrations:read"]), authorize);
     await expect(unapproved.checkAsClient(41)).rejects.toMatchObject({status:403});
-    await expect(unapproved.inventoryAsClient()).rejects.toMatchObject({status:403});
     expect(probe).not.toHaveBeenCalled();
 
     const approved = new HetznerSshService(f.env, auth(selected, []), authorize);
-    expect(await approved.inventoryAsClient()).toEqual({ servers: [], truncated: false });
     expect(await approved.checkAsClient(41)).toEqual({serverId:41,authenticated:true,reusedConnection:false});
-    expect(providerGet).toHaveBeenCalledTimes(2); // The internal broker, not the browser/MCP caller, performs the preflight lookup.
+    expect(providerGet).toHaveBeenCalledTimes(1); // The internal broker, not the browser/MCP caller, performs the preflight lookup.
     await f.db.pool.query("UPDATE app.oauth_installations SET selected_scopes='{}' WHERE tenant_id=$1 AND id=$2", [f.tenantId,selected]);
     await expect(approved.checkAsClient(41)).rejects.toMatchObject({status:403});
     expect(probe).toHaveBeenCalledOnce();

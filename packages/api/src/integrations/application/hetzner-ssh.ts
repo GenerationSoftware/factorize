@@ -105,13 +105,6 @@ export class HetznerSshService {
     return this.check(serverId, await this.clientAuthority());
   }
 
-  async inventoryAsClient() {
-    await this.clientAuthority();
-    const inventory = await new HetznerInventoryService(this.projects).inventory();
-    await this.clientAuthority();
-    return inventory;
-  }
-
   private async clientAuthority() {
     const { authMethod, oauthInstallationId, oauthGrantId, oauthExpiresAt, tenantId, userId, sessionVersion } = this.auth;
     const forbidden = () => new ServiceError(403, "hetzner_not_authorized", "This client does not have Hetzner access.");
