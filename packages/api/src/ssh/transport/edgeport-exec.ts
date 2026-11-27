@@ -6,14 +6,23 @@ export const SSH_CONNECT_MS = 5_000;
 export const SSH_COMMAND_MS = 20_000;
 const OUTPUT_LIMIT = 32 * 1024;
 
-export function openSshSession(target: SshTarget, privateKey: string, port = 22) {
+export class SshHostFingerprintMismatch extends Error {}
+
+export async function openSshSession(target: SshTarget, privateKey: string, port = 22) {
   const expected = Buffer.from(target.hostFingerprint.slice("SHA256:".length), "base64");
-  return connect({
+  let mismatch = false;
+  try { return await connect({
     hostname: target.address, port, username: target.username, privateKey: { pem: privateKey },
     timeoutMs: SSH_CONNECT_MS,
-    hostKey: { verify: (type, wireKey) => type === "ssh-ed25519" &&
-      timingSafeEqual(expected, createHash("sha256").update(wireKey).digest()) },
-  });
+    hostKey: { verify: (type, wireKey) => {
+      const matches = type === "ssh-ed25519" && timingSafeEqual(expected, createHash("sha256").update(wireKey).digest());
+      if (!matches) mismatch = true;
+      return matches;
+    } },
+  }); } catch (error) {
+    if (mismatch) throw new SshHostFingerprintMismatch("The SSH host fingerprint did not match.");
+    throw error;
+  }
 }
 
 export async function execBounded(session: SshSession, command: string) {

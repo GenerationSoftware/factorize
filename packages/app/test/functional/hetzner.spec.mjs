@@ -3,7 +3,8 @@ import { test, expect } from "./fixtures.mjs";
 test("an owner saves a read-only Hetzner project, views inventory, replaces the token without a separate permission switch, and confirms local deletion", async ({ page, origin }) => {
   const token = "syntheticReadOnlyProjectToken", writeToken = "syntheticReadWriteProjectToken";
   const requests = [];
-  let connection = null, unavailable = true;
+  let connection = null, unavailable = true, verifiedPin = null;
+  const hostFingerprint = "SHA256:" + "A".repeat(43);
   const requestId = "f0bda107-b72f-4a94-8148-c4282983b994";
   await page.route("**/api/v1/**", route => {
     const path = new URL(route.request().url()).pathname;
@@ -35,6 +36,13 @@ test("an owner saves a read-only Hetzner project, views inventory, replaces the 
       expect(route.request().method()).toBe("GET");
       return route.fulfill({ json: { servers: [{ id: 41, name: "ci-worker", status: "running", location: "hel1" }], truncated: true } });
     }
+    if (path === "/api/v1/ssh/hetzner-targets") return route.fulfill({ json: { targets: verifiedPin ? [verifiedPin] : [] } });
+    if (path === "/api/v1/ssh/hetzner-targets/41") {
+      expect(route.request().method()).toBe("PUT");
+      expect(route.request().postDataJSON()).toEqual({ username: "runner", hostFingerprint });
+      verifiedPin = { serverId: 41, username: "runner", hostFingerprint, needsVerification: false };
+      return route.fulfill({ json: verifiedPin });
+    }
     if (path === "/api/v1/fly/connection") return route.fulfill({ json: { connection: null } });
     if (path === "/api/v1/integrations/bearer") return route.fulfill({ json: { integrations: [], revision: 0 } });
     if (path === "/api/v1/x/connections" || path === "/api/v1/integrations/cloudflare") return route.fulfill({ json: { connections: [] } });
@@ -62,6 +70,13 @@ test("an owner saves a read-only Hetzner project, views inventory, replaces the 
   await expect(inventory.getByRole("table").getByRole("row", { name: "ci-worker running hel1" })).toBeVisible();
   await expect(inventory.getByText("Showing the first 100 servers.")).toBeVisible();
   expect(requests).toContain("inventory");
+  const ssh = inventory.getByRole("region", { name: "Hetzner SSH commands" });
+  await ssh.getByLabel("Server for SSH commands").selectOption("41");
+  await ssh.getByLabel("SSH username", { exact: true }).fill("runner");
+  await ssh.getByLabel("Verified SSH host fingerprint").fill(hostFingerprint);
+  await ssh.getByRole("button", { name: "Save verified fingerprint" }).click();
+  await expect(ssh.getByText("SSH fingerprint verified and saved.")).toBeVisible();
+  await expect(ssh.getByText("Verified", { exact: true })).toBeVisible();
   await inventory.getByRole("button", { name: "Close Hetzner Cloud servers" }).click();
   await row.getByRole("button", { name: "Actions for Hetzner Cloud · Fixture project" }).click();
   await page.getByRole("menuitem", { name: "Replace connection", exact: true }).click();

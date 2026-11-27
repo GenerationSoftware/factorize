@@ -43,6 +43,6 @@ export class HetznerConnectionRepository {
   }
 
   private async clearSshCredentials(client: DatabaseClient) {
-    await client.query("DELETE FROM app.connections WHERE tenant_id=$1 AND (kind LIKE 'hetzner-ssh:%' OR kind LIKE 'hetzner-client-key:%')", [this.tenantId]);
+    await client.query("DELETE FROM app.connections WHERE tenant_id=$1 AND (kind LIKE 'hetzner-ssh:%' OR kind LIKE 'hetzner-client-key:%' OR kind LIKE 'hetzner-command-ssh:%')", [this.tenantId]);
   }
 }
