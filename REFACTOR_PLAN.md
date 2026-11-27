@@ -61,15 +61,27 @@ are part of validation.
 
 ## Conflict-reduction follow-through
 
-All three slices land in the same PR. No public interface or migration changes.
+All three slices land in the same PR. No public operation or migration changes;
+OpenAPI and the client are regenerated in capability order.
 
 - [x] Declare REST routes and MCP tools in capability modules. Preserve route
-  precedence, tool inventory, OAuth challenge scopes, and generated OpenAPI.
-  New operations in an existing capability must not change a shared registry.
+  precedence, tool inventory, OAuth challenge scopes, and OpenAPI semantics.
+  One REST catalog per capability; docs read the runtime tool metadata without
+  parsing source. New operations must not change a shared registry.
 - [x] Have protocol adapters call capability services directly. Keep common
   authorization and timing, and extract Worker OAuth and scheduled maintenance
   without changing execution order or deployed bindings.
 - [x] Split Drizzle table definitions by capability, preserving the stable schema
   entry point and all tables, relations, indexes, and SQL migrations.
-- [ ] Verify non-overlapping Event and VM Grant edits, run full validation on an
+- [x] Verify non-overlapping Event and VM Grant edits, run full validation on an
   isolated Fly Machine, and stop it after the run.
+
+### Follow-through evidence
+
+- Local Git merge simulation: independent edits to Event REST and VM Grant MCP
+  touch different files and merge without conflict.
+- All 48 MCP tools retain their names and order; the docs import registered
+  metadata. OpenAPI is semantically equal after regrouping. Drizzle exports
+  the same 153 SQL statements; migration files and Worker bindings are unchanged.
+- The complete pinned validation suite passed on an isolated Fly.io Machine:
+  288 API tests, 55 browser tests, Worker runtime and every static check.
