@@ -7,7 +7,7 @@ import type { OAuthProps } from "../src/types";
 vi.mock("cloudflare:workers", () => ({ WorkerEntrypoint: class {}, WorkflowEntrypoint: class {}, DurableObject: class {} }));
 vi.mock("@cloudflare/workers-oauth-provider", () => ({ OAuthProvider: class {}, AuthorizationError: class extends Error {}, getOAuthApi: vi.fn() }));
 const url = process.env.AUTH_TEST_DATABASE_URL;
-const ctx = { waitUntil() {} } as ExecutionContext;
+const ctx = { waitUntil() {} } as unknown as ExecutionContext;
 
 it.skipIf(!url)("provisions one bounded server per request and binds its SSH key to the exact OAuth installation", async () => {
   const f = await loadingFixture(url!);
