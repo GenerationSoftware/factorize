@@ -16,16 +16,20 @@ const privateKey = publicKey.extend({
 const keySet = z.object({ active: privateKey, previous: z.array(publicKey).max(2).default([]) });
 type AwsIssuer = { issuer: string; active: z.infer<typeof privateKey>; keys: Array<z.infer<typeof publicKey>> };
 
-export function awsIssuer(env: Env): AwsIssuer | null {
+export function awsIssuerStatus(env: Env): { config: AwsIssuer; reason?: never } |
+    { config: null; reason: "signing_missing" | "signing_invalid" | "invalid_origin" } {
   const { origin, keys } = awsWorkloadConfig(env);
   try {
     const url = new URL(origin);
-    if (url.protocol !== "https:" || url.origin !== origin || url.port || !keys) return null;
+    if (url.protocol !== "https:" || url.origin !== origin || url.port) return { config: null, reason: "invalid_origin" };
+  } catch { return { config: null, reason: "invalid_origin" }; }
+  if (!keys) return { config: null, reason: "signing_missing" };
+  try {
     const { active, previous } = keySet.parse(JSON.parse(keys));
     const published = [publicKey.parse(active), ...previous];
-    if (new Set(published.map(key => key.kid)).size !== published.length) return null;
-    return { issuer: origin + awsIssuerPath, active, keys: published };
-  } catch { return null; }
+    if (new Set(published.map(key => key.kid)).size !== published.length) return { config: null, reason: "signing_invalid" };
+    return { config: { issuer: origin + awsIssuerPath, active, keys: published } };
+  } catch { return { config: null, reason: "signing_invalid" }; }
 }
 
 export async function signAwsWorkload(config: AwsIssuer, connectionId: string) {
@@ -43,7 +47,7 @@ export async function signAwsWorkload(config: AwsIssuer, connectionId: string) {
 export function awsIssuerResponse(request: Request, env: Env): Response | null {
   const { pathname, origin } = new URL(request.url);
   if (pathname !== awsIssuerPath && !pathname.startsWith(awsIssuerPath + "/")) return null;
-  const config = awsIssuer(env);
+  const { config } = awsIssuerStatus(env);
   if (!config || origin + awsIssuerPath !== config.issuer) return new Response(null, { status: 404 });
   const metadata = pathname === awsIssuerPath + "/.well-known/openid-configuration";
   if (!metadata && pathname !== awsIssuerPath + "/jwks") return new Response(null, { status: 404 });

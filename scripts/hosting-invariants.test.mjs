@@ -7,7 +7,7 @@ test("static cutover preserves the existing production Worker and state identiti
   const { assets: oldAssets, r2_buckets: oldBuckets, ...oldBackend } = baseline;
   const { assets, routes, r2_buckets: buckets, ...backend } = current;
   assert.deepEqual(routes, [{ pattern: "app.factorize.sh", custom_domain: true }, { pattern: "git.factorize.sh", custom_domain: true }]);
-  const { durable_objects: nextObjects, migrations: nextMigrations, build, ...nextWorker } = backend;
+  const { durable_objects: nextObjects, migrations: nextMigrations, build, observability, upload_source_maps, ...nextWorker } = backend;
   const { durable_objects: oldObjects, migrations: oldMigrations, ...oldWorker } = oldBackend;
   assert.deepEqual(nextWorker, oldWorker);
   assert.deepEqual(build, { command: "node scripts/prepare-worker-ssh.mjs" });
@@ -16,4 +16,16 @@ test("static cutover preserves the existing production Worker and state identiti
   assert.deepEqual(buckets, [{ binding: "PROXY_ARTIFACTS", bucket_name: oldBuckets[0].bucket_name }]);
   assert.equal(oldAssets.binding, assets.binding);
   assert.deepEqual(assets, { directory: "../app/dist", binding: "ASSETS", run_worker_first: true, not_found_handling: "none" });
+});
+
+test("Worker observability keeps automated request telemetry off", () => {
+  const config = JSON.parse(readFileSync(new URL("../packages/api/wrangler.jsonc", import.meta.url)));
+  assert.equal(config.upload_source_maps, true);
+  assert.deepEqual(config.observability, {
+    enabled: true,
+    redact_query_string: true,
+    logs: { enabled: true, invocation_logs: false },
+    traces: { enabled: false },
+    issues: { enabled: true },
+  });
 });

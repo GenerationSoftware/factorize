@@ -5,6 +5,7 @@ import { Button } from "../../shared/ui";
 import { Dialog } from "../../shared/dialog";
 import { messageOf } from "../auth/session";
 import { IntegrationRow, ProviderTile } from "./integration-ui";
+import { withRequestReference } from "./request-reference";
 
 const regions = {
   "us-east-1": "US East (N. Virginia)", "us-west-2": "US West (Oregon)",
@@ -36,7 +37,8 @@ export function useAwsIntegration() {
   const list = useQuery({ queryKey, queryFn: async ({ signal }) => {
     const response = await api.GET(path, { signal });
     if (!response.data || response.error) throw new Error(messageOf(response.error));
-    return response.data;
+    return { ...response.data, unavailableMessage: withRequestReference(
+      "AWS workload signing isn’t configured on this Factorize deployment.", response.response) };
   } });
   const clients = useQuery({ queryKey: ["settings", "aws", "clients"], enabled: !!setup?.connection.roleArn, queryFn: async ({ signal }) => {
     const response = await api.GET("/api/v1/access/authorized-clients", { signal });
@@ -48,19 +50,19 @@ export function useAwsIntegration() {
   const refresh = () => cache.invalidateQueries({ queryKey });
   const prepare = useMutation({ retry: false, mutationFn: async () => {
     const response = await api.POST(path, { body: { name, region } });
-    if (!response.data || response.error) throw new Error(messageOf(response.error));
+    if (!response.data || response.error) throw new Error(withRequestReference(messageOf(response.error), response.response));
     return response.data;
   }, onSuccess: async newSetup => { setSetup(newSetup); await refresh(); }, onError: fail });
   const edit = useMutation({ retry: false, mutationFn: async (id: string) => {
     const response = await api.GET("/api/v1/integrations/aws/{connectionId}/template", { params: byId(id) });
-    if (!response.data || response.error) throw new Error(messageOf(response.error));
+    if (!response.data || response.error) throw new Error(withRequestReference(messageOf(response.error), response.response));
     return response.data;
   }, onSuccess: value => {
     setSetup(value); setRoleArn(value.connection.roleArn ?? ""); setInstallation(value.connection.oauthInstallationId ?? ""); setOpen(true);
   }, onError: fail });
   const verify = useMutation({ retry: false, mutationFn: async (id: string) => {
     const response = await api.POST("/api/v1/integrations/aws/{connectionId}/verify", { params: byId(id), body: { roleArn: roleArn.trim() } });
-    if (!response.data || response.error) throw new Error(messageOf(response.error));
+    if (!response.data || response.error) throw new Error(withRequestReference(messageOf(response.error), response.response));
     return response.data;
   }, onSuccess: async ({ connection }) => {
     setSetup(value => value && { ...value, connection });
@@ -96,7 +98,8 @@ export function useAwsIntegration() {
     dialog: <>
       {open && <Dialog title={setup ? "AWS connection · " + setup.connection.name : "Add AWS integration"} close={clear} busy={busy}>
         <div className="space-y-3">{status}
-          {!list.data?.available ? <p>AWS workload signing isn’t configured on this Factorize deployment.</p> : !setup ?
+          {list.isPending ? <p>Checking AWS availability…</p> : list.isError ? <p role="alert">{list.error.message}</p> :
+            !list.data?.available ? <p role="alert">{list.data?.unavailableMessage}</p> : !setup ?
             <form className="space-y-3" onSubmit={event => { event.preventDefault(); setError(""); prepare.mutate(); }}>
               <label className="block">Connection name<input className={field} value={name} onChange={event => setName(event.target.value)} maxLength={120} required /></label>
               <label className="block">AWS Region<select className={field} value={region} onChange={event => setRegion(event.target.value as Region)}>

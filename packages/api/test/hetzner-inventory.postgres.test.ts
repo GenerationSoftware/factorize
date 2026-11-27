@@ -17,11 +17,12 @@ describe.skipIf(!databaseUrl)("owner-only Hetzner project inventory REST routes 
     const replacement = "syntheticHetznerReplacementToken";
     const otherToken = "syntheticOtherProjectToken";
     let permit = true;
+    let rejectedStatus = 403;
     const provider = vi.fn<typeof fetch>(async (url, options) => {
       expect(String(url)).toBe("https://api.hetzner.cloud/v1/servers?page=1&per_page=25");
       expect(options?.method).toBe("GET");
       const auth = new Headers(options?.headers).get("Authorization");
-      if (!permit) return new Response(JSON.stringify({ providerMessage: auth }), { status: 403 });
+      if (!permit) return new Response(JSON.stringify({ providerMessage: auth }), { status: rejectedStatus });
       expect(auth).toMatch(/^Bearer syntheticHetzner(?:ReadOnly|Replacement)Token$/);
       return Response.json({ servers: [{ id: 41, name: "my server", status: "running", location: { name: "hel1" }, public_net: { metadata: token } }],
         meta: { pagination: { next_page: null } } });
@@ -82,6 +83,20 @@ describe.skipIf(!databaseUrl)("owner-only Hetzner project inventory REST routes 
       expect((await repo.get())?.revision).toBe(firstRevision);
       expect(await generic.get("hetzner-ssh:41")).not.toBeNull();
 
+      const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        rejectedStatus = 429;
+        const unavailable = await call("connection", "PUT", { name: "Invalid project", token: replacement });
+        expect(unavailable.status).toBe(502);
+        const requestId = unavailable.headers.get("X-Request-Id");
+        expect(requestId).toMatch(/^[a-f0-9-]{36}$/);
+        expect(errors).toHaveBeenCalledExactlyOnceWith({ event: "integration_failure", requestId,
+          provider: "hetzner", operation: "validate_token", reason: "rate_limited", upstreamStatus: 429, durationMs: expect.any(Number) });
+        expect(JSON.stringify(errors.mock.calls)).not.toContain(replacement);
+        expect(await unavailable.text()).not.toContain(replacement);
+        expect((await repo.get())?.revision).toBe(firstRevision);
+      } finally { errors.mockRestore(); }
+
       permit = true;
       expect((await call("connection", "PUT", { name: "Reconnected project", token: replacement })).status).toBe(200);
       expect((await repo.get())?.revision).not.toBe(firstRevision);
@@ -101,7 +116,7 @@ describe.skipIf(!databaseUrl)("owner-only Hetzner project inventory REST routes 
       expect(await repo.get()).toBeNull();
       expect(await otherGeneric.get("hetzner-ssh:41")).not.toBeNull();
       expect((await otherRepo.get())?.token).toBe(otherToken);
-      expect(provider).toHaveBeenCalledTimes(4);
+      expect(provider).toHaveBeenCalledTimes(5);
     } finally { vi.unstubAllGlobals(); await f.cleanup(); }
   });
 });

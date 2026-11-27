@@ -50,6 +50,20 @@ describe("fixed Hetzner Cloud inventory client", () => {
     }
   });
 
+  it("categorizes timeout, transport, and upstream status without preserving raw errors", async () => {
+    const timeout = new AbortController();
+    timeout.abort();
+    const clock = vi.spyOn(AbortSignal, "timeout").mockReturnValueOnce(timeout.signal);
+    try {
+      await expect(createHetznerCloudClient(async () => { throw new Error(token); }).validate(token))
+        .rejects.toMatchObject({ kind: "unavailable", reason: "timeout" });
+    } finally { clock.mockRestore(); }
+    await expect(createHetznerCloudClient(async () => { throw new Error(token); }).validate(token))
+      .rejects.toMatchObject({ reason: "transport_error" });
+    await expect(createHetznerCloudClient(async () => new Response(token, { status: 503 })).validate(token))
+      .rejects.toMatchObject({ reason: "upstream_error", upstreamStatus: 503 });
+  });
+
   it("only resolves a numeric server in the connected project and verifies the response identity", async () => {
     const fetcher = vi.fn<typeof fetch>(async () => Response.json({ server: remoteServer }));
     const client = createHetznerCloudClient(fetcher);

@@ -20,8 +20,12 @@ const targetResponse = z.object({ server: z.object({
   public_net: z.object({ ipv4: z.object({ ip: z.ipv4() }).nullable() }),
 }) });
 
+export type HetznerFailure = "token_rejected" | "not_found" | "timeout" | "transport_error" | "rate_limited" | "upstream_error" | "unexpected_status" | "invalid_response";
+
 export class HetznerCloudError extends Error {
-  constructor(readonly kind: "auth" | "unavailable" | "invalid_response" | "not_found") {
+  constructor(readonly kind: "auth" | "unavailable" | "invalid_response" | "not_found",
+    readonly reason: HetznerFailure = kind === "auth" ? "token_rejected" : kind === "unavailable" ? "transport_error" : kind,
+    readonly upstreamStatus?: number) {
     super(kind === "auth" ? "Hetzner rejected the project token." :
       kind === "invalid_response" ? "Hetzner returned an unexpected server inventory response." :
       kind === "not_found" ? "The server is unavailable in the connected Hetzner project." :
@@ -66,14 +70,20 @@ export function createHetznerCloudClient(fetchImpl: typeof fetch = fetch) {
         redirect: "error", signal,
       });
     } catch {
-      throw new HetznerCloudError("unavailable");
+      throw new HetznerCloudError("unavailable", signal.aborted ? "timeout" : "transport_error");
     }
     if (!response.ok) {
       void response.body?.cancel().catch(() => undefined);
-      throw new HetznerCloudError(response.status === 401 || response.status === 403 ? "auth" :
-        response.status === 404 ? "not_found" : "unavailable");
+      const { status } = response;
+      if (status === 401 || status === 403) throw new HetznerCloudError("auth", "token_rejected", status);
+      if (status === 404) throw new HetznerCloudError("not_found", "not_found", status);
+      throw new HetznerCloudError("unavailable", status === 429 ? "rate_limited" : status >= 500 ? "upstream_error" : "unexpected_status", status);
     }
-    return readJson(response);
+    try { return await readJson(response); }
+    catch (error) {
+      if (signal.aborted) throw new HetznerCloudError("unavailable", "timeout", response.status);
+      throw error;
+    }
   }
 
   async function page(token: string, number: number, signal: AbortSignal) {

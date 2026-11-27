@@ -7,6 +7,7 @@ import { Button, Input, Label, Table, tableCellClasses, tableHeadClasses, tableR
 import { messageOf, sessionQuery } from "../auth/session";
 import { IntegrationRow, ProviderTile } from "./integration-ui";
 import { HetznerSsh } from "./hetzner-ssh";
+import { withRequestReference } from "./request-reference";
 
 const connectionPath = "/api/v1/hetzner/connection";
 const serversPath = "/api/v1/hetzner/servers";
@@ -28,14 +29,14 @@ export function useHetznerIntegration() {
   } });
   const connection = query.data;
   const inventory = useQuery({ queryKey: inventoryKey, enabled: Boolean(owner && connection && screen === "inventory"), retry: false, queryFn: async ({ signal }) => {
-    const { data, error } = await api.GET(serversPath, { signal });
-    if (!data || error) throw new Error(messageOf(error));
+    const { data, error, response } = await api.GET(serversPath, { signal });
+    if (!data || error) throw new Error(withRequestReference(messageOf(error), response));
     return data;
   } });
   const write = useMutation({ retry: false, mutationFn: async (operation: "save" | "delete") => {
     const result = operation === "save" ? await api.PUT(connectionPath, { body: { name: name.trim(), token: token.trim() } }) :
       await api.DELETE(connectionPath);
-    if (!result.data || result.error) throw new Error(messageOf(result.error));
+    if (!result.data || result.error) throw new Error(withRequestReference(messageOf(result.error), result.response));
     return operation;
   }, onSuccess: async operation => {
     setNotice(operation === "save" ? "Hetzner Cloud project saved." : "Hetzner Cloud connection deleted.");

@@ -6,6 +6,14 @@
     { "pattern": "git.factorize.sh", "custom_domain": true }
   ],
   "main": "src/cloudflare-entry.ts",
+  "upload_source_maps": true,
+  "observability": {
+    "enabled": true,
+    "redact_query_string": true,
+    "logs": { "enabled": true, "invocation_logs": false },
+    "traces": { "enabled": false },
+    "issues": { "enabled": true }
+  },
   "build": { "command": "node scripts/prepare-worker-ssh.mjs" },
   "compatibility_date": "2026-09-10",
   "compatibility_flags": ["global_fetch_strictly_public", "nodejs_compat"],

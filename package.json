@@ -31,7 +31,7 @@
     "check:boundaries": "node --test scripts/check-package-boundaries.test.mjs && node scripts/check-package-boundaries.mjs",
     "generate": "npm run generate:skills && npm run generate:openapi && npm run generate:client",
     "build": "npm run build:app",
-    "check:hosting": "node --test scripts/hosting-invariants.test.mjs scripts/deployment-gate.test.mjs scripts/trusted-app-release.test.mjs && python3 scripts/test-retain-app-assets.py",
+    "check:hosting": "node --test scripts/hosting-invariants.test.mjs scripts/deployment-gate.test.mjs scripts/trusted-app-release.test.mjs scripts/verify-aws-issuer.test.mjs && python3 scripts/test-retain-app-assets.py",
     "test:hosting-runtime": "node --test --test-name-pattern=hosting scripts/worker-runtime.test.mjs",
     "test:oauth-runtime": "node --test --test-name-pattern=OAuth scripts/worker-runtime.test.mjs",
     "test:conditions-runtime": "node --test scripts/webhook-conditions-runtime.test.mjs",
