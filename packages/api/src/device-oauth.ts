@@ -1,4 +1,5 @@
-import { lockIntegrationTopology } from "./postgres/integration-removal-topology";
+import { appConfig, signingConfig } from "./config/runtime";
+import { lockIntegrationTopology } from "./integrations/storage/integration-removal-topology";
 import { lockOAuthPolicy } from "./oauth-reconnect";
 import { prepareOAuthIssuance } from "./oauth-installations";
 import { integrationConsentLabels } from "./proxy/application/agent-api";
@@ -120,11 +121,11 @@ export async function deviceAuthorization(request: Request, env: Env, oauth: OAu
   const requested = String(form.get("scope") ?? "").split(/\s+/).filter(Boolean);
   const invalidScope = requested.find(value => !supportedScopes.includes(value) && !isIntegrationScope(value));
   if (invalidScope) return oauthError("invalid_scope", `Unsupported scope: ${invalidScope}`);
-  const resource = String(form.get("resource") ?? `${env.APP_ORIGIN}/mcp`);
-  if (resource !== `${env.APP_ORIGIN}/mcp`) return oauthError("invalid_target", "The resource must be the Factorize MCP endpoint.");
+  const resource = String(form.get("resource") ?? `${appConfig(env).origin}/mcp`);
+  if (resource !== `${appConfig(env).origin}/mcp`) return oauthError("invalid_target", "The resource must be the Factorize MCP endpoint.");
 
   const deviceCode = random();
-  const codeVerifier = await verifier(deviceCode, env.SESSION_SIGNING_SECRET);
+  const codeVerifier = await verifier(deviceCode, signingConfig(env).sessionSecret);
   let compactUserCode = "";
   for (let attempt = 0; attempt < 8; attempt++) {
     compactUserCode = Array.from(crypto.getRandomValues(new Uint8Array(8)), value => alphabet[value % alphabet.length]).join("");
@@ -139,7 +140,7 @@ export async function deviceAuthorization(request: Request, env: Env, oauth: OAu
     createdAt: now, expiresAt: now + DEVICE_TTL, interval: DEFAULT_INTERVAL, status: "pending",
   };
   await writeDevice(env, deviceCode, compactUserCode, record);
-  const verificationUri = `${env.APP_ORIGIN}/device`;
+  const verificationUri = `${appConfig(env).origin}/device`;
   const userCode = displayUserCode(compactUserCode);
   return json({
     device_code: deviceCode,
@@ -185,12 +186,12 @@ export async function deviceToken(request: Request, env: Env, oauthProvider: { f
     exchange.set("grant_type", "authorization_code");
     exchange.set("code", record.authorizationCode);
     exchange.set("redirect_uri", record.redirectUri);
-    exchange.set("code_verifier", await verifier(deviceCode, env.SESSION_SIGNING_SECRET));
+    exchange.set("code_verifier", await verifier(deviceCode, signingConfig(env).sessionSecret));
     exchange.set("resource", record.resource);
     const headers = new Headers({ "Content-Type": "application/x-www-form-urlencoded" });
     const authorization = request.headers.get("Authorization");
     if (authorization) headers.set("Authorization", authorization);
-    const response = await oauthProvider.fetch(new Request(`${env.APP_ORIGIN}/oauth/token`, { method: "POST", headers, body: exchange }), env, ctx);
+    const response = await oauthProvider.fetch(new Request(`${appConfig(env).origin}/oauth/token`, { method: "POST", headers, body: exchange }), env, ctx);
     if (response.ok) {
       if (transaction) await transaction.query("DELETE FROM app.oauth_device_authorizations WHERE device_code=$1", [deviceCode]);
       else await deleteDevice(env, deviceCode);
@@ -207,9 +208,9 @@ export async function deviceVerification(request: Request, env: Env, oauth: OAut
   const suppliedCode = String(form?.get("user_code") ?? url.searchParams.get("user_code") ?? "");
   if (request.method === "GET" || request.method === "HEAD") return (await staticApp(request, env))!;
   if (request.method !== "POST") return new Response("Method not allowed", { status: 405, headers: { Allow: "GET, HEAD, POST" } });
-  if (request.headers.get("Origin") !== env.APP_ORIGIN || request.headers.get("Sec-Fetch-Site") === "cross-site") return new Response("Invalid request origin", { status: 403 });
+  if (request.headers.get("Origin") !== appConfig(env).origin || request.headers.get("Sec-Fetch-Site") === "cross-site") return new Response("Invalid request origin", { status: 403 });
   const decision = form?.get("decision");
-  if (decision !== "allow" && decision !== "deny") return Response.redirect(`${env.APP_ORIGIN}/device?user_code=${encodeURIComponent(suppliedCode)}`, 303);
+  if (decision !== "allow" && decision !== "deny") return Response.redirect(`${appConfig(env).origin}/device?user_code=${encodeURIComponent(suppliedCode)}`, 303);
   const preview = await inspectDevice(env, suppliedCode);
   if (!preview || !safeEqual(String(form?.get("signature") ?? ""), await deviceConsentSignature(env, session, preview))) return new Response("Invalid device consent. Review this request before approving it.", { status: 403 });
   const result = await decideDevice(env, oauth, session, suppliedCode, decision);
@@ -239,7 +240,7 @@ export async function decideDevice(env: Env, oauth: OAuthHelpers, session: { ten
       redirectUri: record.redirectUri, policyRevision: null, selectedScopes: record.scope, credentialScopes: record.scope, expiresAt: record.expiresAt }) : null;
     const binding = issued ? { oauthInstallationId: issued.installationId, oauthIssuanceId: issued.issuanceId } : {};
     const props: OAuthProps = { ...binding, tenantId: session.tenantId, userId: session.userId, sessionVersion: session.sessionVersion, scopes: record.scope, authMethod: "oauth", explicitIntegrationScopes: true };
-    const authRequest: AuthRequest = { responseType: "code", clientId: record.clientId, redirectUri: record.redirectUri, scope: record.scope, state: "", codeChallenge: record.codeChallenge, codeChallengeMethod: "S256", resource: record.resource, issuer: env.APP_ORIGIN };
+    const authRequest: AuthRequest = { responseType: "code", clientId: record.clientId, redirectUri: record.redirectUri, scope: record.scope, state: "", codeChallenge: record.codeChallenge, codeChallengeMethod: "S256", resource: record.resource, issuer: appConfig(env).origin };
     const result = await oauth.completeAuthorization({ request: authRequest, userId: session.userId, metadata: { tenantId: session.tenantId, explicitIntegrationScopes: true, ...(issued ? { oauthInstallationId: issued.installationId } : {}) }, scope: record.scope, props, revokeExistingGrants: false });
     record.authorizationCode = new URL(result.redirectTo).searchParams.get("code") ?? undefined;
     if (!record.authorizationCode) throw new Error("Incomplete device authorization");
@@ -276,7 +277,7 @@ export async function deviceClientRegistration(request: Request, env: Env, oauth
     ...registration,
     grant_types: [...new Set([...grants.filter(value => value !== DEVICE_GRANT), "authorization_code"])],
     response_types: [...new Set([...(Array.isArray(registration.response_types) ? registration.response_types.map(String) : []), "code"])],
-    redirect_uris: originalRedirectUris.length ? originalRedirectUris : [`${env.APP_ORIGIN}/oauth/device/callback`],
+    redirect_uris: originalRedirectUris.length ? originalRedirectUris : [`${appConfig(env).origin}/oauth/device/callback`],
   };
   const headers = new Headers(request.headers);
   headers.set("Content-Type", "application/json");
@@ -291,5 +292,5 @@ export async function deviceClientRegistration(request: Request, env: Env, oauth
 }
 
 export function deviceConsentSignature(env: Env, session: { tenantId: string; userId: string; sessionVersion: number }, preview: { userCode: string; expiresAt: string }) {
-  return hmac(`device:${preview.userCode}:${preview.expiresAt}:${session.tenantId}:${session.userId}:${session.sessionVersion}`, env.SESSION_SIGNING_SECRET);
+  return hmac(`device:${preview.userCode}:${preview.expiresAt}:${session.tenantId}:${session.userId}:${session.sessionVersion}`, signingConfig(env).sessionSecret);
 }

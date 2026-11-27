@@ -144,4 +144,3 @@ export async function replayUnacknowledgedEvents(env: Env, auth: OAuthProps, sub
   await wakeMcpDeliveries(env).catch(() => {});
   return result;
 }
-

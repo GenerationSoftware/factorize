@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { inspectIntegrationAccess, removeIntegrationAccess } from "../src/postgres/integration-removal-access";
+import { inspectIntegrationAccess, removeIntegrationAccess } from "../src/integrations/application/integration-removal-access";
 import { loadingFixture } from "./helpers/loading-fixture";
 const url = process.env.AUTH_TEST_DATABASE_URL;
 

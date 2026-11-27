@@ -33,7 +33,7 @@ test("Cloudflare token exchanges and refresh use real workerd fetch without foll
   try {
     const fixtureOrigin = "http://127.0.0.1:" + upstream.address().port;
     const result = await build({ stdin: { resolveDir: process.cwd(), contents: [
-      "import { exchangeCloudflareToken, TokenFailure } from './packages/api/src/cloudflare-token.ts';",
+      "import { exchangeCloudflareToken, TokenFailure } from './packages/api/src/integrations/providers/cloudflare-token.ts';",
       "const workerdFetch = globalThis.fetch.bind(globalThis);",
       // Redirect only the fixed provider address to the fixture; pass options
       // through unchanged to the real runtime's fetch implementation.

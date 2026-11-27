@@ -49,4 +49,3 @@ export async function authorized(sql: DatabaseClient, principal: Principal, scop
   );
   return !policy?.revoked_at && applyConnectionScopes(scopes, policy).includes("triggers:read");
 }
-

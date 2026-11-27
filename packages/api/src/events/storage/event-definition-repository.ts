@@ -1,6 +1,6 @@
 import type { EvaluatorAuthority } from "../application/event-enrichment";
 import type { EventEnrichment } from "../api/event-enrichment-contracts";
-import { lockIntegrationTopology, validateEnrichmentRegistrations } from "../../postgres/integration-removal-topology";
+import { lockIntegrationTopology, validateEnrichmentRegistrations } from "../../integrations/storage/integration-removal-topology";
 import type { Database, DatabaseClient } from "../../postgres/database";
 
 interface RecordedOccurrence {

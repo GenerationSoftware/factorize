@@ -1,3 +1,4 @@
+import { signingConfig } from "./config/runtime";
 import { Buffer } from "node:buffer";
 import { decrypt, encrypt } from "./crypto";
 import { databaseFor } from "./postgres/database";
@@ -16,7 +17,7 @@ async function signingKey(env: Env): Promise<Key> {
     crypto.subtle.exportKey("jwk", pair.publicKey),
     crypto.subtle.exportKey("jwk", pair.privateKey),
   ]);
-  const encrypted = await encrypt(JSON.stringify(privateKey), env.CREDENTIAL_ENCRYPTION_KEY);
+  const encrypted = await encrypt(JSON.stringify(privateKey), signingConfig(env).credentialKey);
   await db.pool.query("INSERT INTO app.oidc_signing_key(public_key,encrypted_private_key) VALUES($1,$2) ON CONFLICT DO NOTHING", [publicKey, encrypted]);
   return (await db.pool.query<Key>(select)).rows[0]!;
 }
@@ -28,7 +29,7 @@ export async function oidcJwks(env: Env) {
 
 export async function oidcSigner(env: Env) {
   const key = await signingKey(env);
-  const privateJwk = JSON.parse(await decrypt(key.encrypted_private_key, env.CREDENTIAL_ENCRYPTION_KEY));
+  const privateJwk = JSON.parse(await decrypt(key.encrypted_private_key, signingConfig(env).credentialKey));
   const secret = await crypto.subtle.importKey("jwk", privateJwk, algorithm, false, ["sign"]);
   return async (claims: object) => {
     const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");

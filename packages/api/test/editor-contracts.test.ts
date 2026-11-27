@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { namedOption, providerOptions, githubInstallation, githubRepository, tailIntegration } from "../src/editor-contracts";
+import { namedOption, providerOptions, githubInstallation, githubRepository, tailIntegration } from "../src/integrations/api/editor-contracts";
 import { triggerResponse } from "../src/triggers/api/trigger-contracts";
 import { generateOpenApi } from "../src/api-contract";
 describe("public editor contracts", () => {

@@ -1,3 +1,4 @@
+import { appConfig, signingConfig } from "./config/runtime";
 import { serialize } from "hono/utils/cookie";
 import { tokenDigest, verifyPassword } from "./auth";
 import { decrypt, encrypt } from "./crypto";
@@ -63,14 +64,14 @@ async function matchingCounter(secret: string, code: string, lastCounter: number
 }
 
 export function totpKey(env: Env) {
-  const value = env.TOTP_ENCRYPTION_KEY?.trim();
+  const value = signingConfig(env).totpKey?.trim();
   try {
-    if (!value || atob(value).length !== 32 || (env.CREDENTIAL_ENCRYPTION_KEY && atob(env.CREDENTIAL_ENCRYPTION_KEY) === atob(value))) return null;
+    if (!value || atob(value).length !== 32 || (signingConfig(env).credentialKey && atob(signingConfig(env).credentialKey) === atob(value))) return null;
     return value;
   } catch { return null; }
 }
 
-const isHttps = (env: Env) => new URL(env.APP_ORIGIN).protocol === "https:";
+const isHttps = (env: Env) => new URL(appConfig(env).origin).protocol === "https:";
 const cookieName = (env: Env, purpose: string) => (isHttps(env) ? "__Host-" : "") + "factorize_totp_" + purpose;
 const cookie = (env: Env, purpose: string, value: string, maxAge: number) => serialize(cookieName(env, purpose), value, {
   httpOnly: true, secure: isHttps(env), sameSite: "Lax", path: "/", maxAge,
@@ -79,9 +80,9 @@ export const clearTotpLoginCookie = (env: Env) => cookie(env, "login", "", 0);
 export const clearTotpEnrollCookie = (env: Env) => cookie(env, "enroll", "", 0);
 async function browserDigest(request: Request, env: Env, purpose: string) {
   const value = requestCookie(request, cookieName(env, purpose));
-  return value && /^[A-Z2-7]{52}$/.test(value) ? tokenDigest("totp:" + purpose + ":" + value, env.SESSION_SIGNING_SECRET) : null;
+  return value && /^[A-Z2-7]{52}$/.test(value) ? tokenDigest("totp:" + purpose + ":" + value, signingConfig(env).sessionSecret) : null;
 }
-const digestNew = (env: Env, purpose: string, value: string) => tokenDigest("totp:" + purpose + ":" + value, env.SESSION_SIGNING_SECRET);
+const digestNew = (env: Env, purpose: string, value: string) => tokenDigest("totp:" + purpose + ":" + value, signingConfig(env).sessionSecret);
 async function recoveryDigest(userId: string, code: string) {
   // 128 random bits per code make an offline dictionary impractical without
   // tying recovery to the deployment encryption key or its rotation.

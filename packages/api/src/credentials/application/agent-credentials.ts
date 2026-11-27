@@ -1,10 +1,11 @@
-import { cloudflareCredential } from "../../cloudflare-oauth";
+import { appConfig, signingConfig } from "../../config/runtime";
+import { cloudflareCredential } from "../../integrations/providers/cloudflare-oauth";
 import type { Env } from "../../types";
 import { databaseFor } from "../../postgres/database";
 import { CredentialRepository } from "../storage/credential-repository";
 import { resolveProviderCredentials } from "./provider-credentials";
 import type { OutboundCredential } from "../../proxy/transport/outbound-forwarder";
-import { CLICKUP_API_BASE } from "../../clickup";
+import { CLICKUP_API_BASE } from "../../integrations/providers/clickup";
 import { ConnectionRepository } from "../storage/connection-repository";
 import { FlyConnectionRepository } from "../storage/fly-connection-repository";
 import { isPublicHttpsOrigin } from "../../proxy/transport/public-address";
@@ -15,12 +16,12 @@ export async function resolveAgentCredential(env: Env, tenantId: string, kind: s
   const database = databaseFor(env);
   if (kind === "fly") {
     if (credentialId !== "fly") return null;
-    const token = await new FlyConnectionRepository(database, tenantId, env.CREDENTIAL_ENCRYPTION_KEY).token();
+    const token = await new FlyConnectionRepository(database, tenantId, signingConfig(env).credentialKey).token();
     return token ? {origin: "https://api.machines.dev", path: relativePath, credential: token} : null;
   }
   if (kind === "exe" || kind === "amp" || kind === "clickup") {
     if (kind === "clickup" && credentialId !== "clickup") return null;
-    const connection = await new ConnectionRepository(database, tenantId, env.CREDENTIAL_ENCRYPTION_KEY)
+    const connection = await new ConnectionRepository(database, tenantId, signingConfig(env).credentialKey)
       .get<{apiToken?: string; accessToken?: string; apiBaseUrl?: string}>(kind === "clickup" ? kind : `${kind}:${credentialId}`);
     const credential = kind === "exe" ? connection?.apiToken : connection?.accessToken;
     if (!credential) return null;
@@ -31,7 +32,7 @@ export async function resolveAgentCredential(env: Env, tenantId: string, kind: s
       return {origin: target.origin, path: `${target.pathname}${target.search}`, credential, authorization: "raw"};
     }
     const base = new URL(connection?.apiBaseUrl || "https://ampcode.com/api/cloud/v1");
-    if (!isPublicHttpsOrigin(base.origin, env.APP_ORIGIN) || base.username || base.password || base.search || base.hash) return null;
+    if (!isPublicHttpsOrigin(base.origin, appConfig(env).origin) || base.username || base.password || base.search || base.hash) return null;
     const prefix = base.pathname.replace(/\/$/, "");
     const target = new URL(`${base.origin}${prefix}${relativePath}`);
     // Relative dot segments must not escape the configured API prefix.
@@ -48,8 +49,8 @@ export async function resolveAgentCredential(env: Env, tenantId: string, kind: s
   const linear = /^\/providers\/linear(\/.*)?$/.exec(path);
   let selected: OutboundCredential | null = null;
     if (bearer) {
-      const credential = await new CredentialRepository(database, tenantId, env.CREDENTIAL_ENCRYPTION_KEY).managedCredential(bearer[1]!, "bearer");
-      if (!credential?.origin || !isPublicHttpsOrigin(credential.origin, env.APP_ORIGIN)) return null;
+      const credential = await new CredentialRepository(database, tenantId, signingConfig(env).credentialKey).managedCredential(bearer[1]!, "bearer");
+      if (!credential?.origin || !isPublicHttpsOrigin(credential.origin, appConfig(env).origin)) return null;
       selected = {origin: credential.origin, path: `${bearer[2] ?? "/"}${url.search}`, credential: credential.payload};
     } else if (github) {
       const installationId = Number(github[1]);

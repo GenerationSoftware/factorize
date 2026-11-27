@@ -1,3 +1,4 @@
+import { appConfig, googleConfig, signingConfig } from "./config/runtime";
 import { GoogleCallbackFailure, googleCallbackStage, reportGoogleCallbackFailure } from "./google-callback-diagnostics";
 import { serialize } from "hono/utils/cookie";
 import { z } from "zod";
@@ -6,12 +7,12 @@ import { sendAuthEmail } from "./auth-email";
 import { requestCookie, type Session } from "./session";
 import { databaseFor, type DatabaseClient } from "./postgres/database";
 import { AuthRepository } from "./postgres/auth-repository";
-import { createJwksResolver } from "./vm-oidc";
+import { createJwksResolver } from "./vm-grants/domain/vm-oidc";
 import type { Env } from "./types";
 import { requestGoogleIdToken } from "./google-token";
 
 export const googleCallbackPath = "/oauth/google/sign-in/callback";
-const cookieName = (env: Env) => new URL(env.APP_ORIGIN).protocol === "https:" ? "__Host-factorize_google_attempt" : "factorize_google_attempt";
+const cookieName = (env: Env) => new URL(appConfig(env).origin).protocol === "https:" ? "__Host-factorize_google_attempt" : "factorize_google_attempt";
 const maxAge = 600;
 const authorizationUrl = "https://accounts.google.com/o/oauth2/v2/auth";
 const jwksUri = "https://www.googleapis.com/oauth2/v3/certs";
@@ -20,11 +21,11 @@ const encoder = new TextEncoder();
 const base64url = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
 const random = () => base64url(crypto.getRandomValues(new Uint8Array(32)));
 const secureCookie = (env: Env, value: string, maxAge: number) => serialize(cookieName(env), value, {
-  path: "/", httpOnly: true, secure: new URL(env.APP_ORIGIN).protocol === "https:", sameSite: "Lax", maxAge,
+  path: "/", httpOnly: true, secure: new URL(appConfig(env).origin).protocol === "https:", sameSite: "Lax", maxAge,
 });
 export const clearGoogleCookie = (env: Env) => secureCookie(env, "", 0);
-export const googleEnabled = (env: Env) => !!(env.GOOGLE_SIGN_IN_CLIENT_ID && env.GOOGLE_SIGN_IN_CLIENT_SECRET);
-const redirectUri = (env: Env) => new URL(googleCallbackPath, env.APP_ORIGIN).href;
+export const googleEnabled = (env: Env) => !!(googleConfig(env).clientId && googleConfig(env).clientSecret);
+const redirectUri = (env: Env) => new URL(googleCallbackPath, appConfig(env).origin).href;
 type Attempt = {
   id: string; browser_digest: string; verifier: string | null; nonce: string; return_to: string; connection_id: string | null;
   google_subject: string | null; email: string | null; existing_user_id: string | null; email_confirmed: boolean; password_attempts: number;
@@ -36,7 +37,7 @@ const expired = () => fail(400, "This Google sign-in expired. Start again from F
 
 async function digestFor(request: Request, env: Env) {
   const browser = requestCookie(request, cookieName(env));
-  return browser && /^[A-Za-z0-9_-]{43}$/.test(browser) ? tokenDigest(browser, env.SESSION_SIGNING_SECRET) : null;
+  return browser && /^[A-Za-z0-9_-]{43}$/.test(browser) ? tokenDigest(browser, signingConfig(env).sessionSecret) : null;
 }
 
 export async function startGoogleSignIn(env: Env, returnTo: string, connectionId?: string, passwordUserId?: string, totpSettingsVersion?: number) {
@@ -45,10 +46,10 @@ export async function startGoogleSignIn(env: Env, returnTo: string, connectionId
   await db.pool.query(`INSERT INTO app.google_sign_in_attempts
     (id,browser_digest,verifier,nonce,return_to,connection_id,password_user_id,totp_settings_version,expires_at)
     VALUES($1,$2,$3,$4,$5,$6,$7,$8,now()+interval '10 minutes')`,
-    [id, await tokenDigest(browser, env.SESSION_SIGNING_SECRET), verifier, nonce, returnTo, connectionId ?? null, passwordUserId ?? null, totpSettingsVersion ?? null]);
+    [id, await tokenDigest(browser, signingConfig(env).sessionSecret), verifier, nonce, returnTo, connectionId ?? null, passwordUserId ?? null, totpSettingsVersion ?? null]);
   const target = new URL(authorizationUrl);
   target.search = new URLSearchParams({
-    client_id: env.GOOGLE_SIGN_IN_CLIENT_ID!, redirect_uri: redirectUri(env), response_type: "code", scope: "openid email",
+    client_id: googleConfig(env).clientId!, redirect_uri: redirectUri(env), response_type: "code", scope: "openid email",
     state: id, nonce, code_challenge: base64url(new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(verifier)))),
     code_challenge_method: "S256", prompt: "select_account",
   }).toString();
@@ -94,7 +95,7 @@ function decodePart(input: string) {
 }
 async function exchangeGoogleCode(env: Env, attempt: Attempt, code: string) {
   const id_token = await requestGoogleIdToken({
-    grant_type: "authorization_code", code, client_id: env.GOOGLE_SIGN_IN_CLIENT_ID!, client_secret: env.GOOGLE_SIGN_IN_CLIENT_SECRET!,
+    grant_type: "authorization_code", code, client_id: googleConfig(env).clientId!, client_secret: googleConfig(env).clientSecret!,
     redirect_uri: redirectUri(env), code_verifier: attempt.verifier!,
   });
   const { header, claims, parts } = await googleCallbackStage("id_token_shape", () => {
@@ -108,7 +109,7 @@ async function exchangeGoogleCode(env: Env, attempt: Attempt, code: string) {
     };
   });
   const now = Math.floor(Date.now() / 1000);
-  if (claims.aud !== env.GOOGLE_SIGN_IN_CLIENT_ID || (claims.azp && claims.azp !== claims.aud) || claims.nonce !== attempt.nonce ||
+  if (claims.aud !== googleConfig(env).clientId || (claims.azp && claims.azp !== claims.aud) || claims.nonce !== attempt.nonce ||
       claims.exp <= now || claims.exp <= claims.iat || claims.iat > now + 30 || claims.iat < now - maxAge || (claims.nbf ?? 0) > now + 30) {
     throw new GoogleCallbackFailure("id_token_claims");
   }
@@ -265,7 +266,7 @@ export async function requestGoogleEmail(request: Request, env: Env) {
   const browser = await digestFor(request, env);
   if (!browser) return false;
   const db = databaseFor(env);
-  const token = random(), digest = await tokenDigest(token, env.SESSION_SIGNING_SECRET);
+  const token = random(), digest = await tokenDigest(token, signingConfig(env).sessionSecret);
   const attempt = (await db.pool.query<{ email: string; password_user_id: string | null }>(`UPDATE app.google_sign_in_attempts
     SET email_token_digest=$2,email_sent_at=clock_timestamp()
     WHERE browser_digest=$1 AND totp_settings_version IS NULL AND google_subject IS NOT NULL AND existing_user_id IS NULL AND NOT email_confirmed
@@ -285,7 +286,7 @@ export async function requestGoogleEmail(request: Request, env: Env) {
 export async function verifyGoogleEmail(request: Request, env: Env, token: string) {
   const browser = await digestFor(request, env);
   if (!browser) return false;
-  const digest = await tokenDigest(token, env.SESSION_SIGNING_SECRET);
+  const digest = await tokenDigest(token, signingConfig(env).sessionSecret);
   const verified = await databaseFor(env).pool.query(`UPDATE app.google_sign_in_attempts SET email_confirmed=true,email_token_digest=NULL
     WHERE browser_digest=$1 AND email_token_digest=$2 AND google_subject IS NOT NULL AND existing_user_id IS NULL
       AND password_user_id IS NULL AND NOT email_confirmed AND expires_at>clock_timestamp()`, [browser, digest]);
@@ -342,7 +343,7 @@ export async function finishGoogleSignIn(request: Request, env: Env, input: { us
 export async function finishGooglePassword(request: Request, env: Env, input: { token: string; password: string }) {
   const browser = await digestFor(request, env);
   if (!browser) return expired();
-  const emailDigest = await tokenDigest(input.token, env.SESSION_SIGNING_SECRET);
+  const emailDigest = await tokenDigest(input.token, signingConfig(env).sessionSecret);
   return databaseFor(env).transaction(async sql => {
     const attempt = await pendingAttempt(sql, browser, true);
     const userId = attempt?.password_user_id;

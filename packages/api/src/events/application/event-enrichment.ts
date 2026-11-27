@@ -1,3 +1,4 @@
+import { appConfig } from "../../config/runtime";
 import { compile, search } from "@jmespath-community/jmespath";
 import { AgentApiService } from "../../proxy/application/agent-api";
 import { AgentApiError } from "../../proxy/api/agent-api-error";
@@ -170,7 +171,7 @@ export async function evaluateEnrichment(env: Env, tenantId: string, config: Eve
     catch { steps.push({name:step.name,outcome:"failed"}); return fail(step.name,"missing_required_input"); }
     try {
       signal.throwIfAborted();
-      const request = new Request(env.APP_ORIGIN + "/internal/event-enrichment", { method:step.method,signal });
+      const request = new Request(appConfig(env).origin + "/internal/event-enrichment", { method:step.method,signal });
       const reply = await new AgentApiService(env,authorization).forward(step.integration,path,request);
       if (!reply.ok) {
         await reply.body?.cancel().catch(() => {});

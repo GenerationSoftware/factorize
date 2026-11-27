@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { generateTailSecret, sanitizeTailEvent, signTailDelivery, suppressTailEvent, tailFingerprint, verifyTailDelivery } from "../src/cloudflare-tail";
+import { generateTailSecret, sanitizeTailEvent, signTailDelivery, suppressTailEvent, tailFingerprint, verifyTailDelivery } from "../src/integrations/application/cloudflare-tail";
 
 describe("Cloudflare Tail ingestion", () => {
   it("generates independent strong URL-safe installation secrets", () => {

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import * as github from "../src/github";
+import * as github from "../src/integrations/providers/github";
 import { resolveProviderCredentials } from "../src/credentials/application/provider-credentials";
 import { ConnectionRepository } from "../src/credentials/storage/connection-repository";
 import { GitHubRepository } from "../src/credentials/storage/github-repository";

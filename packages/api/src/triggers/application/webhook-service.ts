@@ -1,5 +1,6 @@
+import { signingConfig } from "../../config/runtime";
 import { EnrichmentBudget } from "../../events/application/event-enrichment";
-import { clickUpJson, matchingClickUpTask } from "../../clickup";
+import { clickUpJson, matchingClickUpTask } from "../../integrations/providers/clickup";
 import { equalHmac } from "../../crypto";
 import type { Trigger } from "../domain/trigger-domain";
 import { evaluateWebhookConditions } from "../domain/webhook-conditions";
@@ -14,7 +15,7 @@ export class WebhookService {
   private enrichmentBudget = new EnrichmentBudget();
   private connections: ConnectionRepository;
   constructor(private database: Database, private env: Env, private tenantId: string) {
-    this.connections = new ConnectionRepository(database, tenantId, env.CREDENTIAL_ENCRYPTION_KEY);
+    this.connections = new ConnectionRepository(database, tenantId, signingConfig(env).credentialKey);
   }
   private async candidates(provider: WebhookProvider): Promise<Array<{ trigger: Trigger; triggerRevision: number; eventId: string; eventSlug: string; config: WebhookEventConfig }>> {
     const rows = await this.database.pool.query<any>(`SELECT j.id,j.event_definition_id,j.name,j.description,j.slug,j.revision,j.enabled,j.created_at,j.updated_at,t.id event_id,t.slug event_slug,t.config event_config FROM app.triggers j JOIN app.events t ON t.tenant_id=j.tenant_id AND t.trigger_id=j.id WHERE j.tenant_id=$1 AND j.enabled AND t.enabled AND t.removed_at IS NULL AND t.kind='webhook' AND t.config->>'provider'=$2`, [this.tenantId, provider]);

@@ -1,5 +1,6 @@
+import { appConfig } from "./config/runtime";
 import { adoptLegacyCredential } from "./oauth-installations";
-import { cloudflareCallback, cloudflareOAuthCallback, pruneCloudflareOAuth } from "./cloudflare-oauth";
+import { cloudflareCallback, cloudflareOAuthCallback, pruneCloudflareOAuth } from "./integrations/providers/cloudflare-oauth";
 import { mcpOAuthChallenge, withRefreshAdmission } from "./mcp-oauth-auth";
 import { pruneTotp } from "./totp";
 import { googleSignInCallback } from "./auth-api";
@@ -21,8 +22,8 @@ import { AGENT_SCOPES, ACCESS_SCOPES, authenticateAccessToken, normalizeScopes }
 import { databaseFor } from "./postgres/database";
 import { IdentityRepository } from "./postgres/identity-repository";
 import { oidcApiAuth, oidcRequest } from "./oidc-provider";
-import { xOAuthCallback } from "./x-oauth-callback";
-import { authenticateVmRequest, VM_GRANT_HEADER, VM_PROOF_HEADER } from "./vm-auth";
+import { xOAuthCallback } from "./integrations/providers/x-oauth-callback";
+import { authenticateVmRequest, VM_GRANT_HEADER, VM_PROOF_HEADER } from "./vm-grants/application/vm-auth";
 
 const scopes = [...ACCESS_SCOPES, "apps:manage"];
 // Keep accepting grants issued by the pre-resource-scope protocol. New
@@ -50,7 +51,7 @@ const defaultHandler: ExportedHandler<Env> = {
     const url = new URL(request.url);
     if (url.pathname !== "/authorize" && url.pathname !== "/device") return app.fetch(request, { ...env, OAUTH_PROVIDER: env.OAUTH_PROVIDER ?? getOAuthApi(providerOptions(env), env) }, ctx);
     try {
-      if (request.method === "POST" && (request.headers.get("Origin") !== env.APP_ORIGIN || request.headers.get("Sec-Fetch-Site") === "cross-site")) return new Response("Invalid request origin", { status: 403 });
+      if (request.method === "POST" && (request.headers.get("Origin") !== appConfig(env).origin || request.headers.get("Sec-Fetch-Site") === "cross-site")) return new Response("Invalid request origin", { status: 403 });
       const session = await currentOwner(request, env);
       if (request.method === "GET" || request.method === "HEAD") {
         let connection = url.searchParams.get("connection");
@@ -59,10 +60,10 @@ const defaultHandler: ExportedHandler<Env> = {
           if (!started) return new Response("Invalid or expired MCP request. Start a new connection from your client.", { status: 400 });
           connection = started.connection;
           url.searchParams.set("connection", connection);
-          return new Response(null, { status: 302, headers: { Location: session ? url.toString() : `${env.APP_ORIGIN}/auth/login?connection=${connection}`, "Set-Cookie": started.cookie, "Cache-Control": "no-store" } });
+          return new Response(null, { status: 302, headers: { Location: session ? url.toString() : `${appConfig(env).origin}/auth/login?connection=${connection}`, "Set-Cookie": started.cookie, "Cache-Control": "no-store" } });
         }
         if (connection && !await connectionFor(env, connection)) return new Response("This MCP connection expired or already completed. Start a new connection from your client.", { status: 400 });
-        if (!session) return Response.redirect(`${env.APP_ORIGIN}/auth/login${connection ? `?connection=${connection}` : ""}`, 302);
+        if (!session) return Response.redirect(`${appConfig(env).origin}/auth/login${connection ? `?connection=${connection}` : ""}`, 302);
       }
       if (!session) return new Response("Sign in before approving this request.", { status: 401 });
       if (url.pathname === "/device") return request.method === "GET" || request.method === "HEAD" ? (await staticApp(request, env))! : deviceVerification(request, env, env.OAUTH_PROVIDER!, session);
@@ -88,7 +89,7 @@ function providerOptions(env: Env): OAuthProviderOptions<Env> { return {
   scopesSupported: oauthScopes, allowImplicitFlow: false, allowPlainPKCE: false,
   accessTokenTTL: 3600, refreshTokenTTL: 2_592_000,
   clientIdMetadataDocumentEnabled: true,
-  resourceMetadata: { resource: `${env.APP_ORIGIN}/mcp`, authorization_servers: [env.APP_ORIGIN], scopes_supported: [...AGENT_SCOPES], bearer_methods_supported: ["header"], resource_name: "Factorize triggers" },
+  resourceMetadata: { resource: `${appConfig(env).origin}/mcp`, authorization_servers: [appConfig(env).origin], scopes_supported: [...AGENT_SCOPES], bearer_methods_supported: ["header"], resource_name: "Factorize triggers" },
 }; }
 function provider(env: Env) { return new OAuthProvider<Env>(providerOptions(env)); }
 
@@ -130,7 +131,7 @@ const backend = { async fetch(request: Request, env: Env, ctx: ExecutionContext)
     // proxy consent. Other REST operations retain their normal audience check.
     const token = await apiEnv.OAUTH_PROVIDER.unwrapToken<OAuthProps>(request.headers.get("Authorization")!.slice(7));
     const props = token?.grant.props;
-    if (!token || token.audience !== env.APP_ORIGIN+"/mcp" || !props || props.userId !== token.userId || token.expiresAt <= Date.now()/1000)
+    if (!token || token.audience !== appConfig(env).origin+"/mcp" || !props || props.userId !== token.userId || token.expiresAt <= Date.now()/1000)
       return Response.json({error:{code:"invalid_token"}},{status:401});
     const tokenScopes = normalizeScopes(token.scope).filter(scope => normalizeScopes(props.scopes).includes(scope));
     if (!props.oauthInstallationId) await adoptLegacyCredential(apiEnv, props, token.grantId, token.grant.clientId);
@@ -173,7 +174,7 @@ const backend = { async fetch(request: Request, env: Env, ctx: ExecutionContext)
     if (error?.error === "invalid_token") return mcpOAuthChallenge(env, error.error_description === "Access token expired" ? "token_expired" : "invalid_token");
     if (!request.headers.has("Authorization")) return mcpOAuthChallenge(env);
   }
-  if (url.pathname === "/.well-known/oauth-authorization-server") return addDeviceMetadata(response, env.APP_ORIGIN);
+  if (url.pathname === "/.well-known/oauth-authorization-server") return addDeviceMetadata(response, appConfig(env).origin);
   return response;
 } } satisfies ExportedHandler<Env>;
 

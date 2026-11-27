@@ -1,5 +1,6 @@
-import { lockIntegrationTopology } from "./postgres/integration-removal-topology";
-import { selectedTeamDefaults, teamPermissionPreferences } from "./team-permission-defaults";
+import { appConfig, signingConfig } from "./config/runtime";
+import { lockIntegrationTopology } from "./integrations/storage/integration-removal-topology";
+import { selectedTeamDefaults, teamPermissionPreferences } from "./access-control/domain/team-permission-defaults";
 import { integrationConsentLabels, listAgentPolicies } from "./proxy/application/agent-api";
 import { isIntegrationScope } from "./proxy/api/agent-api-contracts";
 import { databaseFor } from "./postgres/database";
@@ -39,7 +40,7 @@ const binding = (payload: string, session: Session) => `${payload}.${session.ten
 const equal = (a: string, b: string) => { let diff = a.length ^ b.length; for (let i = 0; i < Math.max(a.length, b.length); i++) diff |= (a.charCodeAt(i) || 0) ^ (b.charCodeAt(i) || 0); return diff === 0; };
 export async function consentPreview(env: Env, session: Session, input: z.infer<typeof consentPreviewInput>, browserRequest?: Request) {
   if (!env.OAUTH_PROVIDER) throw new Error("OAuth provider unavailable");
-  const url = new URL(`${env.APP_ORIGIN}/authorize?${input.authorizationQuery.replace(/^\?/, "")}`);
+  const url = new URL(`${appConfig(env).origin}/authorize?${input.authorizationQuery.replace(/^\?/, "")}`);
   const connectionId = url.searchParams.get("connection");
   const connection = connectionId ? await connectionFor(env, connectionId) : null;
   const target = input.target ?? null;
@@ -101,10 +102,10 @@ export async function consentPreview(env: Env, session: Session, input: z.infer<
   await databaseFor(env).pool.query("INSERT INTO app.oauth_consent_previews(id,expires_at) VALUES ($1,$2)", [nonce, new Date(expiresAt * 1000)]);
   const request = encode({ parsed, expiresAt, nonce, connection: connectionId ?? undefined, allowedScopes: scopes, target, policyRevision } satisfies ConsentEnvelope);
   return { integrationLabels, clientName: client.clientName ?? "this client", scopes, selectedScopes, newScopes, savedOutsideRequestedScopes, grantedScopes, blockedScopes, unavailableSavedScopes, targets,
-    reconnect: !!target, request, signature: await hmac(binding(request, session), env.SESSION_SIGNING_SECRET), expiresAt: new Date(expiresAt * 1000).toISOString() };
+    reconnect: !!target, request, signature: await hmac(binding(request, session), signingConfig(env).sessionSecret), expiresAt: new Date(expiresAt * 1000).toISOString() };
 }
 export async function consentDecision(env: Env, session: Session, input: z.infer<typeof consentDecisionInput>, browserRequest?: Request) {
-  if (!env.OAUTH_PROVIDER || !equal(input.signature, await hmac(binding(input.request, session), env.SESSION_SIGNING_SECRET))) return null;
+  if (!env.OAUTH_PROVIDER || !equal(input.signature, await hmac(binding(input.request, session), signingConfig(env).sessionSecret))) return null;
   let envelope: ConsentEnvelope;
   try { envelope = decode(input.request); } catch { return null; }
   if (!Number.isFinite(envelope.expiresAt) || envelope.expiresAt <= Math.floor(Date.now() / 1000) || !Array.isArray(envelope.allowedScopes) || envelope.target === undefined || (envelope.target && !envelope.connection)) return null;

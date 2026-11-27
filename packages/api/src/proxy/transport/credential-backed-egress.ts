@@ -1,3 +1,4 @@
+import { signingConfig } from "../../config/runtime";
 import type { Env } from "../../types";
 import type { Database } from "../../postgres/database";
 import { XConnectionRepository } from "../../credentials/storage/x-connection-repository";
@@ -61,7 +62,7 @@ export class CredentialBackedEgress {
     const apiGrant = await this.authorize(row.id);
     const required = xRequiredScope(path, request.method);
     if (!required) throw forbidden();
-    const repository = new XConnectionRepository(this.database, this.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY);
+    const repository = new XConnectionRepository(this.database, this.tenantId, signingConfig(this.env).credentialKey);
     const connection = await repository.get(connectionId);
     if (!connection || connection.status !== "connected") throw forbidden();
     if (!connection.scopes.includes(required) || !connection.grantedScopes.includes(required)) throw new AgentApiError(403, "insufficient_scope", `This X connection does not grant ${required}.`);

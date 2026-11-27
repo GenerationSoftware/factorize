@@ -17,7 +17,7 @@ import type { Env, OAuthProps } from "../../types";
 import type { AGENT_SCOPES } from "../../access-tokens";
 export class SubscriptionsService {
   constructor(private env: Env, private auth: OAuthProps, private authorize: (scope: (typeof AGENT_SCOPES)[number]) => Promise<void>, private authorizeOwnerSession: (scope: (typeof AGENT_SCOPES)[number]) => Promise<void>) {}
-  
+
   private occurrenceSummaryBoundary(id: string, cursor?: string) {
     if (cursor === undefined) return undefined;
     const boundary = parseOccurrenceSummaryCursor(cursor, id);

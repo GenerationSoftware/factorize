@@ -1,4 +1,4 @@
-import { lockIntegrationTopology, validateTopologySources } from "../../postgres/integration-removal-topology";
+import { lockIntegrationTopology, validateTopologySources } from "../../integrations/storage/integration-removal-topology";
 import type { TriggerSource, Trigger, TriggerRepository } from "../domain/trigger-domain";
 import { nextOccurrence, validateScheduleConfig } from "../domain/schedule";
 import type { Database, DatabaseClient } from "../../postgres/database";

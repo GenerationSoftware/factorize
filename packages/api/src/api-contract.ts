@@ -1,7 +1,7 @@
-import { integrationRemovalConfirmation, integrationRemovalPreview, integrationRemovalTarget } from "./integration-removal-contracts";
+import { integrationRemovalConfirmation, integrationRemovalPreview, integrationRemovalTarget } from "./integrations/api/integration-removal-contracts";
 import { enrichmentRun } from "./events/api/event-enrichment-contracts";
 import { eventOccurrenceSummaryPage, subscriptionOccurrenceSummaryPage, occurrenceSummaryQuery } from "./events/api/event-contracts";
-import { cloudflareStartResult, cloudflareStatus } from "./cloudflare-oauth";
+import { cloudflareStartResult, cloudflareStatus } from "./integrations/providers/cloudflare-oauth";
 import { cloneInfo, gitCredential } from "./git-https-contracts";
 import { profileInput, profileResponse } from "./usernames";
 import {createPayloadInput,payloadReceipt,appendPayloadInput,finalizePayloadInput,attachmentInput} from "./proxy/application/proxy-payloads";
@@ -11,23 +11,23 @@ import { apiReflection, apiPolicyList, apiPolicyInput, requestApiInput, requestA
 import { queryOf } from "./query-params";
 import { consentPreviewInput, consentPreviewResponse, consentDecisionInput, consentDecisionResponse } from "./consent-api";
 import { exeConnection, integrationStatus, clientPermissionsUpdate, clientNameInput, authorizedClient, accessToken, createdAccessToken, savedExe, savedAmp, okResult, teamPermissionList, teamPermissionUpdate } from "./settings-contracts";
-import { eventAvailabilityResponse, namedOption, providerOptions, githubInstallation, githubRepository, tailIntegration } from "./editor-contracts";
+import { eventAvailabilityResponse, namedOption, providerOptions, githubInstallation, githubRepository, tailIntegration } from "./integrations/api/editor-contracts";
 import { triggerResponse, triggerUpdateInput } from "./triggers/api/trigger-contracts";
 import { z } from "zod";
 import { oidcConsentInput, oidcConsentPreview } from "./oidc-provider";
-import { appRegistrationInput, appRegistrationUpdate, appSecret, connectedApp, registeredApp } from "./apps-contracts";
+import { appRegistrationInput, appRegistrationUpdate, appSecret, connectedApp, registeredApp } from "./apps/api/apps-contracts";
 import type { ApiService } from "./api-service";
 import {
   triggerInputSchema,
   fireTriggerInputSchema, triggerConditionsTestSchema, scopeSchema, teamResponse,
 } from "./triggers/api/trigger-schemas";
 
-import { X_OAUTH_SCOPES } from "./x-oauth";
+import { X_OAUTH_SCOPES } from "./integrations/providers/x-oauth";
 import document from "./api-document.json";
 import { authInputs, authSuccess, continuationSuccess, connectionStartInput, connectionStartSuccess, connectionResumeInput, loginSuccess, sessionResponse, googleAvailability, googleStartResult, googlePendingResult, googleUsernameResult, totpStatusResponse, totpSetupResponse, totpEnabledResponse, type AuthAction } from "./auth-api";
-import { flyConnectionInput, flyConnectionMetadata } from "./fly-account-client";
+import { flyConnectionInput, flyConnectionMetadata } from "./integrations/providers/fly-account-client";
 import { eventSubscription, eventSubscriptionId, eventSubscriptionList, eventDefinitionInput, eventDefinitionUpdate, eventDefinitionResponse, eventDefinitionList, eventOccurrenceQuery, eventOccurrencePage } from "./events/api/event-contracts";
-import { vmGrantInput, vmGrantList, vmGrantRef, vmGrantResult, vmRevokeResult } from "./vm-grant-contracts";
+import { vmGrantInput, vmGrantList, vmGrantRef, vmGrantResult, vmRevokeResult } from "./vm-grants/api/vm-grant-contracts";
 
 type JsonSchema = Record<string, any>;
 export interface RouteContract {

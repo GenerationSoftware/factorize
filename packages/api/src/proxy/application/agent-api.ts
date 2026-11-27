@@ -1,7 +1,9 @@
+import { proxyLimits } from "../../config/limits";
+import { appConfig } from "../../config/runtime";
 import { CredentialBackedEgress } from "../transport/credential-backed-egress";
 import { getOAuthInstallation, installationScopes } from "../../oauth-installations";
 import { initialIntegrationOverrides } from "../../oauth-reconnect";
-import { activeVmAuthorization } from "../../vm-auth";
+import { activeVmAuthorization } from "../../vm-grants/application/vm-auth";
 import { connectionAccess, requiredIntegrationScope, type AgentIntegration, type ConnectionPolicy } from "./agent-integration-access";
 export { connectionAccess, requiredIntegrationScope, type AgentIntegration } from "./agent-integration-access";
 import { proxyRequestBody } from "./proxy-payloads";
@@ -20,7 +22,7 @@ import { integrationScopePattern, requestApiInput, readApiResponseInput } from "
 
 import type { z } from "zod";
 
-const STORAGE_BLOCK_BYTES = 1024 * 1024;
+const STORAGE_BLOCK_BYTES = proxyLimits.artifactBlockBytes;
 const forbidden = () => new AgentApiError(403, "forbidden", "This integration is not authorized.");
 const invalidIdentity = () => new AgentApiError(401, "invalid_token", "The agent authorization is no longer active.");
 const publicIntegration = (row: AgentIntegration) => ({ id: row.id, kind: row.kind, credentialId: row.credential_id, name: row.name, description: row.description, available: row.available, policy: row.policy, revision: row.revision, requiredScope: requiredIntegrationScope(row) });
@@ -100,8 +102,8 @@ export class AgentApiService {
       result.push({...publicIntegration(row), access, requestExample, instructions: "Call MCP request_api with this integration ID and requestExample; no shell, local VM, raw HTTP client or access token is needed. Read retained results with read_api_response. " + (row.kind === "cloudflare" ? "Use paths relative to the Cloudflare v4 REST API. Cloudflare enforces the accounts and permissions authorized on its consent screen." : row.kind === "x" ? "Use the HTTP request endpoint with an X API v2 path, such as /2/users/me. Only granted OAuth scopes and supported resources are available." : row.kind === "linear" ? "Use the HTTP request endpoint with path /graphql and a JSON GraphQL body." : row.kind === "exe" ? "Use the HTTP request endpoint with POST /exec and a text/plain exe.dev command body." : row.kind === "amp" ? "Use the HTTP request endpoint with a path relative to the configured Amp API base." : row.kind === "clickup" ? "Use the HTTP request endpoint with a path relative to /api/v2." : row.kind === "fly" ? "Use the HTTP request endpoint with a Fly Machines API path, such as /v1/apps." : row.kind === "model" ? "Use the HTTP request endpoint with an OpenAI-compatible path relative to /v1." : "Use the HTTP request endpoint with a relative API path and query. Access covers this integration, bounded by the upstream credential permissions.")});
     }
     return {identity: {id: identity.id, kind: identity.kind}, scopes: normalizeScopes(identity.scopes).filter(scope => !identity.policy.disabled_scopes.includes(scope)), proxy: {
-      requestUrl: this.env.APP_ORIGIN + "/api/v1/agent/requests",
-      readResponseUrl: this.env.APP_ORIGIN + "/api/v1/agent/responses/read",
+      requestUrl: appConfig(this.env).origin + "/api/v1/agent/requests",
+      readResponseUrl: appConfig(this.env).origin + "/api/v1/agent/responses/read",
       requestTool: "request_api", readResponseTool: "read_api_response",
       authentication: "Call MCP request_api with integration, method and relative path (see each requestExample). MCP supplies authorization; never request or construct a credential. OAuth connections require proxy:use; renew consent if missing. read_api_response retrieves retained response handles. If these tools are missing from the client catalog, refresh/reconnect the connector and compare server tools/list; an HTTP URL alone is not usable by a tool-only client.",
     }, integrations: result};
@@ -123,9 +125,9 @@ export class AgentApiService {
     let bytes: Uint8Array | undefined;
     try { bytes = parsed.body === undefined ? undefined : parsed.encoding === "base64" ? decodeBase64(parsed.body) : new TextEncoder().encode(parsed.body); }
     catch { throw new AgentApiError(400, "invalid_request", "Invalid base64 request body."); }
-    if (bytes && bytes.byteLength > 32*1024*1024) throw new AgentApiError(413, "request_too_large", "Request body exceeds the proxy limit.");
+    if (bytes && bytes.byteLength > proxyLimits.requestBytes) throw new AgentApiError(413, "request_too_large", "Request body exceeds the proxy limit.");
     const outbound=await proxyRequestBody(this.env,this.auth,parsed);
-    const response = await this.forward(parsed.integration, parsed.path, new Request(`${this.env.APP_ORIGIN}/mcp`, {method:parsed.method,headers:outbound.headers,body:outbound.body,signal,duplex:"half"} as RequestInit));
+    const response = await this.forward(parsed.integration, parsed.path, new Request(`${appConfig(this.env).origin}/mcp`, {method:parsed.method,headers:outbound.headers,body:outbound.body,signal,duplex:"half"} as RequestInit));
     const headers: Record<string,string> = {}; response.headers.forEach((value,key) => {headers[key]=value;});
     const reader = response.body?.getReader(), chunks: Uint8Array[] = [];
     let size = 0, buffered = 0, block = 0;
@@ -147,7 +149,7 @@ export class AgentApiService {
         const {done,value} = await reader.read(); if (done) break;
         if(!size)preview=new TextDecoder().decode(value.subarray(0,160));
         size += value.byteLength;
-        if (size > 64*1024*1024) throw new Error("Proxy response exceeds limit");
+        if (size > proxyLimits.responseBytes) throw new Error("Proxy response exceeds limit");
         if (!key && size > inlineLimit) {
           if (!this.env.PROXY_ARTIFACTS) throw new Error("Response storage unavailable");
           const grant = await this.authorize(parsed.integration);

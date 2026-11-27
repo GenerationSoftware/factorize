@@ -1,3 +1,4 @@
+import { proxyLimits } from "../../config/limits";
 /** Streaming HTTP egress for the backend Worker. The deployment must retain
  * global_fetch_strictly_public: fetch never uses private zone-origin routing.
  * Destinations and credentials are resolved server-side before this function. */
@@ -54,10 +55,10 @@ export async function forwardOutbound(request: Request, selected: OutboundCreden
   headers.set("User-Agent", "Factorize-API-Proxy");
   for (const [name, value] of Object.entries(selected.headers ?? {})) headers.set(name, value);
   const abort = new AbortController();
-  const signal = AbortSignal.any([request.signal, abort.signal, AbortSignal.timeout(options.timeoutMs ?? 15 * 60_000)]);
+  const signal = AbortSignal.any([request.signal, abort.signal, AbortSignal.timeout(options.timeoutMs ?? proxyLimits.timeoutMs)]);
   const response = await (options.fetcher ?? fetch)(target, {
     method: request.method, headers, signal, redirect: "manual", cache: "no-store",
-    body: request.method === "GET" || request.method === "HEAD" ? undefined : bounded(request.body, options.requestBytes ?? 32 * 1024 * 1024, abort),
+    body: request.method === "GET" || request.method === "HEAD" ? undefined : bounded(request.body, options.requestBytes ?? proxyLimits.requestBytes, abort),
     ...({duplex: "half"} as RequestInit),
   });
   if (response.status >= 300 && response.status < 400) {
@@ -67,5 +68,5 @@ export async function forwardOutbound(request: Request, selected: OutboundCreden
   const output = filteredHeaders(response.headers, false);
   output.delete("Content-Length");
   output.set("Cache-Control", "no-store");
-  return new Response(bounded(response.body, options.responseBytes ?? 64 * 1024 * 1024, abort), { status: response.status, statusText: response.statusText, headers: output });
+  return new Response(bounded(response.body, options.responseBytes ?? proxyLimits.responseBytes, abort), { status: response.status, statusText: response.statusText, headers: output });
 }

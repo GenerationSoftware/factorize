@@ -1,4 +1,4 @@
-import { lockIntegrationTopology } from "./postgres/integration-removal-topology";
+import { lockIntegrationTopology } from "./integrations/storage/integration-removal-topology";
 import type { AuthRequest, GrantSummary } from "@cloudflare/workers-oauth-provider";
 import { normalizeScopes } from "./access-tokens";
 import { connectionAccess, requiredIntegrationScope, type AgentIntegration } from "./proxy/application/agent-integration-access";

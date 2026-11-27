@@ -1,7 +1,7 @@
 import { isIntegrationScope } from "./proxy/api/agent-api-contracts";
 import type { Env, OAuthProps } from "./types";
 import { databaseFor } from "./postgres/database";
-import { AccessTokenRepository } from "./postgres/access-token-repository";
+import { AccessTokenRepository } from "./access-control/storage/access-token-repository";
 
 export const ACCESS_SCOPES = ["team:read", "team:write", "triggers:read", "triggers:write", "integrations:read", "integrations:write", "vms:read", "vms:edit"] as const;
 export const AGENT_SCOPES = [...ACCESS_SCOPES, "proxy:use", "apps:manage"] as const;

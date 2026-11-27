@@ -1,3 +1,4 @@
+import { appConfig } from "./config/runtime";
 import { Buffer } from "node:buffer";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
@@ -51,7 +52,7 @@ const activeMembership = "m.role='owner' AND m.session_version=c.session_version
 const joinedMembership = "JOIN app.members m ON m.tenant_id=c.tenant_id AND m.user_id=c.user_id JOIN app.auth_users u ON u.id=c.user_id";
 const identityColumns = "c.id AS connection_id,c.tenant_id,c.user_id,c.session_version,m.email";
 const credentialsActive = `c.revoked_at IS NULL AND a.enabled AND (a.is_public OR a.tenant_id=c.tenant_id) AND ${activeMembership}`;
-const issuerOf = (env: Env) => env.APP_ORIGIN + path;
+const issuerOf = (env: Env) => appConfig(env).origin + path;
 const noStore = { "Cache-Control": "no-store", Pragma: "no-cache", "X-Content-Type-Options": "nosniff" };
 function json(value: unknown, status = 200, headers?: Record<string, string>) {
   return Response.json(value, { status, headers: { ...noStore, ...headers } });
@@ -97,7 +98,7 @@ async function authorize(request: Request, env: Env) {
   await db.pool.query("DELETE FROM app.oidc_requests WHERE id IN (SELECT id FROM app.oidc_requests WHERE expires_at<now() LIMIT 100)");
   const { rows: [row] } = await db.pool.query<{ id: string }>(`INSERT INTO app.oidc_requests(app_id,redirect_uri,challenge,state,nonce,scopes,expires_at)
     VALUES($1,$2,$3,$4,$5,$6,now()+interval '10 minutes') RETURNING id`, [app.id, uri, challenge, state, nonce, scopes]);
-  const page = new URL(browserPage, env.APP_ORIGIN);
+  const page = new URL(browserPage, appConfig(env).origin);
   page.searchParams.set("request", row.id);
   return go(page.href);
 }

@@ -1,3 +1,4 @@
+import { appConfig, signingConfig } from "../../config/runtime";
 import { ProtocolError, ProtocolErrorCode } from "@modelcontextprotocol/server";
 import type { z } from "zod";
 
@@ -64,7 +65,7 @@ export async function subscribeMcpEvent(env: Env, auth: OAuthProps, input: z.inf
   let verifiedAt = cached?.verified_at;
   if (!verifiedAt) {
     const challenge = crypto.randomUUID();
-    const result = await sendMcpWebhook(env.APP_ORIGIN, {
+    const result = await sendMcpWebhook(appConfig(env).origin, {
       url, subscriptionId: id, id: `msg_verification_${crypto.randomUUID()}`,
       payload: { type: "verification", challenge }, secrets: [secret], verify: true,
     });
@@ -77,7 +78,7 @@ export async function subscribeMcpEvent(env: Env, auth: OAuthProps, input: z.inf
   }
 
   const ttl = Math.min(input.ttlMs ?? defaultLifetime, maxLifetime);
-  const encrypted = await encrypt(secret, env.CREDENTIAL_ENCRYPTION_KEY);
+  const encrypted = await encrypt(secret, signingConfig(env).credentialKey);
   const currentScopes = cached ? scopes : await activeGrantScopes(env, principal);
   if (!currentScopes) throw forbidden();
   const expiresAt = await db.transaction(async sql => {
@@ -129,4 +130,3 @@ export async function unsubscribeMcpEvent(env: Env, auth: OAuthProps, input: z.i
   });
   return {};
 }
-

@@ -1,7 +1,8 @@
+import { linearConfig, signingConfig } from "../../config/runtime";
 import type { Env } from "../../types";
 import type { Database } from "../../postgres/database";
-import { installationToken } from "../../github";
-import { refreshLinearToken } from "../../linear";
+import { installationToken } from "../../integrations/providers/github";
+import { refreshLinearToken } from "../../integrations/providers/linear";
 import { ConnectionRepository } from "../storage/connection-repository";
 import { GitHubRepository } from "../storage/github-repository";
 
@@ -51,12 +52,12 @@ export async function resolveProviderCredentials(input: {
   if (!input.linearSelected) return { githubInstallations: github, linearConnection: null };
   const connected = await database.pool.query("SELECT 1 FROM app.connections WHERE tenant_id=$1 AND kind='linear'", [tenantId]);
   if (!connected.rowCount) return { githubInstallations: github, linearConnection: { connectionId: "linear", available: false } };
-  const connections = new ConnectionRepository(database, tenantId, env.CREDENTIAL_ENCRYPTION_KEY);
+  const connections = new ConnectionRepository(database, tenantId, signingConfig(env).credentialKey);
   let linear = await connections.get<Record<string, any>>("linear");
   if (!linear) return { githubInstallations: github, linearConnection: { connectionId: "linear", available: false } };
   let expiry = validExpiry(linear.accessTokenExpiresAt);
   if (!expiry || expiry <= Date.now() + LINEAR_REFRESH_MARGIN_MS) {
-    const refreshed = await refreshLinearToken(linear.refreshToken, env.LINEAR_CLIENT_ID, env.LINEAR_CLIENT_SECRET);
+    const refreshed = await refreshLinearToken(linear.refreshToken, linearConfig(env).clientId, linearConfig(env).clientSecret);
     const updated = await connections.rotateLinearTokens(linear.refreshToken, {
       accessToken: refreshed.access_token,
       refreshToken: refreshed.refresh_token ?? linear.refreshToken,

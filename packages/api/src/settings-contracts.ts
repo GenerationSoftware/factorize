@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { AGENT_SCOPES, ACCESS_SCOPES } from "./access-tokens";
-import { tailIntegration } from "./editor-contracts";
+import { tailIntegration } from "./integrations/api/editor-contracts";
 const timestamp = z.string();
 export const exeConnection = z.object({ connectionId: z.string(), credentialStatus: z.literal("connected") });
 export const ampConnection = z.object({ connectionId: z.string(), project: z.string(), apiBaseUrl: z.string().optional() });

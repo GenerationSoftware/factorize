@@ -6,7 +6,7 @@ import type { Session } from "./session";
 import { readBrowserSession } from "./browser-session";
 export { readSession, signSession, requestCookie, type Session } from "./session";
 import { equalHmac, hmac } from "./crypto";
-import { createAppJwt, githubHeaders, readSetupState, signSetupState } from "./github";
+import { createAppJwt, githubHeaders, readSetupState, signSetupState } from "./integrations/providers/github";
 import type { Env } from "./types";
 import { databaseFor } from "./postgres/database";
 import { AuthRepository } from "./postgres/auth-repository";

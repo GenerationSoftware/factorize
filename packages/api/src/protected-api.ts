@@ -1,10 +1,11 @@
-import { IntegrationTopologyChanged } from "./postgres/integration-removal-topology";
+import { appConfig } from "./config/runtime";
+import { IntegrationTopologyChanged } from "./integrations/storage/integration-removal-topology";
 import { adoptLegacyCredential } from "./oauth-installations";
 import { mcpOAuthChallenge, oauthResourceAuthorization, scopesForOAuthCredential } from "./mcp-oauth-auth";
 import { mcpMissingScopes } from "./mcp-oauth-scopes";
 import { initialIntegrationOverrides } from "./oauth-reconnect";
 import { listEventsInput, getProcessingAcknowledgmentsInput, setProcessingAcknowledgmentsInput, acknowledgeEventsInput, replayUnacknowledgedEventsInput, readEventDeliveryDiagnosticsInput, readEventOccurrencesInput, subscribeEventInput, unsubscribeEventInput } from "./subscriptions/api/mcp-event-contracts";
-import { appRegistrationInput, appRegistrationUpdate } from "./apps-contracts";
+import { appRegistrationInput, appRegistrationUpdate } from "./apps/api/apps-contracts";
 import {createPayloadInput,appendPayloadInput,finalizePayloadInput,attachmentInput} from "./proxy/application/proxy-payloads";
 import {operationRef,operationRead} from "./proxy/application/proxy-operations";
 import {proxyToolResult} from "./proxy/application/proxy-result";
@@ -28,8 +29,8 @@ import { matchApiOperation } from "./api-contract";
 import { normalizeScopes } from "./access-tokens";
 import { eventDefinitionInput, eventDefinitionUpdate, eventOccurrenceQuery } from "./events/api/event-contracts";
 import { listenForEvents } from "./subscriptions/api/event-subscription";
-import { activeVmAuthorization } from "./vm-auth";
-import { vmGrantInput, vmGrantRef } from "./vm-grant-contracts";
+import { activeVmAuthorization } from "./vm-grants/application/vm-auth";
+import { vmGrantInput, vmGrantRef } from "./vm-grants/api/vm-grant-contracts";
 
 function errorResponse(error: unknown, origin?: string): Response {
   if (error instanceof IntegrationTopologyChanged) return Response.json({ error:{ code:"conflict", message:error.message } }, {status:409});
@@ -120,7 +121,7 @@ export async function protectedApiFetch(request: Request, env: Env, auth: OAuthP
               }
               return listenerAuth.scopes.includes(requiredScope); // The database read rechecks owner membership and key activity.
             };
-            if (eventListener) listeners.set(request,() => listenForEvents(request,body,mcpService,()=>createMcpServer(mcpService),credentialActive,ctx).catch(error => errorResponse(error,env.APP_ORIGIN)));
+            if (eventListener) listeners.set(request,() => listenForEvents(request,body,mcpService,()=>createMcpServer(mcpService),credentialActive,ctx).catch(error => errorResponse(error,appConfig(env).origin)));
           }
         }
         return await mcp(request, mcpService, env, ctx);
@@ -159,7 +160,7 @@ export async function protectedApiFetch(request: Request, env: Env, auth: OAuthP
       const query = route.query?.parse(queryInput(url));
       const result = await route.execute(service, { params: route.parameters.parse(params) as Record<string, string>, body, query, url, signal: request.signal,request });
       return timed(result instanceof Response ? result : Response.json(result, { status: route.status }));
-    } catch (error) { return timed(errorResponse(error, env.APP_ORIGIN)); }
+    } catch (error) { return timed(errorResponse(error, appConfig(env).origin)); }
 }
 
 const listeners = new WeakMap<Request,()=>Promise<Response>>();
@@ -297,7 +298,7 @@ function mcpAppFor(hostname: string) {
 
 async function mcp(request: Request, service: ApiService, env: Env, ctx: ExecutionContext): Promise<Response> {
     mcpServices.set(request, service);
-    return mcpAppFor(new URL(env.APP_ORIGIN).hostname).fetch(request, env, ctx);
+    return mcpAppFor(new URL(appConfig(env).origin).hostname).fetch(request, env, ctx);
   }
 
 export class ProtectedApiHandler extends WorkerEntrypoint<Env, OAuthProps> {

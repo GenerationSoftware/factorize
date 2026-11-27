@@ -4,7 +4,7 @@ import { z } from "zod";
 import { requestApiInput } from "../src/proxy/api/agent-api-contracts";
 import { eventDefinitionInput } from "../src/events/api/event-contracts";
 import { fireTriggerInputSchema, mcpTriggerInputSchema } from "../src/triggers/api/trigger-schemas";
-import { vmGrantInput } from "../src/vm-grant-contracts";
+import { vmGrantInput } from "../src/vm-grants/api/vm-grant-contracts";
 
 describe("canonical Factorize recipe inputs", () => {
   it("documents an isolated read without provider credentials or a request body", async () => {

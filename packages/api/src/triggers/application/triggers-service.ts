@@ -1,3 +1,4 @@
+import { signingConfig } from "../../config/runtime";
 import type { Env, OAuthProps } from "../../types";
 import type { AGENT_SCOPES } from "../../access-tokens";
 import { authorizeEnrichment } from "../../events/application/event-enrichment";
@@ -16,7 +17,7 @@ import { decrypt, encrypt } from "../../crypto";
 import { type Trigger, type TriggerSource } from "../domain/trigger-domain";
 import { GitHubRepository } from "../../credentials/storage/github-repository";
 
-import { OperationsRepository } from "../../postgres/operations-repository";
+import { OperationsRepository } from "../storage/operations-repository";
 import { installedEventAvailability } from "../domain/trigger-availability";
 import { evaluateWebhookConditions } from "../domain/webhook-conditions";
 
@@ -29,8 +30,8 @@ import { ServiceError, publicValue } from "../../service-contract";
 export class TriggersService {
   constructor(private env: Env, private auth: OAuthProps, private authorize: (scope: (typeof AGENT_SCOPES)[number]) => Promise<void>) {}
   private eventDefinitions() { return new EventDefinitionRepository(databaseFor(this.env), this.auth.tenantId); }
-  private connections() { return new ConnectionRepository(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY); }
-  private triggers() { return new PostgresTriggerRepository(databaseFor(this.env), this.auth.tenantId, value => encrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY), value => decrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY)); }
+  private connections() { return new ConnectionRepository(databaseFor(this.env), this.auth.tenantId, signingConfig(this.env).credentialKey); }
+  private triggers() { return new PostgresTriggerRepository(databaseFor(this.env), this.auth.tenantId, value => encrypt(value, signingConfig(this.env).credentialKey), value => decrypt(value, signingConfig(this.env).credentialKey)); }
 
   private normalizedSources(input: TriggerInput["sources"], existing: TriggerSource[] = []): TriggerSource[] {
     const sources = input.some(source => source.kind === "manual") ? input : [{ kind: "manual" as const, enabled: true, config: {} }, ...input];
