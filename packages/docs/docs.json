@@ -34,6 +34,10 @@
             ]
           },
           {
+            "group": "Account integrations",
+            "pages": ["integrations/aws"]
+          },
+          {
             "group": "Event sources",
             "pages": [
               "integrations/events",

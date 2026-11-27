@@ -7,6 +7,7 @@ const icons: Record<string, ReactNode> = {
   amp: <svg aria-hidden="true" viewBox="0 0 24 24" className="h-7 w-7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m13 2-8 12h7l-1 8 8-12h-7l1-8Z"/></svg>,
   x: <svg aria-hidden="true" viewBox="0 0 24 24" className="h-7 w-7" fill="none" stroke="currentColor" strokeWidth="2"><path d="m4 3 12 18h4L8 3H4Zm0 18L20 3"/></svg>,
   hetzner: <svg aria-hidden="true" viewBox="0 0 24 24" className="h-7 w-7" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 4v16m16-16v16M4 12h16"/></svg>,
+  aws: <svg aria-hidden="true" viewBox="0 0 24 24" className="h-7 w-7" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 16h12a4 4 0 1 0-1-7 6 6 0 0 0-11-1 4 4 0 0 0 0 8Zm1 4c3 1 7 1 10-1"/></svg>,
   fly: <svg aria-hidden="true" viewBox="0 0 24 24" className="h-7 w-7" fill="none" stroke="currentColor" strokeWidth="2"><path d="m3 5 18 7-18 7 4-7-4-7Zm4 7h14"/></svg>,
   bearer: <svg aria-hidden="true" viewBox="0 0 24 24" className="h-7 w-7" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="8" cy="9" r="5"/><path d="m12 13 8 8m-4-4 3-3m-6 0 3-3"/></svg>,
   model: <svg aria-hidden="true" viewBox="0 0 24 24" className="h-7 w-7" fill="none" stroke="currentColor" strokeWidth="2"><path d="m12 2 3 7 7 3-7 3-3 7-3-7-7-3 7-3 3-7Z"/></svg>,

@@ -16,6 +16,7 @@ export * from "../auth/storage/schema";
 export * from "../access-control/storage/schema";
 export * from "../credentials/storage/schema";
 export * from "../credentials/storage/x-schema";
+export * from "../integrations/storage/aws-schema";
 export * from "../proxy/storage/schema";
 export * from "../events/storage/schema";
 export * from "../subscriptions/storage/schema";

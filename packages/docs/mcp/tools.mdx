@@ -58,6 +58,7 @@ its input and enforces the operation's required scope.
 | `replay_unacknowledged_events` | Queue exact unresolved original occurrence IDs on your opted-in subscription, without duplicating business events or bypassing cooldown. Recovery wakes can have fresh event IDs; deduplicate by their original data.occurrenceId. |
 | `request_api` | Call an integration discovered by get_api_reflection. Use its integration ID and relative path; no VM, shell or credential is needed. Credentials stay in Factorize. OAuth requires proxy:use. Use read_api_response for retained response handles. |
 | `revoke_vm_permissions` | Revoke a VM's Factorize permissions. The VM keeps running. Requires vms:edit. |
+| `run_aws_script` | Run Python in the AWS-hosted MCP sandbox through an AWS connection whose owner granted this OAuth installation Use access. The customer role controls AWS API permissions; permitted writes can change resources and incur charges. Never assume a retry after timeout is safe. |
 | `set_event_processing_acknowledgments` | Opt in to processing acknowledgments for future occurrences on your exact MCP subscription. Turning off waives unresolved acknowledgments and clears cooldown; does not alter standard MCP subscription behavior. |
 | `test_trigger_webhook_conditions` | Evaluate conditions on supplied prepared webhook context. No authentication of the example, routing, live GitHub verification, or Trigger firing. |
 | `update_app` | Update redirect URLs, visibility, or enabled state for a registered app. |

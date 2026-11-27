@@ -3,6 +3,8 @@ export interface Env {
   SCHEDULER?: DurableObjectNamespace;
   ASSETS: Fetcher;
   APP_ORIGIN: string;
+  /** Dedicated AWS workload signing key set, not the OAuth login signer. */
+  AWS_WORKLOAD_SIGNING_KEYS?: string;
   CLOUDFLARE_OAUTH_CLIENT_ID?: string;
   CLOUDFLARE_OAUTH_CLIENT_SECRET?: string;
   CLOUDFLARE_OAUTH_READ_SCOPES?: string;

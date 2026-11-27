@@ -1,3 +1,4 @@
+import { awsCodeInput } from "./aws-contracts";
 import { hetznerSshToolInput } from "./hetzner-ssh-contracts";
 import { z } from "zod";
 
@@ -19,4 +20,11 @@ export const tailTools = [
 export const hetznerTools = [
   mcpTool("integrations:read", "check_hetzner_ssh", "Check SSH access for one owner-enrolled Hetzner Cloud server. Uses the pinned host identity and a Factorize-held credential. Proves fresh key authentication; no SSH channel, commands or remote output.", hetznerSshToolInput, service =>
     (input: {serverId: number}) => service.hetznerSsh.checkAsClient(input.serverId)),
+];
+
+export const awsTools = [
+  // The owner-assigned AWS connection is the use permission. The service rechecks the active OAuth grant before dispatch.
+  mcpTool<z.infer<typeof awsCodeInput>>(null, "run_aws_script",
+    "Run Python in the AWS-hosted MCP sandbox through an AWS connection whose owner granted this OAuth installation Use access. The customer role controls AWS API permissions; permitted writes can change resources and incur charges. Never assume a retry after timeout is safe.",
+    awsCodeInput, service => ({ connectionId, code }, signal) => service.aws.codeMode(connectionId, code, signal)),
 ];

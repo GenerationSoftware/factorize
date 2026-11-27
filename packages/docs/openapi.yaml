@@ -5475,6 +5475,571 @@ paths:
           schema:
             type: string
             pattern: ^[1-9][0-9]*$
+  /api/v1/integrations/aws:
+    get:
+      summary: List AWS connections
+      responses:
+        "200":
+          description: AWS connection metadata and signing availability
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  available:
+                    type: boolean
+                  connections:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                        name:
+                          type: string
+                        region:
+                          type: string
+                          enum:
+                            - us-east-1
+                            - us-west-2
+                            - ap-southeast-1
+                            - ap-southeast-2
+                            - ap-northeast-1
+                            - eu-central-1
+                            - eu-west-1
+                            - eu-west-2
+                        roleArn:
+                          anyOf:
+                            - type: string
+                              maxLength: 512
+                              pattern: ^arn:aws:iam::[0-9]{12}:role\/[A-Za-z0-9_+=,.@-]+(?:\/[A-Za-z0-9_+=,.@-]+)*$
+                            - type: "null"
+                        oauthInstallationId:
+                          type:
+                            - string
+                            - "null"
+                        revision:
+                          type: integer
+                          minimum: 0
+                          maximum: 9007199254740991
+                      required:
+                        - id
+                        - name
+                        - region
+                        - roleArn
+                        - oauthInstallationId
+                        - revision
+                      additionalProperties: false
+                required:
+                  - available
+                  - connections
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the integrations:read scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      operationId: get_api_v1_integrations_aws
+      tags:
+        - integrations
+      security:
+        - cookieAuth: []
+      x-required-scope: integrations:read
+      x-owner-session-required: true
+    post:
+      summary: Prepare an AWS connection
+      responses:
+        "201":
+          description: Pending connection and its CloudFormation role template
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  connection:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                        pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                      name:
+                        type: string
+                      region:
+                        type: string
+                        enum:
+                          - us-east-1
+                          - us-west-2
+                          - ap-southeast-1
+                          - ap-southeast-2
+                          - ap-northeast-1
+                          - eu-central-1
+                          - eu-west-1
+                          - eu-west-2
+                      roleArn:
+                        anyOf:
+                          - type: string
+                            maxLength: 512
+                            pattern: ^arn:aws:iam::[0-9]{12}:role\/[A-Za-z0-9_+=,.@-]+(?:\/[A-Za-z0-9_+=,.@-]+)*$
+                          - type: "null"
+                      oauthInstallationId:
+                        type:
+                          - string
+                          - "null"
+                      revision:
+                        type: integer
+                        minimum: 0
+                        maximum: 9007199254740991
+                    required:
+                      - id
+                      - name
+                      - region
+                      - roleArn
+                      - oauthInstallationId
+                      - revision
+                    additionalProperties: false
+                  template:
+                    type: string
+                required:
+                  - connection
+                  - template
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the integrations:write scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      operationId: post_api_v1_integrations_aws
+      tags:
+        - integrations
+      security:
+        - cookieAuth: []
+      x-required-scope: integrations:write
+      x-owner-session-required: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 120
+                region:
+                  type: string
+                  enum:
+                    - us-east-1
+                    - us-west-2
+                    - ap-southeast-1
+                    - ap-southeast-2
+                    - ap-northeast-1
+                    - eu-central-1
+                    - eu-west-1
+                    - eu-west-2
+              required:
+                - name
+                - region
+              additionalProperties: false
+  /api/v1/integrations/aws/{connectionId}/template:
+    get:
+      summary: Download an AWS connection role template
+      responses:
+        "200":
+          description: Connection and CloudFormation role template
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  connection:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                        pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                      name:
+                        type: string
+                      region:
+                        type: string
+                        enum:
+                          - us-east-1
+                          - us-west-2
+                          - ap-southeast-1
+                          - ap-southeast-2
+                          - ap-northeast-1
+                          - eu-central-1
+                          - eu-west-1
+                          - eu-west-2
+                      roleArn:
+                        anyOf:
+                          - type: string
+                            maxLength: 512
+                            pattern: ^arn:aws:iam::[0-9]{12}:role\/[A-Za-z0-9_+=,.@-]+(?:\/[A-Za-z0-9_+=,.@-]+)*$
+                          - type: "null"
+                      oauthInstallationId:
+                        type:
+                          - string
+                          - "null"
+                      revision:
+                        type: integer
+                        minimum: 0
+                        maximum: 9007199254740991
+                    required:
+                      - id
+                      - name
+                      - region
+                      - roleArn
+                      - oauthInstallationId
+                      - revision
+                    additionalProperties: false
+                  template:
+                    type: string
+                required:
+                  - connection
+                  - template
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the integrations:read scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      operationId: get_api_v1_integrations_aws_connectionId_template
+      tags:
+        - integrations
+      security:
+        - cookieAuth: []
+      x-required-scope: integrations:read
+      x-owner-session-required: true
+      parameters:
+        - name: connectionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+  /api/v1/integrations/aws/{connectionId}/verify:
+    post:
+      summary: Verify an AWS role with a harmless AWS MCP Code Mode script
+      responses:
+        "200":
+          description: Verified AWS Code Mode connection
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  connection:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                        pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                      name:
+                        type: string
+                      region:
+                        type: string
+                        enum:
+                          - us-east-1
+                          - us-west-2
+                          - ap-southeast-1
+                          - ap-southeast-2
+                          - ap-northeast-1
+                          - eu-central-1
+                          - eu-west-1
+                          - eu-west-2
+                      roleArn:
+                        anyOf:
+                          - type: string
+                            maxLength: 512
+                            pattern: ^arn:aws:iam::[0-9]{12}:role\/[A-Za-z0-9_+=,.@-]+(?:\/[A-Za-z0-9_+=,.@-]+)*$
+                          - type: "null"
+                      oauthInstallationId:
+                        type:
+                          - string
+                          - "null"
+                      revision:
+                        type: integer
+                        minimum: 0
+                        maximum: 9007199254740991
+                    required:
+                      - id
+                      - name
+                      - region
+                      - roleArn
+                      - oauthInstallationId
+                      - revision
+                    additionalProperties: false
+                  verified:
+                    type: boolean
+                    const: true
+                required:
+                  - connection
+                  - verified
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the integrations:write scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      operationId: post_api_v1_integrations_aws_connectionId_verify
+      tags:
+        - integrations
+      security:
+        - cookieAuth: []
+      x-required-scope: integrations:write
+      x-owner-session-required: true
+      parameters:
+        - name: connectionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                roleArn:
+                  type: string
+                  maxLength: 512
+                  pattern: ^arn:aws:iam::[0-9]{12}:role\/[A-Za-z0-9_+=,.@-]+(?:\/[A-Za-z0-9_+=,.@-]+)*$
+              required:
+                - roleArn
+              additionalProperties: false
+  /api/v1/integrations/aws/{connectionId}/access:
+    put:
+      summary: Assign or revoke Use access to this AWS connection
+      description: |-
+        An owner session with integrations:write can assign one current OAuth installation, or pass null to remove access. The assigned installation does not need an integration scope to run Code Mode.
+
+        Requires the integrations:write scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      responses:
+        "200":
+          description: AWS connection with its explicit Use grant
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                  name:
+                    type: string
+                  region:
+                    type: string
+                    enum:
+                      - us-east-1
+                      - us-west-2
+                      - ap-southeast-1
+                      - ap-southeast-2
+                      - ap-northeast-1
+                      - eu-central-1
+                      - eu-west-1
+                      - eu-west-2
+                  roleArn:
+                    anyOf:
+                      - type: string
+                        maxLength: 512
+                        pattern: ^arn:aws:iam::[0-9]{12}:role\/[A-Za-z0-9_+=,.@-]+(?:\/[A-Za-z0-9_+=,.@-]+)*$
+                      - type: "null"
+                  oauthInstallationId:
+                    type:
+                      - string
+                      - "null"
+                  revision:
+                    type: integer
+                    minimum: 0
+                    maximum: 9007199254740991
+                required:
+                  - id
+                  - name
+                  - region
+                  - roleArn
+                  - oauthInstallationId
+                  - revision
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: put_api_v1_integrations_aws_connectionId_access
+      tags:
+        - integrations
+      security:
+        - cookieAuth: []
+      x-required-scope: integrations:write
+      x-owner-session-required: true
+      parameters:
+        - name: connectionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                oauthInstallationId:
+                  anyOf:
+                    - type: string
+                      minLength: 1
+                      maxLength: 512
+                    - type: "null"
+              required:
+                - oauthInstallationId
+              additionalProperties: false
+  /api/v1/integrations/aws/{connectionId}:
+    delete:
+      summary: Delete an AWS connection in Factorize
+      description: |-
+        Does not delete the IAM role or OIDC provider in AWS.
+
+        Requires the integrations:write scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      responses:
+        "200":
+          description: AWS connection removed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: boolean
+                    const: true
+                required:
+                  - deleted
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: delete_api_v1_integrations_aws_connectionId
+      tags:
+        - integrations
+      security:
+        - cookieAuth: []
+      x-required-scope: integrations:write
+      x-owner-session-required: true
+      parameters:
+        - name: connectionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
   /api/v1/integrations/removal/preview:
     post:
       summary: Preview what deleting one installed integration affects

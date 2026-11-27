@@ -19,6 +19,10 @@ Factorize publishes Event occurrences; subscribers decide what to do with them.
 - [Give a VM access](https://docs.factorize.sh/work/vm-access): Grant and revoke isolated Factorize access for an existing workload.
 - [React to an Event](https://docs.factorize.sh/work/triggers): Publish a test occurrence, verify delivery, and configure real inputs when ready.
 
+## Account integrations
+
+- [AWS](https://docs.factorize.sh/integrations/aws): Run AWS Code Mode through a dedicated IAM role without giving Factorize an AWS access key.
+
 ## Event sources
 
 - [Event payloads and conditions](https://docs.factorize.sh/integrations/events): Define payload schemas and filter provider Trigger inputs.

@@ -1,3 +1,4 @@
+import { awsIssuerResponse } from "./integrations/providers/aws/issuer";
 import { dispatchOAuth, provider, proxyOAuthResponse, withOAuthProvider } from "./auth/transport/worker-oauth";
 import { runScheduledMaintenance } from "./runtime/scheduled-maintenance";
 
@@ -34,6 +35,8 @@ const backend = { async fetch(request: Request, env: Env, ctx: ExecutionContext)
   if (new URL(request.url).pathname === cloudflareCallback) return cloudflareOAuthCallback(request, env);
   if (new URL(request.url).pathname === googleCallbackPath) return googleSignInCallback(request, env);
   if (new URL(request.url).pathname === "/oauth/x/callback") return request.method === "GET" ? xOAuthCallback(request, env) : new Response("Method not allowed", { status: 405, headers: { Allow: "GET" } });
+  const awsIssuer = awsIssuerResponse(request, env);
+  if (awsIssuer) return awsIssuer;
   const oidc = await oidcRequest(request, env);
   if (oidc) return oidc;
   const staticResponse = !["/authorize", "/device"].includes(new URL(request.url).pathname) ? await staticApp(request, env) : null;

@@ -50,3 +50,8 @@ export const cloudflareOAuthConfig = (env: Pick<Env, "CLOUDFLARE_OAUTH_CLIENT_ID
   readScopes: env.CLOUDFLARE_OAUTH_READ_SCOPES,
   defaultScopes: env.CLOUDFLARE_OAUTH_DEFAULT_SCOPES,
 });
+
+export const awsWorkloadConfig = (env: Pick<Env, "APP_ORIGIN" | "AWS_WORKLOAD_SIGNING_KEYS">) => ({
+  origin: env.APP_ORIGIN,
+  keys: env.AWS_WORKLOAD_SIGNING_KEYS,
+});
