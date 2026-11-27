@@ -34,8 +34,9 @@ are part of validation.
 
 ## Dependency rules
 
-- `protected-api.ts` still owns REST registrations and MCP tool names.
-  `ApiService` is their facade; new application logic belongs in a capability.
+- Each capability owns its REST declarations and MCP tool names and scopes.
+  The shared API transport handles ingress and dispatch; `ApiService` composes
+  the capability services and applies shared authorization.
 - In a capability, `api/` owns wire schemas/translation, `application/` owns
   orchestration, `domain/` owns rules that don't require Worker bindings or
   database access, and `storage/` owns the database adapters. The Event
@@ -62,13 +63,13 @@ are part of validation.
 
 All three slices land in the same PR. No public interface or migration changes.
 
-- [ ] Declare REST routes and MCP tools in capability modules. Preserve route
+- [x] Declare REST routes and MCP tools in capability modules. Preserve route
   precedence, tool inventory, OAuth challenge scopes, and generated OpenAPI.
   New operations in an existing capability must not change a shared registry.
-- [ ] Have protocol adapters call capability services directly. Keep common
+- [x] Have protocol adapters call capability services directly. Keep common
   authorization and timing, and extract Worker OAuth and scheduled maintenance
   without changing execution order or deployed bindings.
-- [ ] Split Drizzle table definitions by capability, preserving the stable schema
+- [x] Split Drizzle table definitions by capability, preserving the stable schema
   entry point and all tables, relations, indexes, and SQL migrations.
 - [ ] Verify non-overlapping Event and VM Grant edits, run full validation on an
   isolated Fly Machine, and stop it after the run.

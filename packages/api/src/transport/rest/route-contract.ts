@@ -60,7 +60,7 @@ export function route(
   };
 }
 
-/** The executable API catalog: change an operation here, then run generate:openapi.
+/** Browser session routes use the same executable contract as scoped REST routes.
  * Service methods retain tenant/identity authorization for both REST and MCP.
  */
 export function authRoute(method: string, path: string, action: AuthAction, summary: string, response: z.ZodType, body?: z.ZodType, status = 200): RouteContract {
