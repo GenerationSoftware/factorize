@@ -110,7 +110,7 @@ and accounts in the token. Factorize applies its usual connection access
 controls and keeps the credentials server-side. Earlier account-bound
 connections require a fresh authorization before using this proxy; stored
 connection rows are retained, and existing agent grants do not transfer.
-Disconnect removes Factorize's saved credentials; revoke the authorization on
+**Delete** removes Factorize's saved credentials; revoke the authorization on
 Cloudflare to remove it there too.
 
 Cloudflare Tail is retired. Old webhook endpoints return HTTP 410 and

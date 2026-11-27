@@ -1,6 +1,8 @@
 import { expect, it, vi } from "vitest";
+import { integrationRemovalPreview } from "../src/integrations/api/integration-removal-contracts";
 import { protectedApiFetch } from "../src/protected-api";
 import { ConnectionRepository } from "../src/credentials/storage/connection-repository";
+import { CredentialRepository } from "../src/credentials/storage/credential-repository";
 import { EventDefinitionRepository } from "../src/events/storage/event-definition-repository";
 import { EventMatchRepository } from "../src/events/storage/event-match-repository";
 import { mcpRequest } from "./helpers/mcp-request";
@@ -119,5 +121,122 @@ it.skipIf(!url)("retains a receipt-backed tombstone without inheriting old impli
     const result=(await old("tools/call",{name:"get_api_reflection",arguments:{}})).message.result.structuredContent;
     expect(result.integrations.find((entry:{id:string})=>entry.id===registry.id).access).toBe("requestable");
     expect((await f.db.pool.query("SELECT id FROM app.agent_proxy_responses WHERE tenant_id=$1 AND id=$2",[f.tenantId,receipt])).rowCount).toBe(1);
+  } finally { await f.cleanup(); }
+});
+
+it.skipIf(!url)("deletes the native Linear connection, webhook routing and access without deleting Event history", async () => {
+  const f = await loadingFixture(url!);
+  const organizationId = crypto.randomUUID(), otherOrganizationId = crypto.randomUUID();
+  const connection = { accessToken: "local-access", refreshToken: "local-refresh", organizationId };
+  const repository = new ConnectionRepository(f.db, f.tenantId, f.env.CREDENTIAL_ENCRYPTION_KEY);
+  const otherRepository = new ConnectionRepository(f.db, f.otherTenant, f.env.CREDENTIAL_ENCRYPTION_KEY);
+  const target = { kind: "linear", id: "linear" };
+  const preview = async () => {
+    const response = await rpc(f, paths.preview, target);
+    expect(response.status, await response.clone().text()).toBe(200);
+    return integrationRemovalPreview.parse(await response.json());
+  };
+  try {
+    expect(await repository.putLinear(organizationId, connection)).toBe(true);
+    expect(await otherRepository.putLinear(otherOrganizationId, { ...connection, organizationId: otherOrganizationId })).toBe(true);
+    const registration = (await f.db.pool.query<{ id: string; epoch: number }>(
+      "SELECT id,epoch FROM app.agent_integrations WHERE tenant_id=$1 AND kind='linear' AND credential_id='linear'", [f.tenantId],
+    )).rows[0]!;
+    const scope = `integration:${registration.id}:${registration.epoch}`;
+    await f.db.pool.query(`INSERT INTO app.agent_identities(tenant_id,kind,subject,user_id,session_version,scope_overrides)
+      VALUES($1,'oauth','linear-test-client',$2,1,$3::text[])`, [f.tenantId, f.userId, [scope]]);
+    const retained = await f.seedEventTrigger();
+    const sibling = await f.seedEventTrigger(f.otherTenant);
+    const directory = new EventDefinitionRepository(f.db, f.tenantId);
+    const sole = (await directory.create({ name: "linear-only" }))!;
+    const soleTrigger = crypto.randomUUID();
+    await f.db.pool.query("INSERT INTO app.triggers(tenant_id,id,event_definition_id,name,slug) VALUES($1,$2,$3,'Only Linear','only-linear')", [f.tenantId, soleTrigger, sole.id]);
+    const prior = await new EventMatchRepository(f.db).match({ tenantId:f.tenantId, triggerId:retained.triggerId, triggerRevision:1, sourceIdentity:"manual:retained", deduplicationKey:"linear-history", evidence:{keep:true}, decision:"matched" });
+    const retainedSource = crypto.randomUUID(), soleSource = crypto.randomUUID(), siblingSource = crypto.randomUUID();
+    for (const [tenant, trigger, id] of [[f.tenantId, retained.triggerId, retainedSource], [f.tenantId, soleTrigger, soleSource], [f.otherTenant, sibling.triggerId, siblingSource]]) {
+      await f.db.pool.query(`INSERT INTO app.events(tenant_id,id,trigger_id,kind,slug,position,config)
+        VALUES($1,$2,$3,'webhook','linear-issues',5,'{"provider":"linear","projectId":"project","matchRules":[{"type":"status","targetId":"done"}]}')`, [tenant, id, trigger]);
+    }
+    await directory.update(retained.definitionId, { name:"linear-and-manual", enrichment:{rule:"lookups.linearIssue.ok",extraDataUrls:[
+      {name:"linearIssue",integration:registration.id,method:"POST",path:"/graphql"},
+    ]}}, 1);
+    expect((await rpc(f, paths.preview, { kind: "linear", id: "different" })).status).toBe(404);
+    const first = await preview();
+    expect(first).toMatchObject({
+      needsConfirmation: true,
+      sources: expect.arrayContaining([{id:retainedSource,triggerId:retained.triggerId,triggerName:"Fixture trigger",eventId:retained.definitionId,eventName:"linear-and-manual",sourceName:"linear-issues",deleteTrigger:false},
+        expect.objectContaining({id:soleSource,deleteTrigger:true})]),
+      pausedEvents: expect.arrayContaining([expect.objectContaining({id:sole.id}),expect.objectContaining({id:retained.definitionId})]),
+      lookups: [expect.objectContaining({name:"linearIssue",cascaded:false})],
+      clients: [expect.objectContaining({id:"linear-test-client"})],
+    });
+    expect(first.sources).toHaveLength(2);
+    expect(await repository.get("linear")).not.toBeNull();
+    expect((await rpc(f, paths.confirm, {...target, fingerprint:first.fingerprint, confirmImpact:false})).status).toBe(409);
+    // A reconnect replaces the credential and invalidates an open delete dialog.
+    expect(await repository.putLinear(organizationId, {...connection, accessToken:"refreshed-local-token"})).toBe(true);
+    expect((await rpc(f, paths.confirm, {...target, fingerprint:first.fingerprint, confirmImpact:true})).status).toBe(409);
+    const latest = await preview();
+    const response = await rpc(f, paths.confirm, {...target, fingerprint:latest.fingerprint, confirmImpact:true});
+    expect(response.status, await response.clone().text()).toBe(200);
+    expect(await response.json()).toEqual({deleted:true});
+    expect(await repository.get("linear")).toBeNull();
+    expect(await otherRepository.get("linear")).not.toBeNull();
+    expect((await f.db.pool.query("SELECT organization_id FROM app.linear_workspaces WHERE organization_id=ANY($1::uuid[])", [[organizationId,otherOrganizationId]])).rows)
+      .toEqual([{organization_id:otherOrganizationId}]);
+    expect((await f.db.pool.query("SELECT id FROM app.events WHERE id IN ($1,$2,$3)", [retainedSource,soleSource,siblingSource])).rows)
+      .toEqual([{id:siblingSource}]);
+    expect((await f.db.pool.query("SELECT id FROM app.triggers WHERE id IN ($1,$2)", [retained.triggerId,soleTrigger])).rows)
+      .toEqual([{id:retained.triggerId}]);
+    expect(await directory.get(sole.id)).not.toBeNull();
+    expect(await directory.get(retained.definitionId)).toMatchObject({enrichmentPauseReason:"integration_removed",enrichment:{rule:"lookups.linearIssue.ok",extraDataUrls:[]}});
+    expect((await directory.occurrences(retained.definitionId))?.items[0].id).toBe(prior.occurrence!.id);
+    expect((await f.db.pool.query("SELECT scope_overrides FROM app.agent_identities WHERE tenant_id=$1 AND subject='linear-test-client'", [f.tenantId])).rows[0])
+      .toEqual({scope_overrides:[]});
+    expect((await rpc(f, paths.preview, target)).status).toBe(404);
+    // The old mapping is actually released, not left reserving its organization.
+    expect(await otherRepository.putLinear(organizationId, connection)).toBe(true);
+  } finally { await f.cleanup(); }
+});
+
+it.skipIf(!url)("uses the shared preview and confirm workflow for every existing removal kind", async () => {
+  const f = await loadingFixture(url!);
+  try {
+    const repository = new ConnectionRepository(f.db, f.tenantId, f.env.CREDENTIAL_ENCRYPTION_KEY);
+    const bearer = new CredentialRepository(f.db, f.tenantId, f.env.CREDENTIAL_ENCRYPTION_KEY);
+    const db = f.db.pool;
+    const exe = crypto.randomUUID(), amp = crypto.randomUUID(), tail = crypto.randomUUID();
+    const cloudflare = crypto.randomUUID(), bearerId = crypto.randomUUID();
+    const github = String(Number.parseInt(crypto.randomUUID().slice(0,8),16));
+    for (const key of [`exe:${exe}`, `amp:${amp}`, `cloudflare-tail:${tail}`]) await repository.put(key, {fixture:true});
+    await db.query("INSERT INTO app.github_installations(tenant_id,installation_id,account_login,account_type,state) VALUES($1,$2,'fixture','Organization','active')", [f.tenantId, github]);
+    await db.query("INSERT INTO app.fly_connections(tenant_id,organization_slug,organization_name,encrypted_token) VALUES($1,'fixture','Fixture','fixture')", [f.tenantId]);
+    await db.query("INSERT INTO app.cloudflare_connections(tenant_id,id,account_name,encrypted_credentials) VALUES($1,$2,'Fixture','fixture')", [f.tenantId, cloudflare]);
+    await bearer.write({id:bearerId, kind:"bearer", name:"Fixture", origin:"https://fixture.test", description:null, expectedRevision:0, idempotencyKey:crypto.randomUUID(), operation:"upsert", managedSecret:"local-only"});
+    const targets = [
+      {kind:"exe", id:exe}, {kind:"amp", id:amp}, {kind:"cloudflareTail", id:tail},
+      {kind:"github", id:github}, {kind:"fly", id:"fly"}, {kind:"cloudflare", id:cloudflare}, {kind:"bearer", id:bearerId},
+    ];
+    const noProviderRequest = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("Removing integrations must not call providers"));
+    try {
+      for (const target of targets) {
+        const preview = await rpc(f, paths.preview, target);
+        expect(preview.status, target.kind + ": " + await preview.clone().text()).toBe(200);
+        const impact = integrationRemovalPreview.parse(await preview.json());
+        expect(impact).toMatchObject({needsConfirmation:false});
+        const gone = await rpc(f, paths.confirm, {...target, fingerprint:impact.fingerprint, confirmImpact:false});
+        expect(gone.status, target.kind + ": " + await gone.clone().text()).toBe(200);
+        expect(await gone.json()).toEqual({deleted:true});
+        expect((await rpc(f, paths.preview, target)).status, target.kind).toBe(404);
+      }
+      expect(noProviderRequest).not.toHaveBeenCalled();
+    } finally { noProviderRequest.mockRestore(); }
+    expect(await repository.all(["exe:", "amp:", "cloudflare-tail:"])).toEqual(new Map());
+    expect((await db.query("SELECT 1 FROM app.github_installations WHERE tenant_id=$1", [f.tenantId])).rowCount).toBe(0);
+    expect((await db.query("SELECT 1 FROM app.fly_connections WHERE tenant_id=$1", [f.tenantId])).rowCount).toBe(0);
+    expect((await db.query("SELECT encrypted_credentials FROM app.cloudflare_connections WHERE tenant_id=$1 AND id=$2", [f.tenantId, cloudflare])).rows)
+      .toEqual([{encrypted_credentials:null}]);
+    expect(await bearer.managedCredential(bearerId, "bearer")).toBeNull();
+    expect((await db.query("SELECT id FROM app.agent_integrations WHERE tenant_id=$1 AND available", [f.tenantId])).rowCount).toBe(0);
   } finally { await f.cleanup(); }
 });

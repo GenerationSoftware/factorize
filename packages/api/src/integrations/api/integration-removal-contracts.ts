@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const integrationRemovalKind = z.enum(["exe", "amp", "github", "cloudflareTail", "cloudflare", "fly", "bearer"]);
+export const integrationRemovalKind = z.enum(["linear", "exe", "amp", "github", "cloudflareTail", "cloudflare", "fly", "bearer"]);
 export const integrationRemovalTarget = z.strictObject({ kind: integrationRemovalKind, id: z.string().min(1).max(128) });
 export const integrationRemovalConfirmation = integrationRemovalTarget.extend({ fingerprint: z.string().min(1).max(128), confirmImpact: z.boolean() });
 const object = z.object({id: z.string(), name: z.string()});

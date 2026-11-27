@@ -1,3 +1,4 @@
+import { lockIntegrationTopology } from "../../integrations/storage/integration-removal-topology";
 import { decrypt, encrypt } from "../../crypto";
 import type { Database } from "../../postgres/database";
 import { and, eq, like, or } from "drizzle-orm";
@@ -24,6 +25,7 @@ export class ConnectionRepository {
     const encrypted = await encrypt(JSON.stringify(value), this.encryptionKey);
     try {
       await this.database.transaction(async client => {
+        await lockIntegrationTopology(client, this.tenantId);
         await client.query("DELETE FROM app.linear_workspaces WHERE tenant_id=$1 AND organization_id<>$2", [this.tenantId, organizationId]);
         const result = await client.query("INSERT INTO app.linear_workspaces(organization_id,tenant_id) VALUES ($1,$2) ON CONFLICT (organization_id) DO UPDATE SET tenant_id=excluded.tenant_id WHERE app.linear_workspaces.tenant_id=excluded.tenant_id RETURNING tenant_id", [organizationId, this.tenantId]);
         if (!result.rows.length) throw new Error("linear_workspace_claimed");

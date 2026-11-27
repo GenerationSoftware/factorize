@@ -52,7 +52,7 @@ export function useIntegrationRemoval() {
       setSelection(null);
       await Promise.all(["settings", "providers", "editor", "triggers", "events", "event-subscriptions", "vm-grants"]
         .map(key => cache.invalidateQueries({ queryKey: [key] })));
-      setNotice(`${target.name} disconnected.`);
+      setNotice(`${target.name} deleted.`);
     },
   });
   function open(target: Target & { name: string }) {
@@ -68,7 +68,7 @@ export function useIntegrationRemoval() {
     open,
     busy: selection !== null || confirm.isPending,
     notice: notice && <p role="status">{notice}</p>,
-    dialog: selection && <Dialog title={`Disconnect ${selection.name}?`} close={close} busy={confirm.isPending}>
+    dialog: selection && <Dialog title={`Delete ${selection.name}?`} close={close} busy={confirm.isPending}>
       {stale && <p role="alert" className="mb-3">The integration or its dependencies changed. Review the updated impact and confirm again.</p>}
       {preview.isFetching && <p role="status">Checking for dependencies…</p>}
       {preview.error && <p role="alert">{preview.error.message}</p>}
@@ -80,7 +80,7 @@ export function useIntegrationRemoval() {
         {preview.isError && <Button type="button" onClick={() => { void preview.refetch(); }}>Check again</Button>}
         {impact && <Button type="button" variant="destructive" disabled={confirm.isPending}
           onClick={() => confirm.mutate({ target: selection, impact })}>
-          {confirm.isPending ? "Disconnecting…" : impact.needsConfirmation ? "Disconnect and apply changes" : "Disconnect integration"}
+          {confirm.isPending ? "Deleting…" : impact.needsConfirmation ? "Delete and apply changes" : "Delete integration"}
         </Button>}
       </div>
     </Dialog>,
@@ -90,7 +90,7 @@ export function useIntegrationRemoval() {
 function RemovalImpact({ impact }: { impact: Preview }) {
   const { sources, lookups, pausedEvents, clients, workloads } = impact;
   return <div className="space-y-3">
-    <p>Disconnecting removes this connection from Factorize and makes the changes below. Provider data, Events, and their history are not deleted.</p>
+    <p>Deleting this integration removes the connection from Factorize and makes the changes below. Provider data, Events, and their history are not deleted.</p>
     {sources.length > 0 && <><h3 className="font-semibold">Trigger sources removed</h3><ul className="ml-5 list-disc">
       {sources.map(source => <li key={source.id}>
         {source.sourceName} in {source.triggerName} ({source.eventName}){source.deleteTrigger && " · Trigger removed if no sources remain"}

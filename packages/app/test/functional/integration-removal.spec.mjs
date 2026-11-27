@@ -3,6 +3,7 @@ import { test } from "./fixtures.mjs";
 
 const id = "11111111-1111-4111-8111-111111111111";
 const target = { kind: "exe", id };
+const linearTarget = { kind: "linear", id: "linear" };
 const emptyImpact = {
   fingerprint: "initial", sources: [], lookups: [], pausedEvents: [], clients: [], workloads: [], needsConfirmation: false,
 };
@@ -19,7 +20,7 @@ const dependentImpact = {
   needsConfirmation: true,
 };
 
-async function mockRemoval(page, { impact, stale }) {
+async function mockRemoval(page, { impact, stale, installedTarget = target }) {
   let installed = true;
   let current = impact;
   const previews = [], confirms = [];
@@ -30,7 +31,8 @@ async function mockRemoval(page, { impact, stale }) {
       team: { id: "workspace", name: "Workspace", role: "owner" }, capabilities: [],
     } });
     if (path === "/api/v1/integrations") return route.fulfill({ json: {
-      linear: null, clickup: null, exeConnections: installed ? [{ connectionId: id }] : [],
+      linear: installed && installedTarget.kind === "linear" ? { organizationName: "Test workspace", viewerEmail: null } : null,
+      clickup: null, exeConnections: installed && installedTarget.kind === "exe" ? [{ connectionId: id }] : [],
       ampConnections: [], cloudflareTail: { installations: [] },
     } });
     if (path === "/api/v1/fly/connection") return route.fulfill({ json: { connection: null } });
@@ -57,10 +59,10 @@ async function mockRemoval(page, { impact, stale }) {
   return { previews, confirms };
 }
 
-async function openRemoval(page) {
-  await page.getByRole("button", { name: /Actions for exe\.dev/ }).click();
-  await page.getByRole("menuitem", { name: "Disconnect", exact: true }).click();
-  return page.getByRole("dialog", { name: /Disconnect exe\.dev/ });
+async function openRemoval(page, integration = "exe.dev") {
+  await page.getByRole("button", { name: `Actions for ${integration}` }).click();
+  await page.getByRole("menuitem", { name: "Delete", exact: true }).click();
+  return page.getByRole("dialog", { name: `Delete ${integration}` });
 }
 
 test("dependency preview names affected objects; cancel does not write and stale confirmation requires a new review", async ({ page, origin }) => {
@@ -81,7 +83,7 @@ test("dependency preview names affected objects; cancel does not write and stale
   expect(confirms).toEqual([]);
 
   await openRemoval(page);
-  const confirm = dialog.getByRole("button", { name: "Disconnect and apply changes" });
+  const confirm = dialog.getByRole("button", { name: "Delete and apply changes" });
   await confirm.click();
   await expect(dialog.getByRole("alert")).toContainText("Review the updated impact and confirm again");
   await expect(dialog.getByText("Replacement client", { exact: true })).toBeVisible();
@@ -90,7 +92,7 @@ test("dependency preview names affected objects; cancel does not write and stale
   expect(confirms).toEqual([{ ...target, fingerprint: "with-dependencies", confirmImpact: true }]);
   await confirm.click();
   await expect(dialog).not.toBeVisible();
-  await expect(page.getByText(/exe\.dev.*disconnected\.$/)).toBeVisible();
+  await expect(page.getByText(/exe\.dev.*deleted\.$/)).toBeVisible();
   await expect(page.getByRole("button", { name: /Actions for exe\.dev/ })).toHaveCount(0);
   expect(confirms).toEqual([
     { ...target, fingerprint: "with-dependencies", confirmImpact: true },
@@ -105,9 +107,23 @@ test("no-dependency removal gives simple confirmation and sends the exact finger
   await expect(dialog.getByText("It does not delete anything at the provider.", { exact: false })).toBeVisible();
   await expect(dialog.getByRole("heading", { name: "Trigger sources removed" })).toHaveCount(0);
   expect(confirms).toEqual([]);
-  await dialog.getByRole("button", { name: "Disconnect integration", exact: true }).click();
+  await dialog.getByRole("button", { name: "Delete integration", exact: true }).click();
   await expect(dialog).not.toBeVisible();
-  await expect(page.getByText(/exe\.dev.*disconnected\.$/)).toBeVisible();
+  await expect(page.getByText(/exe\.dev.*deleted\.$/)).toBeVisible();
   expect(previews).toEqual([target]);
   expect(confirms).toEqual([{ ...target, fingerprint: "initial", confirmImpact: false }]);
+});
+
+test("Linear can be deleted from its row after reviewing the impact", async ({ page, origin }) => {
+  const { previews, confirms } = await mockRemoval(page, { impact: dependentImpact, installedTarget: linearTarget });
+  await page.goto(origin + "/integrations");
+  const dialog = await openRemoval(page, "Linear");
+  await expect(dialog.getByText(/Inbox webhook in Daily inbox/)).toBeVisible();
+  expect(previews).toEqual([linearTarget]);
+  expect(confirms).toEqual([]);
+  await dialog.getByRole("button", { name: "Delete and apply changes", exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  await expect(page.getByText("Linear deleted.", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Actions for Linear · Test workspace", exact: true })).toHaveCount(0);
+  expect(confirms).toEqual([{ ...linearTarget, fingerprint: "with-dependencies", confirmImpact: true }]);
 });

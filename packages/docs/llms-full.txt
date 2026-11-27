@@ -54,7 +54,7 @@ for your agent. Do not paste credentials into the chat.
 
 Success is a status and a result you recognize from the test project, not just
 a list of tools. No provider record needs deleting. To remove temporary access,
-update the client's permissions or disconnect the test integration if nothing
+update the client's permissions or delete the test integration from Factorize if nothing
 else needs it. [Agent recipe](https://docs.factorize.sh/work/use-an-api)
 
 ## Give a VM access
@@ -316,9 +316,13 @@ Bearer API, GitHub, Linear, ClickUp, X, Fly.io, exe.dev, Amp, and Cloudflare RES
 integrations have distinct setup flows. Cloudflare Tail is retired. Use the browser's Integrations page to connect or revoke
 credentials and to choose which MCP clients may access them.
 
-Events and Trigger source definitions store references and configuration, not
-credentials. Disconnecting an integration can prevent its future input
-processing; it does not rewrite already stored Event occurrences.
+Choose **Delete** on a supported integration to preview its impact, then confirm.
+Deleting removes the connection from Factorize, not the provider. For Linear,
+Factorize removes its saved OAuth connection and webhook routing for that
+workspace. Affected Trigger sources, Event lookups, and client or workload
+access are listed before confirmation. A Trigger with no sources left is
+removed, but Event definitions, subscriptions, and recorded occurrences are
+kept. Reconnecting does not restore removed configuration or grants.
 
 ## Connection problems
 Source: https://docs.factorize.sh/troubleshooting/connection
@@ -816,7 +820,7 @@ and accounts in the token. Factorize applies its usual connection access
 controls and keeps the credentials server-side. Earlier account-bound
 connections require a fresh authorization before using this proxy; stored
 connection rows are retained, and existing agent grants do not transfer.
-Disconnect removes Factorize's saved credentials; revoke the authorization on
+**Delete** removes Factorize's saved credentials; revoke the authorization on
 Cloudflare to remove it there too.
 
 Cloudflare Tail is retired. Old webhook endpoints return HTTP 410 and

@@ -16,7 +16,7 @@ import { defaultColumn } from "../access-control/permissions";
 import { Dialog } from "../../shared/dialog";
 import { useIntegrationRemoval } from "./integration-removal";
 
-type Kind = "exe" | "amp" | "cloudflareTail" | "github";
+type Kind = "linear" | "exe" | "amp" | "cloudflareTail" | "github";
 export function Integrations() {
   useDisableCredentialAutofill();
   return <SettingsLayout title="Integrations"><IntegrationPoliciesProvider><IntegrationsContent /></IntegrationPoliciesProvider></SettingsLayout>;
@@ -31,7 +31,7 @@ function IntegrationsContent() {
   const [setup, setSetup] = useState<{title: string; form: ReactNode} | null>(null);
   const actions = (kind: Kind, id: string, name: string, edit?: () => void): IntegrationAction[] => [
     ...(edit ? [{label: "Edit integration", onClick: edit}] : []),
-    {label: "Disconnect", destructive: true, disabled: removal.busy, onClick: () => removal.open({kind, id, name})},
+    {label: "Delete", destructive: true, disabled: removal.busy, onClick: () => removal.open({kind, id, name})},
   ];
   const open = (title: string, form: ReactNode) => setSetup({title, form});
   const data = status.data;
@@ -43,7 +43,7 @@ function IntegrationsContent() {
       {pending && <p role="status">Loading integrations…</p>}
       {!count && !pending && <p className="rounded-xl border border-dashed border-stone-300 p-5 dark:border-slate-700">No integrations added yet. Choose a provider below to get started.</p>}
       {Boolean(count) && <><IntegrationDefaultPrompt /><Table aria-label="Installed integrations" className="table-fixed"><thead className={tableHeadClasses}><tr><th scope="col" className={tableCellClasses}>Integration</th><th scope="col" className={defaultColumn}>Available by Default</th></tr></thead><tbody>
-        {data?.linear && <IntegrationRow kind="linear" credentialId="linear" name="Linear" detail={[data.linear.organizationName, data.linear.viewerEmail].filter(Boolean).join(" · ")} actions={[{label: "Reconnect Linear", href: "/auth/linear"}]} />}
+        {data?.linear && <IntegrationRow kind="linear" credentialId="linear" name="Linear" detail={[data.linear.organizationName, data.linear.viewerEmail].filter(Boolean).join(" · ")} actions={[{label: "Reconnect Linear", href: "/auth/linear"}, ...actions("linear", "linear", "Linear")]} />}
         {data?.clickup && <IntegrationRow kind="clickup" credentialId="clickup" name="ClickUp" detail={data.clickup.teamName ?? undefined} actions={[{label: "Reconnect ClickUp", href: "/auth/clickup"}]} />}
         {github.data?.map(i => <IntegrationRow key={i.installationId} kind="github" credentialId={String(i.installationId)} name="GitHub" detail={`${i.accountLogin} · ${i.accountType} · #${i.installationId}`} status={i.state === "active" ? undefined : `Needs attention · ${i.state}`} actions={[{label: "Manage on GitHub", href: "https://github.com/settings/installations", external: true}, ...actions("github", String(i.installationId), `GitHub · ${i.accountLogin} · #${i.installationId}`)]} />)}
         {data?.exeConnections.map(c => <IntegrationRow key={c.connectionId} kind="exe" credentialId={c.connectionId} name="exe.dev" detail={c.connectionId} actions={actions("exe", c.connectionId, `exe.dev · ${c.connectionId}`, () => open("Edit exe.dev integration", <IntegrationForm kind="exe" connectionId={c.connectionId} />))} />)}

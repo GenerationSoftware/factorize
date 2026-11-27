@@ -50,7 +50,7 @@ export function useCloudflareIntegration(remove: StartIntegrationRemoval, remova
     rows: connections.map(row => <IntegrationRow key={row.id} kind="cloudflare" credentialId={row.id}
       name="Cloudflare" detail={row.name === "Cloudflare" ? "Permissions managed in Cloudflare" : row.name}
       status={row.reconnectRequired ? "Reconnect on Cloudflare to use this integration." : !row.connected ? "Needs attention" : undefined}
-      actions={[{ label: "Reconnect Cloudflare", onClick: start }, { label: "Disconnect", destructive: true, disabled: removalBusy, onClick: () => remove({ kind: "cloudflare", id: row.id, name: row.name })}]} />),
+      actions={[{ label: "Reconnect Cloudflare", onClick: start }, { label: "Delete", destructive: true, disabled: removalBusy, onClick: () => remove({ kind: "cloudflare", id: row.id, name: row.name })}]} />),
     tile: <ProviderTile kind="cloudflare" name="Cloudflare" description="Connect directly on Cloudflare to use its REST API." count={count} onAdd={start} />,
   };
 }

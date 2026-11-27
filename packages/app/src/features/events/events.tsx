@@ -96,7 +96,7 @@ export function EventPage() {
           </tr>)}</tbody>
         </Table> : triggers.data && <p>No Triggers are attached.</p>}
       </section>
-      {detail.data?.enrichmentPauseReason === "integration_removed" && <p role="status" className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">Evaluation is paused because an integration used by this Event was disconnected. Repair the match logic through the Factorize API or MCP to resume evaluation.</p>}
+      {detail.data?.enrichmentPauseReason === "integration_removed" && <p role="status" className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">Evaluation is paused because an integration used by this Event was deleted. Repair the match logic through the Factorize API or MCP to resume evaluation.</p>}
       {detail.data?.enrichment && <section className="space-y-3 rounded-xl border border-stone-200 bg-stone-50 p-4 dark:border-slate-700 dark:bg-slate-900">
         <h2>Match logic</h2>
         <p className="text-sm">After a Trigger matches, lookups run in order. The Event fires only when the final rule is true.</p>
