@@ -11,7 +11,7 @@ import { AwsConnections, type AwsConnection } from "../storage/aws-connections";
 type Scope = "integrations:read" | "integrations:write";
 
 export class AwsIntegrationService {
-  constructor(private env: Env, private auth: OAuthProps, private authorize: (scope: Scope) => Promise<void>, private owner: (scope: Scope) => Promise<void>) {}
+  constructor(private env: Env, private auth: OAuthProps, private authorizeIdentity: () => Promise<void>, private owner: (scope: Scope) => Promise<void>) {}
 
   private repository() { return new AwsConnections(databaseFor(this.env), this.auth.tenantId, this.auth.userId); }
   private issuer() {
@@ -84,7 +84,7 @@ export class AwsIntegrationService {
     const current = await this.find(id);
     if (!current.roleArn) throw new ServiceError(409, "conflict", "Verify the AWS role before granting access.");
     const connection = await this.repository().allow(id, current.revision, installationId, this.auth.sessionVersion);
-    if (!connection) throw new ServiceError(409, "conflict", "Choose a current OAuth connection with integrations:write, or reload the AWS connection.");
+    if (!connection) throw new ServiceError(409, "conflict", "Choose a current OAuth connection, or reload the AWS connection.");
     return connection;
   }
 
@@ -99,8 +99,8 @@ export class AwsIntegrationService {
     const { oauthInstallationId, oauthGrantId } = auth;
     if (auth.authMethod !== "oauth" || !oauthInstallationId || !oauthGrantId) throw new ServiceError(403, "forbidden", "An explicitly authorized Factorize OAuth connection is required.");
     const load = async () => {
-      await this.authorize("integrations:write");
-      if (!auth.oauthExpiresAt || auth.oauthExpiresAt <= Date.now() / 1000) throw new ServiceError(401, "invalid_token", "The OAuth credential expired.");
+      if (typeof auth.oauthExpiresAt !== "number" || !Number.isFinite(auth.oauthExpiresAt) || auth.oauthExpiresAt <= Date.now() / 1000) throw new ServiceError(401, "invalid_token", "The OAuth credential expired.");
+      await this.authorizeIdentity();
       const current = await this.repository().getForGrant(id, oauthInstallationId, oauthGrantId, auth.sessionVersion);
       if (!current?.roleArn)
         throw new ServiceError(404, "not_found", "AWS connection not found.");

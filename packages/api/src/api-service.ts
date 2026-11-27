@@ -1,4 +1,5 @@
 import { AwsIntegrationService } from "./integrations/application/aws-service";
+import { HetznerSshService } from "./integrations/application/hetzner-ssh";
 import { ProxyService } from "./proxy/application/proxy-service";
 import { AccessControlService } from "./access-control/application/access-control-service";
 import { AppsService } from "./apps/application/apps-service";
@@ -40,10 +41,13 @@ export class ApiService {
     return new VmGrantsService(this.env, this.auth, scope => this.authorize(scope));
   }
   get aws() {
-    return new AwsIntegrationService(this.env, this.auth, scope => this.authorize(scope), scope => this.authorizeOwnerSession(scope));
+    return new AwsIntegrationService(this.env, this.auth, () => this.authorizeIdentity(), scope => this.authorizeOwnerSession(scope));
   }
   get integrations() {
     return new IntegrationsService(this.env, this.auth, scope => this.authorize(scope), scope => this.authorizeOwnerSession(scope));
+  }
+  get hetznerSsh() {
+    return new HetznerSshService(this.env, this.auth, () => this.authorize("integrations:read"), scope => this.authorizeOwnerSession(scope));
   }
   get apps() {
     return new AppsService(this.env, this.auth, scope => this.authorize(scope), scope => this.authorizeOwnerSession(scope));

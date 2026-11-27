@@ -41,7 +41,7 @@ export function useAwsIntegration() {
   const clients = useQuery({ queryKey: ["settings", "aws", "clients"], enabled: !!setup?.connection.roleArn, queryFn: async ({ signal }) => {
     const response = await api.GET("/api/v1/access/authorized-clients", { signal });
     if (!response.data || response.error) throw new Error(messageOf(response.error));
-    return response.data.filter(client => client.credentialScopes?.includes("integrations:write"));
+    return response.data.filter(client => !client.expiresAt || Date.parse(client.expiresAt) > Date.now());
   } });
   const fail = (reason: Error) => setError(reason.message);
   const clear = () => { setOpen(false); setSetup(null); setName(""); setRoleArn(""); setInstallation(""); setError(""); setNotice(""); };
@@ -73,7 +73,7 @@ export function useAwsIntegration() {
     return response.data;
   }, onSuccess: async connection => {
     setSetup(value => value && { ...value, connection });
-    setNotice(connection.oauthInstallationId ? "Code Mode access saved for the selected OAuth connection." : "Agent access removed.");
+    setNotice(connection.oauthInstallationId ? "Use access saved for the selected OAuth connection." : "Use access removed.");
     await refresh();
   }, onError: fail });
   const deleting = useMutation({ retry: false, mutationFn: async (id: string) => {
@@ -87,7 +87,7 @@ export function useAwsIntegration() {
     count: connections.length, pending: list.isPending,
     tile: <ProviderTile kind="aws" name="AWS" description="Run scripts through AWS-hosted MCP using a scoped IAM role." count={connections.length} onAdd={() => { clear(); setOpen(true); }} />,
     rows: connections.map(connection => <IntegrationRow key={connection.id} kind="aws" credentialId={connection.id} name="AWS" detail={connection.name + " · " + connection.region}
-      status={!connection.roleArn ? "Setup incomplete" : connection.oauthInstallationId ? "Code Mode access" : "Owner only"}
+      status={!connection.roleArn ? "Setup incomplete" : connection.oauthInstallationId ? "Use access assigned" : "Owner only"}
       actions={[
         { label: connection.roleArn ? "Manage AWS connection" : "Finish AWS setup", disabled: busy, onClick: () => { clear(); edit.mutate(connection.id); } },
         { label: "Delete", destructive: true, disabled: busy, onClick: () => { clear(); setRemove(connection); } },
@@ -113,13 +113,14 @@ export function useAwsIntegration() {
                 <Button type="submit" disabled={busy || !roleArn.trim()}>{verify.isPending ? "Verifying AWS role…" : "Verify AWS role"}</Button>
               </form>
               {setup.connection.roleArn && <form className="space-y-2" onSubmit={event => { event.preventDefault(); setError(""); setNotice(""); allow.mutate(setup.connection.id); }}>
-                <label className="block">Code Mode access<select className={field} value={installation} onChange={event => setInstallation(event.target.value)}>
-                  <option value="">No agent access</option>
+                <label className="block">Use access<select className={field} value={installation} onChange={event => setInstallation(event.target.value)}>
+                  <option value="">No Use access</option>
                   {installation && !clients.data?.some(client => client.grantId === installation) && <option value={installation}>Currently selected (not available)</option>}
                   {clients.data?.map(client => <option key={client.grantId} value={client.grantId}>{client.clientName} · {client.grantId.slice(0, 8)}</option>)}
                 </select></label>
+                <p>Use access lets this exact OAuth connection run Code Mode for this AWS connection. It does not let the agent configure or grant access to integrations.</p>
                 {clients.isError && <p role="alert">{clients.error.message}</p>}
-                <Button type="submit" disabled={busy || (installation !== "" && !clients.data?.some(client => client.grantId === installation))}>Save Code Mode access</Button>
+                <Button type="submit" disabled={busy || (installation !== "" && !clients.data?.some(client => client.grantId === installation))}>Save Use access</Button>
               </form>}
             </>}
         </div>

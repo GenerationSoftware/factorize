@@ -1,4 +1,6 @@
 import { awsRoutes } from "./aws-rest";
+import { hetznerSshRoutes } from "./hetzner-ssh-rest";
+import { hetznerConnectionInput, hetznerConnectionMetadata, hetznerInventory } from "./hetzner-contracts";
 import { integrationRemovalConfirmation, integrationRemovalPreview, integrationRemovalTarget } from "../../integrations/api/integration-removal-contracts";
 
 import { cloudflareStartResult, cloudflareStatus } from "../../integrations/providers/cloudflare-oauth";
@@ -56,6 +58,7 @@ const xConnectionCredentialReplacement = z.object({ clientId: z.string().trim().
 const bearerIntegrationWriteResult = z.object({ revision: z.number().int().nonnegative(), duplicate: z.boolean() });
 const bearerIntegrationDeleteResult = z.object({ id: z.uuid(), deleted: z.literal(true), revision: z.number().int().nonnegative(), duplicate: z.boolean() });
 export const integrationRoutes = [
+  ...hetznerSshRoutes,
   ...awsRoutes,
   route("POST", "/api/v1/integrations/removal/preview", "integrations:write", {
     summary: "Preview what deleting one installed integration affects",
@@ -203,6 +206,26 @@ export const integrationRoutes = [
     },
     (service) => service.integrations.integrationStatus(),
   ),
+  route("GET", "/api/v1/hetzner/connection", "integrations:read", {
+    summary: "Read the saved Hetzner Cloud project connection",
+    description: "Owner browser session only. Returns the local project name, never the token.",
+    responses: { "200": { description: "Connection metadata", content: { "application/json": { schema: jsonSchema(z.object({ connection: hetznerConnectionMetadata.nullable() }), "output") } } } },
+  }, service => service.integrations.getHetznerConnection(), { ownerSession: true }),
+  route("PUT", "/api/v1/hetzner/connection", "integrations:write", {
+    summary: "Save a Hetzner Cloud project connection",
+    description: "Owner browser session only. Supply a project API token with Read permission. Factorize verifies that it can list servers and stores it encrypted; no provider resources are changed.",
+    responses: { "200": { description: "Saved connection metadata", content: { "application/json": { schema: jsonSchema(z.object({ connection: hetznerConnectionMetadata }), "output") } } } },
+  }, (service, { body }) => service.integrations.saveHetznerConnection(body), { body: hetznerConnectionInput, ownerSession: true, maxBodyBytes: 4096 }),
+  route("DELETE", "/api/v1/hetzner/connection", "integrations:write", {
+    summary: "Delete the saved Hetzner Cloud project connection",
+    description: "Owner browser session only. Deletes the encrypted credential from Factorize, without altering Hetzner resources or revoking the token there.",
+    responses: { "200": { description: "Whether a saved connection was deleted", content: { "application/json": { schema: jsonSchema(z.object({ deleted: z.boolean() }), "output") } } } },
+  }, service => service.integrations.deleteHetznerConnection(), { ownerSession: true }),
+  route("GET", "/api/v1/hetzner/servers", "integrations:read", {
+    summary: "List the saved Hetzner Cloud project's servers",
+    description: "Owner browser session only. Returns up to 100 servers with basic inventory fields only. Factorize does not expose addresses, labels, or credentials.",
+    responses: { "200": { description: "Read-only server inventory", content: { "application/json": { schema: jsonSchema(hetznerInventory, "output") } } } },
+  }, service => service.integrations.listHetznerServers(), { ownerSession: true }),
   route("GET", "/api/v1/fly/connection", "integrations:read", {
     summary: "Read Fly account connection status",
     description: "Owner browser session only. Returns organization metadata and never returns the provisioning token.",

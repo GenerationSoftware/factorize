@@ -264,9 +264,9 @@ AWS Code Mode runs Python on the AWS-hosted MCP server. Factorize authenticates 
 1. Open **Settings → Integrations → Add AWS integration**. Name the connection and choose the Region for its AWS MCP endpoint.
 2. Download the CloudFormation template. Upload it as a new stack in the target AWS account and acknowledge that it creates IAM resources. If that account already has an OIDC provider for this Factorize issuer, set `CreateProvider` to `false`.
 3. Copy the stack's **RoleArn** output to Factorize and click **Verify AWS role**. The Worker assumes the role and signs a harmless Code Mode probe. This verifies the connection, not the full set of API permissions.
-4. Optionally select one existing Factorize OAuth connection with `integrations:write` and save. Select **No agent access** to revoke this assignment. AWS connections do not appear in workspace defaults or VM grants.
+4. Optionally give one active Factorize OAuth connection **Use access** and save. That grant applies only to this AWS connection and this exact OAuth installation. Select **No Use access** to revoke it. AWS connections do not appear in workspace defaults or VM grants.
 
-The agent calls `run_aws_script` with `connectionId` and `code`. It receives the script result and standard output, not authentication material or upstream session headers. The initial tool is request-scoped; Factorize does not poll background AWS tasks or replay timed-out requests. A timeout does not mean a script made no changes. Check AWS before retrying a modifying script.
+The agent calls `run_aws_script` with `connectionId` and `code`. It needs an active OAuth credential and the connection-specific Use grant, not `integrations:write` or any other additional Factorize scope. Only the owner, in an interactive session with `integrations:write`, can prepare, verify, delete or change access to the connection. It receives the script result and standard output, not authentication material or upstream session headers. The initial tool is request-scoped; Factorize does not poll background AWS tasks or replay timed-out requests. A timeout does not mean a script made no changes. Check AWS before retrying a modifying script.
 
 ## Trust and permissions
 
@@ -350,6 +350,27 @@ access are listed before confirmation. A Trigger with no sources left is
 removed, but Event definitions, subscriptions, and recorded occurrences are
 kept. Reconnecting does not restore removed configuration or grants.
 
+
+### Hetzner Cloud inventory and SSH checks
+
+Add a Hetzner Cloud project with a read-only project token to view its server
+inventory. Under **View servers**, enroll an existing server for SSH checks.
+Use a dedicated non-root account, copy the server's Ed25519 host fingerprint
+from a trusted console, and select the authorized MCP client. Install the
+complete restricted public-key line shown by Factorize in that account's
+authorized keys. Factorize generates and stores the private key, and does not
+return it to the browser or the client.
+
+An enrolled client with integration read access can call `check_hetzner_ssh`
+with the server ID. The tool verifies SSH authentication and executes only a
+fresh SSH authentication check after verifying that the connected project still owns the server and its enrolled IPv4 address has not changed. Each handshake has a five-second limit and closes immediately after authentication. Factorize never opens a command channel or returns remote output. After key removal, the next check must authenticate again.
+The server needs a reachable public IPv4 address and SSH on port 22. If a
+connection drops, repeat the check explicitly.
+
+Deleting or replacing the project removes its saved SSH credentials in
+Factorize. Also remove the public keys from the servers when retiring access.
+Factorize does not change the provider or server as part of deletion.
+
 ## Connection problems
 Source: https://docs.factorize.sh/troubleshooting/connection
 
@@ -404,6 +425,7 @@ its input and enforces the operation's required scope.
 | `acknowledge_events` | After durable completion or handoff, acknowledge exact original data.occurrenceId UUIDs on your opted-in subscription. Never pass a recovery wake ID or assume an ordered range. Ack successful work promptly; optional cooldown applies only when a new ID is acknowledged, not on retries. Keep client-local pacing and don't drop unfinished work. |
 | `append_payload_chunk` | Append a small generated UTF8/base64 chunk at the returned payload byte size. Identical retries are safe. |
 | `cancel_api_operation` | Cancel an HTTP operation. Upstream writes may already have taken effect. |
+| `check_hetzner_ssh` | Check SSH access for one owner-enrolled Hetzner Cloud server. Uses the pinned host identity and a Factorize-held credential. Proves fresh key authentication; no SSH channel, commands or remote output. |
 | `create_app` | Register a server-side app. Create client secrets separately in the browser. |
 | `create_event` | Create a durable Event that one or more Triggers can publish. |
 | `create_payload` | Reserve a temporary request body. Open browserUploadUrl to upload an existing file for that connection, or append/finalize generated text in chunks. Pass the finalized handle to request_api bodySource. |
@@ -444,7 +466,7 @@ its input and enforces the operation's required scope.
 | `replay_unacknowledged_events` | Queue exact unresolved original occurrence IDs on your opted-in subscription, without duplicating business events or bypassing cooldown. Recovery wakes can have fresh event IDs; deduplicate by their original data.occurrenceId. |
 | `request_api` | Call an integration discovered by get_api_reflection. Use its integration ID and relative path; no VM, shell or credential is needed. Credentials stay in Factorize. OAuth requires proxy:use. Use read_api_response for retained response handles. |
 | `revoke_vm_permissions` | Revoke a VM's Factorize permissions. The VM keeps running. Requires vms:edit. |
-| `run_aws_script` | Run Python in the AWS-hosted MCP sandbox through an explicitly assigned AWS connection. The customer role controls AWS API permissions; permitted writes can change resources and incur charges. Never assume a retry after timeout is safe. |
+| `run_aws_script` | Run Python in the AWS-hosted MCP sandbox through an AWS connection whose owner granted this OAuth installation Use access. The customer role controls AWS API permissions; permitted writes can change resources and incur charges. Never assume a retry after timeout is safe. |
 | `set_event_processing_acknowledgments` | Opt in to processing acknowledgments for future occurrences on your exact MCP subscription. Turning off waives unresolved acknowledgments and clears cooldown; does not alter standard MCP subscription behavior. |
 | `test_trigger_webhook_conditions` | Evaluate conditions on supplied prepared webhook context. No authentication of the example, routing, live GitHub verification, or Trigger firing. |
 | `update_app` | Update redirect URLs, visibility, or enabled state for a registered app. |

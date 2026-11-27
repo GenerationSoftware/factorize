@@ -3,6 +3,7 @@ import { expect, it, vi } from "vitest";
 import type { OAuthProps } from "../src/types";
 import { ApiService } from "../src/api-service";
 import { protectedApiFetch } from "../src/protected-api";
+import { requiredMcpToolScope } from "../src/transport/mcp/registry";
 import worker from "../src/worker";
 import { loadingFixture } from "./helpers/loading-fixture";
 
@@ -30,7 +31,7 @@ function checkSignature(request: Request, body: string) {
   expect(request.headers.get("x-amz-security-token")).toBe(sessionToken);
 }
 
-it.skipIf(!url)("verifies exact OIDC trust and scoped SigV4 over Worker REST and MCP, including exact Code Mode forwarding, two roles, denial and revocation", async () => {
+it.skipIf(!url)("limits AWS Code Mode to the exact active OAuth installation with owner-assigned Use, and requires an owner for configuration", async () => {
   const f = await loadingFixture(url!);
   const pair = await crypto.subtle.generateKey({ name: "RSASSA-PKCS1-v1_5", hash: "SHA-256", modulusLength: 2048, publicExponent: new Uint8Array([1,0,1]) }, true, ["sign","verify"]);
   const key = await crypto.subtle.exportKey("jwk", pair.privateKey);
@@ -131,14 +132,14 @@ it.skipIf(!url)("verifies exact OIDC trust and scoped SigV4 over Worker REST and
     expect(secondId).not.toBe(connectionId);
     expect((await api("/" + secondId + "/verify", "POST", { roleArn: secondArn })).status).toBe(200);
 
-    for (const [installation, providerGrant] of [[install, grant], [otherInstall, otherGrant]]) {
+    for (const [installation, providerGrant, scopes] of [[install, grant, []], [otherInstall, otherGrant, [scope]]] as const) {
       await f.db.pool.query(`INSERT INTO app.oauth_installations
         (tenant_id,user_id,id,client_id,redirect_uri,active_grant_id,active_session_version,selected_scopes,active_scopes)
-        VALUES($1,$2,$3,'same-client','https://example.test',$4,$5,ARRAY[$6]::text[],ARRAY[$6]::text[])`,
-        [f.tenantId,f.userId,installation,providerGrant,f.auth.sessionVersion,scope]);
+        VALUES($1,$2,$3,'same-client','https://example.test',$4,$5,$6::text[],$6::text[])`,
+        [f.tenantId,f.userId,installation,providerGrant,f.auth.sessionVersion,scopes]);
     }
-    const agent = (installation = install, providerGrant = grant): OAuthProps => ({
-      ...f.auth, scopes: [scope], authMethod: "oauth", oauthInstallationId: installation, oauthGrantId: providerGrant, oauthClientId: "same-client", oauthExpiresAt: Date.now()/1000+60,
+    const agent = (installation = install, providerGrant = grant, scopes: string[] = []): OAuthProps => ({
+      ...f.auth, scopes, authMethod: "oauth", oauthInstallationId: installation, oauthGrantId: providerGrant, oauthClientId: "same-client", oauthExpiresAt: Date.now()/1000+60,
     });
     const mcp = async (auth: OAuthProps, id: string, code: string, extra = {}) => {
       const request = new Request(f.env.APP_ORIGIN + "/mcp", { method: "POST", headers: {
@@ -146,7 +147,24 @@ it.skipIf(!url)("verifies exact OIDC trust and scoped SigV4 over Worker REST and
       }, body: JSON.stringify({ jsonrpc: "2.0", id: 10, method: "tools/call", params: { name: "run_aws_script", arguments: { connectionId: id, code, ...extra } } }) });
       return (await protectedApiFetch(request, f.env, auth, ctx)).text();
     };
+    expect(requiredMcpToolScope("run_aws_script")).toBeUndefined();
     expect(await mcp(agent(), connectionId, firstCode)).toContain("AWS connection not found");
+    const writer = agent(otherInstall, otherGrant, [scope]);
+    expect(await mcp(writer, connectionId, firstCode)).toContain("AWS connection not found");
+    for (const [suffix, method, body] of [
+      ["", "POST", { name: "Not owner", region: "us-east-1" }],
+      ["/" + connectionId + "/verify", "POST", { roleArn: arn }],
+      ["/" + connectionId + "/access", "PUT", { oauthInstallationId: otherInstall }],
+      ["/" + connectionId, "DELETE", undefined],
+    ] as const) {
+      const request = new Request(f.env.APP_ORIGIN + "/api/v1/integrations/aws" + suffix, {
+        method, headers: { Origin: f.env.APP_ORIGIN, "Content-Type": "application/json" },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      const denied = await protectedApiFetch(request, f.env, writer, ctx);
+      expect(denied.status).toBe(403);
+      expect(await denied.json()).toMatchObject({ error: { code: "session_required" } });
+    }
     expect((await api("/" + connectionId + "/access", "PUT", { oauthInstallationId: install })).status).toBe(200);
     expect((await api("/" + secondId + "/access", "PUT", { oauthInstallationId: otherInstall })).status).toBe(200);
     const first = await mcp(agent(), connectionId, firstCode);
@@ -156,7 +174,7 @@ it.skipIf(!url)("verifies exact OIDC trust and scoped SigV4 over Worker REST and
     expect(first).not.toContain(sessionToken);
     expect(first).not.toContain(accessKey);
     expect(first).not.toMatch(/upstream-123|not-returned/);
-    const other = await mcp(agent(otherInstall, otherGrant), secondId, secondCode);
+    const other = await mcp(writer, secondId, secondCode);
     expect(other).toContain("SECOND");
     expect(assumedRoles).toEqual([arn, arn, secondArn, arn, secondArn]);
     const denied = await mcp(agent(), connectionId, deniedCode);
@@ -164,8 +182,22 @@ it.skipIf(!url)("verifies exact OIDC trust and scoped SigV4 over Worker REST and
     expect(denied).not.toContain("secret details");
     expect(await mcp(agent(), connectionId, firstCode, { roleArn: secondArn })).not.toContain("FIRST");
     expect(await mcp(agent(), secondId, secondCode)).toContain("AWS connection not found");
-    expect(await mcp(agent(otherInstall, otherGrant), connectionId, firstCode)).toContain("AWS connection not found");
+    expect(await mcp(writer, connectionId, firstCode)).toContain("AWS connection not found");
     expect(await mcp({ ...f.auth, authMethod: "access_token" }, connectionId, firstCode)).toContain("explicitly authorized");
+    expect(await mcp({ ...agent(), oauthGrantId: otherGrant }, connectionId, firstCode)).not.toContain("FIRST");
+    expect(await mcp({ ...agent(), sessionVersion: f.auth.sessionVersion + 1 }, connectionId, firstCode)).not.toContain("FIRST");
+    expect(await mcp({ ...agent(), oauthExpiresAt: Date.now() / 1000 - 1 }, connectionId, firstCode)).not.toContain("FIRST");
+    await f.db.pool.query("UPDATE app.oauth_installations SET active_expires_at=now() WHERE tenant_id=$1 AND id=$2", [f.tenantId,install]);
+    expect(await mcp(agent(), connectionId, firstCode)).not.toContain("FIRST");
+    await f.db.pool.query("UPDATE app.oauth_installations SET active_expires_at=NULL WHERE tenant_id=$1 AND id=$2", [f.tenantId,install]);
+    await f.db.pool.query("UPDATE app.members SET role='member' WHERE tenant_id=$1 AND user_id=$2", [f.tenantId,f.userId]);
+    expect(await mcp(agent(), connectionId, firstCode)).not.toContain("FIRST");
+    await f.db.pool.query("UPDATE app.members SET role='owner' WHERE tenant_id=$1 AND user_id=$2", [f.tenantId,f.userId]);
+    const removedUse = await api("/" + connectionId + "/access", "PUT", { oauthInstallationId: null });
+    expect(removedUse.status).toBe(200);
+    expect(await removedUse.json()).toMatchObject({ oauthInstallationId: null });
+    expect(await mcp(agent(), connectionId, firstCode)).toContain("AWS connection not found");
+    expect((await api("/" + connectionId + "/access", "PUT", { oauthInstallationId: install })).status).toBe(200);
     expect(calls).toBe(5);
     expect(closed).toBe(5);
     loseGrant = true;

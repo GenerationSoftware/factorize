@@ -19,7 +19,7 @@ export const awsRoutes = [
     (service, { params }) => service.aws.template(params.connectionId), scoped),
   route("POST", item + "/verify", "integrations:write", { summary: "Verify an AWS role with a harmless AWS MCP Code Mode script", ...result(awsVerified, "Verified AWS Code Mode connection") },
     (service, { params, body, signal }) => service.aws.verify(params.connectionId, body.roleArn, signal), { ...scoped, body: awsVerifyInput, maxBodyBytes: 2048 }),
-  route("PUT", item + "/access", "integrations:write", { summary: "Allow one OAuth installation to run Code Mode through this AWS connection", ...result(awsConnectionMetadata, "AWS connection with its explicit access binding") },
+  route("PUT", item + "/access", "integrations:write", { summary: "Assign or revoke Use access to this AWS connection", description: "An owner session with integrations:write can assign one current OAuth installation, or pass null to remove access. The assigned installation does not need an integration scope to run Code Mode.", ...result(awsConnectionMetadata, "AWS connection with its explicit Use grant") },
     (service, { params, body }) => service.aws.allow(params.connectionId, body.oauthInstallationId), { ...scoped, body: awsGrantInput, maxBodyBytes: 2048 }),
   route("DELETE", item, "integrations:write", { summary: "Delete an AWS connection in Factorize", description: "Does not delete the IAM role or OIDC provider in AWS.", ...result(z.object({ deleted: z.literal(true) }), "AWS connection removed") },
     (service, { params }) => service.aws.remove(params.connectionId), scoped),

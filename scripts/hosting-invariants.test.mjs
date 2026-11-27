@@ -7,7 +7,12 @@ test("static cutover preserves the existing production Worker and state identiti
   const { assets: oldAssets, r2_buckets: oldBuckets, ...oldBackend } = baseline;
   const { assets, routes, r2_buckets: buckets, ...backend } = current;
   assert.deepEqual(routes, [{ pattern: "app.factorize.sh", custom_domain: true }, { pattern: "git.factorize.sh", custom_domain: true }]);
-  assert.deepEqual(backend, oldBackend);
+  const { durable_objects: nextObjects, migrations: nextMigrations, build, ...nextWorker } = backend;
+  const { durable_objects: oldObjects, migrations: oldMigrations, ...oldWorker } = oldBackend;
+  assert.deepEqual(nextWorker, oldWorker);
+  assert.deepEqual(build, { command: "node scripts/prepare-worker-ssh.mjs" });
+  assert.deepEqual(nextObjects.bindings, [...oldObjects.bindings, { name: "HETZNER_SSH", class_name: "HetznerSshBroker" }]);
+  assert.deepEqual(nextMigrations, [...oldMigrations, { tag: "v7-hetzner-ssh-broker", new_sqlite_classes: ["HetznerSshBroker"] }]);
   assert.deepEqual(buckets, [{ binding: "PROXY_ARTIFACTS", bucket_name: oldBuckets[0].bucket_name }]);
   assert.equal(oldAssets.binding, assets.binding);
   assert.deepEqual(assets, { directory: "../app/dist", binding: "ASSETS", run_worker_first: true, not_found_handling: "none" });
